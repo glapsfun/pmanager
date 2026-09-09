@@ -7,7 +7,7 @@ first approval appends a changelog line, never silently rewrites history.
 ```markdown
 ---
 epic: <slug>
-status: draft | active | done | abandoned
+status: draft | approved | in-progress | done | abandoned
 updated: YYYY-MM-DD
 ---
 
