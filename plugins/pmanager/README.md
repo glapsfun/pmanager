@@ -1,10 +1,6 @@
 # pmanager
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
 Agentic technical project/product manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, Gemini CLI, Copilot CLI, and any agent that supports the [Agent Skills](https://agentskills.io) standard — an assistant that turns raw problems and ideas into evidence-backed, spec-oriented work.
-
-Distributed as a single-plugin [Claude Code plugin marketplace](https://docs.anthropic.com/en/docs/claude-code) and as a standard Agent Skill.
 
 ## Main goal
 
@@ -46,102 +42,17 @@ task table, and the index — and verifies checkable acceptance criteria
 against the repo instead of silently trusting the claim. `/pmanager what's
 next?` answers from the index, respecting dependencies and priorities.
 
----
-
 ## Installation
 
-### Method 1 — Claude Code (slash commands, recommended)
+| Target | Install |
+| :--- | :--- |
+| **Claude Code** | `/plugin marketplace add glapsfun/pmanager` (once), then `/plugin install pmanager@pmanager` |
+| **Codex** | `npx skills add glapsfun/pmanager --skill pmanager --agent codex --global -y` |
+| **Gemini CLI** | `npx skills add glapsfun/pmanager --skill pmanager --agent gemini-cli --global -y` |
+| **Copilot CLI** | `npx skills add glapsfun/pmanager --skill pmanager --agent copilot --global -y` (also picks up `.claude/skills/` installs) |
 
-**Step 1 — Add the marketplace** (one-time per machine):
-
-```
-/plugin marketplace add glapsfun/pmanager
-```
-
-This registers the marketplace under the alias **`pmanager`** from the `name`
-field in `.claude-plugin/marketplace.json`.
-
-**Step 2 — Install the plugin**:
-
-```
-/plugin install pmanager@pmanager
-```
-
-To update after a new version is published:
-
-```
-/plugin marketplace update pmanager
-```
-
-To remove:
-
-```
-/plugin remove pmanager
-```
-
-### Method 2 — Claude Code CLI (non-interactive)
-
-```bash
-claude plugin marketplace add glapsfun/pmanager
-claude plugin install pmanager@pmanager
-```
-
-With npx (no prior global install required):
-
-```bash
-npx @anthropic-ai/claude-code plugin marketplace add glapsfun/pmanager
-npx @anthropic-ai/claude-code plugin install pmanager@pmanager
-```
-
-> Note: `claude "/plugin ..."` (with the slash command as a quoted string)
-> passes that string as a model prompt, not as a plugin command — use
-> `claude plugin ...` (no leading slash) for non-interactive use.
-
-### Method 3 — Agent Skill (`npx skills`)
-
-Installs the `plugins/pmanager/skills/pmanager/` folder into the target
-agent's global skills directory:
-
-```bash
-npx skills add glapsfun/pmanager --skill pmanager --agent codex --global -y
-npx skills add glapsfun/pmanager --skill pmanager --agent gemini-cli --global -y
-npx skills add glapsfun/pmanager --skill pmanager --agent copilot --global -y
-```
-
-Omit `--global` to install into the current project instead. Verify with
-`npx skills list -a codex`, and restart the agent afterwards so the new skill
-metadata is loaded.
-
-> **Note:** `npx skills` implements the Agent Skills standard and copies
-> **only** the skill folder. The plugin-level `commands/` directory is not
-> part of that standard, so the `/pmanager` slash command comes only from the
-> Claude Code plugin install (Method 1 or 2). The skill itself is fully
-> functional standalone — it triggers on planning and scoping language
-> without the explicit command.
-
-### Method 4 — Local / development install
-
-```bash
-git clone https://github.com/glapsfun/pmanager.git
-```
-
-Then, inside Claude Code, using the absolute path to your clone:
-
-```
-/plugin marketplace add /path/to/pmanager
-/plugin install pmanager@pmanager
-```
-
-The path must point to the repo root (the directory containing
-`.claude-plugin/marketplace.json`).
-
-For local Agent Skill development, run from the repo root:
-
-```bash
-npx skills add . --skill pmanager --agent codex --global -y
-```
-
----
+On Claude Code, `/plugin install` additionally registers the `/pmanager`
+command.
 
 ## Usage
 
@@ -155,10 +66,6 @@ npx skills add . --skill pmanager --agent codex --global -y
 Or just describe the problem in plain words; the skill triggers on planning
 and scoping requests without the explicit command.
 
-See the [plugin README](plugins/pmanager/README.md) for the overview and the
-[skill usage guide](plugins/pmanager/skills/pmanager/README.md) for a full
-worked example.
-
 ## What it will never do
 
 - Write plan or tasks before you approve the epic framing — with one
@@ -169,22 +76,3 @@ worked example.
 - Push, bare-commit, or touch anything outside `docs/pm/` (research is
   read-only).
 - Record secrets or PII in the docs — metadata and reasoning only.
-
-## Repository layout
-
-```text
-.claude-plugin/marketplace.json   # marketplace manifest (one plugin)
-plugins/pmanager/
-├── .claude-plugin/plugin.json    # Claude Code plugin manifest
-├── .codex-plugin/plugin.json     # Codex plugin manifest
-├── commands/pmanager.md          # /pmanager slash command
-└── skills/pmanager/
-    ├── SKILL.md                  # skill definition (7-phase loop)
-    ├── README.md                 # usage guide + worked example
-    ├── evals/evals.json          # skill evals
-    └── references/               # playbooks and epic/plan/task/memo templates
-```
-
-## License
-
-[MIT](LICENSE)
