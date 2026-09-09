@@ -40,8 +40,8 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 2. Update the plan: task table, MoSCoW section, and one changelog row
    (`date | change | why`). Descoped work moves to Won't with its reason
    and the task file's frontmatter is set to `status: descoped` — a
-   recorded decision, not a deletion; descoped tasks leave the INDEX counts
-   and the next-task ranking.
+   recorded decision, not a deletion; descoped tasks are excluded from INDEX
+   task counts and next-task ranking.
 3. A change that breaks the epic's framing (new scope contradicts
    non-goals, metric no longer fits) → stop and say so: that's a new epic
    or an epic revision needing approval, not a quiet plan edit.
