@@ -18,7 +18,7 @@
         "A git commit scoped to docs/pm exists and no files outside docs/pm were modified",
         "The epic is marked as draft / awaiting approval (non-interactive run cannot clear the approval gate) and assumptions/open questions are recorded"
       ],
-      "fixture": "webshop repo with an N+1 query in the orders listing (app/app.py), no index on order_items.order_id (app/schema.sql), and a git commit that removed pagination from /orders in July"
+      "fixture": "webshop repo with an N+1 query in the orders listing (app/app.py), no index on order_items.order_id (app/schema.sql), and a git commit that removed pagination from /orders in July (built by `bun run tests/fixtures/build-webshop.ts <dir>`)"
     },
     {
       "id": 1,
@@ -36,7 +36,7 @@
         "A git commit scoped to docs/pm exists and no files outside docs/pm were modified",
         "The epic is marked as draft / awaiting approval with recorded assumptions"
       ],
-      "fixture": "same webshop repo (fresh copy, no docs/pm)"
+      "fixture": "same webshop repo (fresh copy, no docs/pm) (built by `bun run tests/fixtures/build-webshop.ts <dir>`)"
     },
     {
       "id": 2,
@@ -54,7 +54,21 @@
         "T01's done claim was verified against the repo: the response or docs reference docs/profile-results.txt as the acceptance-criteria evidence",
         "A git commit scoped to docs/pm exists and no files outside docs/pm were modified"
       ],
-      "fixture": "webshop repo with pre-existing docs/pm/: app-performance epic (status in-progress), plan, tasks T01-T04 all status todo — where T02 depends-on [T01], T03 depends-on [T02], T04 has no dependencies — INDEX.md row '0/4 done', memo; plus an uncommitted-in-fixture docs/profile-results.txt artifact showing ~85% of time in per-order item queries"
+      "fixture": "webshop repo built by build-webshop.ts: docs/pm/ at contract 1 with app-performance (status in-progress, claimed by claude-code on 2026-09-10), plan, tasks T01-T04 all status todo — T02 depends-on [T01], T03 depends-on [T02], T04 has no dependencies — rendered INDEX.md '0/4', memo with log markers; plus an uncommitted docs/profile-results.txt artifact showing ~85% of time in per-order item queries"
+    },
+    {
+      "id": 3,
+      "name": "two-session-claim-conflict",
+      "prompt": "plan the work to fix the orders page performance as an epic; I'm on the pi harness. Assume reasonable answers, I'm not available.",
+      "expected_output": "Phase 0 preflight runs pm status and sees app-performance claimed by claude-code on origin/pm/app-performance; the agent does not create a duplicate epic and does not write anything; it reports the owner and harness, offers takeover only if the claim is stale, and suggests waiting or releasing",
+      "files": [],
+      "assertions": [
+        "No new epic directory was created and no files under docs/pm changed",
+        "The response names the owning session (claude-code) and the claim branch pm/app-performance",
+        "The response does not run claim --takeover (the claim is not stale in the fixture)",
+        "The response tells the user how the epic can be released (merge/delete the branch, or the owner runs release)"
+      ],
+      "fixture": "webshop repo built by build-webshop.ts, pushed to a bare origin, with branch pm/app-performance present on origin and the epic claimed by claude-code on 2026-09-10; PM_TODAY=2026-09-15"
     }
   ]
 }
