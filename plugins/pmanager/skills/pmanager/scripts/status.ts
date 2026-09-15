@@ -1,9 +1,11 @@
 import { isStale } from "./check";
+import type { RemoteEpic } from "./claim";
 import { getList, getString, type Session, sessionOf } from "./contract";
 import { taskCounts } from "./render";
 import type { EpicRecord, PmRepo, TaskDoc } from "./repo";
 
-export type RemoteClaims = Map<string, Session | null>;
+/** slug -> epic as read from origin/pm/<slug>; null when the branch exists but the epic is unreadable. */
+export type RemoteClaims = Map<string, RemoteEpic | null>;
 export type RemoteState = "ok" | "none" | "unreachable";
 
 export interface NextTask {
@@ -19,6 +21,8 @@ export interface EpicStatusRow {
   owner: string;
   session: Session | null;
   remoteClaim: boolean;
+  /** true when the epic exists only on a remote claim branch, not in this checkout */
+  remoteOnly: boolean;
   stale: boolean;
   done: number;
   total: number;
@@ -58,8 +62,11 @@ export function buildStatus(
   for (const e of repo.epics) {
     if (!e.epic) continue;
     const fm = e.epic.frontmatter;
+    const remote = remoteClaims?.get(e.slug);
     const remoteClaim = remoteClaims?.has(e.slug) ?? false;
-    const session = remoteClaim ? (remoteClaims?.get(e.slug) ?? null) : sessionOf(fm);
+    const session = remoteClaim ? (remote?.session ?? null) : sessionOf(fm);
+    // The claim record lives on the remote branch, so its staleness does too.
+    const updated = remoteClaim ? (remote?.updated ?? "") : (getString(fm, "updated") ?? "");
     const { done, total } = taskCounts(e);
     const next = nextTask(e);
     rows.push({
@@ -69,8 +76,8 @@ export function buildStatus(
       owner: getString(fm, "owner") ?? "unassigned",
       session,
       remoteClaim,
-      stale:
-        session !== null && isStale(getString(fm, "updated") ?? "", opts.today, opts.staleDays),
+      remoteOnly: false,
+      stale: session !== null && isStale(updated, opts.today, opts.staleDays),
       done,
       total,
       blocked: e.tasks
@@ -85,6 +92,26 @@ export function buildStatus(
         : null,
     });
   }
+  const local = new Set(repo.epics.map((e) => e.slug));
+  for (const [slug, remote] of remoteClaims ?? []) {
+    if (local.has(slug)) continue;
+    const session = remote?.session ?? null;
+    rows.push({
+      slug,
+      title: remote?.title ?? slug,
+      status: remote?.status ?? "unknown",
+      owner: remote?.owner ?? "unassigned",
+      session,
+      remoteClaim: true,
+      remoteOnly: true,
+      stale: session !== null && isStale(remote?.updated ?? "", opts.today, opts.staleDays),
+      done: 0,
+      total: 0,
+      blocked: [],
+      next: null,
+    });
+  }
+  rows.sort((a, b) => a.slug.localeCompare(b.slug));
   return { remote, rows };
 }
 
@@ -92,7 +119,7 @@ export function formatStatus(report: StatusReport): string {
   const lines = [`remote: ${report.remote}`];
   if (report.rows.length === 0) lines.push("no epics under docs/pm");
   for (const r of report.rows) {
-    const flags = `${r.remoteClaim ? " [remote]" : ""}${r.stale ? " [stale]" : ""}`;
+    const flags = `${r.remoteOnly ? " [remote-only]" : r.remoteClaim ? " [remote]" : ""}${r.stale ? " [stale]" : ""}`;
     const session = r.session ? `${r.session.harness} · ${r.session.claimed}${flags}` : "unowned";
     lines.push(
       `${r.slug}  ${r.status}  owner: ${r.owner}  session: ${session}  tasks: ${r.done}/${r.total}`,

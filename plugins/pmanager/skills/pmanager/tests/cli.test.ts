@@ -135,4 +135,21 @@ describe("claim through the CLI", () => {
     const rel = await run(["release", "app-performance"], a);
     expect(rel.code).toBe(0);
   });
+
+  test("status in another clone lists an epic that exists only on a claim branch", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    const epic = (await readFile(join(a, "docs/pm/app-performance/epic.md"), "utf8")).replaceAll(
+      "app-performance",
+      "brand-new",
+    );
+    await Bun.write(join(a, "docs/pm/brand-new/epic.md"), epic);
+    expect((await run(["claim", "brand-new"], a)).code).toBe(0);
+    const status = await run(["status", "--json"], b);
+    const parsed = JSON.parse(status.stdout) as {
+      rows: Array<{ slug: string; remoteOnly: boolean; session: { harness: string } | null }>;
+    };
+    const row = parsed.rows.find((r) => r.slug === "brand-new");
+    expect(row?.remoteOnly).toBe(true);
+    expect(row?.session?.harness).toBe("test-harness");
+  });
 });

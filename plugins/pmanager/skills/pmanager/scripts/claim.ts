@@ -44,15 +44,34 @@ function epicRel(slug: string): string {
   return `${PM_DIR}/${slug}/epic.md`;
 }
 
-export async function remoteSessionOf(root: string, slug: string): Promise<Session | null> {
+/** Epic metadata as it exists on origin/pm/<slug>, the authoritative claim record. */
+export interface RemoteEpic {
+  session: Session | null;
+  updated: string;
+  title: string;
+  status: string;
+  owner: string;
+}
+
+export async function remoteEpicOf(root: string, slug: string): Promise<RemoteEpic | null> {
   const raw = await readFileAtRef(root, `origin/${claimBranch(slug)}`, epicRel(slug));
   if (raw === null) return null;
-  return sessionOf(parseDoc(epicRel(slug), raw).frontmatter);
+  const fm = parseDoc(epicRel(slug), raw).frontmatter;
+  return {
+    session: sessionOf(fm),
+    updated: getString(fm, "updated") ?? "",
+    title: getString(fm, "title") ?? slug,
+    status: getString(fm, "status") ?? "unknown",
+    owner: getString(fm, "owner") ?? "unassigned",
+  };
+}
+
+export async function remoteSessionOf(root: string, slug: string): Promise<Session | null> {
+  return (await remoteEpicOf(root, slug))?.session ?? null;
 }
 
 async function remoteUpdatedOf(root: string, slug: string): Promise<string> {
-  const raw = await readFileAtRef(root, `origin/${claimBranch(slug)}`, epicRel(slug));
-  return raw === null ? "" : (getString(parseDoc(epicRel(slug), raw).frontmatter, "updated") ?? "");
+  return (await remoteEpicOf(root, slug))?.updated ?? "";
 }
 
 async function writeSession(

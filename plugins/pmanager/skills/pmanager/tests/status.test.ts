@@ -65,13 +65,84 @@ describe("buildStatus", () => {
   test("remote claim overrides local frontmatter and marks stale", async () => {
     const repo = await loadPmRepo(await fixture());
     const remote = new Map([
-      ["app-performance", { harness: "pi", claimed: "2026-08-01", branch: "pm/app-performance" }],
+      [
+        "app-performance",
+        {
+          session: { harness: "pi", claimed: "2026-08-01", branch: "pm/app-performance" },
+          updated: "2026-08-01",
+          title: "Fix orders page latency",
+          status: "in-progress",
+          owner: "unassigned",
+        },
+      ],
     ]);
     const report = buildStatus(repo, remote, "ok", { staleDays: 3, today: "2026-09-30" });
     const row = report.rows[0];
     expect(row?.session?.harness).toBe("pi");
     expect(row?.remoteClaim).toBe(true);
+    expect(row?.remoteOnly).toBe(false);
     expect(row?.stale).toBe(true);
+  });
+  test("staleness comes from the remote updated date, not the local one", async () => {
+    // Local fixture epic says updated 2026-09-10; remote claim is fresh.
+    const repo = await loadPmRepo(await fixture());
+    const fresh = new Map([
+      [
+        "app-performance",
+        {
+          session: { harness: "pi", claimed: "2026-09-29", branch: "pm/app-performance" },
+          updated: "2026-09-29",
+          title: "t",
+          status: "in-progress",
+          owner: "x",
+        },
+      ],
+    ]);
+    expect(
+      buildStatus(repo, fresh, "ok", { staleDays: 3, today: "2026-09-30" }).rows[0]?.stale,
+    ).toBe(false);
+    // Reverse: local looks fresh, remote claim is old.
+    const stale = new Map([
+      [
+        "app-performance",
+        {
+          session: { harness: "pi", claimed: "2026-08-01", branch: "pm/app-performance" },
+          updated: "2026-08-01",
+          title: "t",
+          status: "in-progress",
+          owner: "x",
+        },
+      ],
+    ]);
+    expect(
+      buildStatus(repo, stale, "ok", { staleDays: 3, today: "2026-09-11" }).rows[0]?.stale,
+    ).toBe(true);
+  });
+  test("epics that exist only on a remote claim branch are listed", async () => {
+    const repo = await loadPmRepo(await fixture());
+    const remote = new Map([
+      [
+        "brand-new",
+        {
+          session: { harness: "pi", claimed: "2026-09-14", branch: "pm/brand-new" },
+          updated: "2026-09-14",
+          title: "Brand new epic",
+          status: "approved",
+          owner: "someone",
+        },
+      ],
+    ]);
+    const report = buildStatus(repo, remote, "ok", OPTS);
+    expect(report.rows.map((r) => r.slug)).toEqual(["app-performance", "brand-new"]);
+    const row = report.rows[1];
+    expect(row?.remoteOnly).toBe(true);
+    expect(row?.remoteClaim).toBe(true);
+    expect(row?.title).toBe("Brand new epic");
+    expect(row?.session?.harness).toBe("pi");
+    expect(row?.total).toBe(0);
+    expect(formatStatus(report)).toContain(
+      "brand-new  approved  owner: someone  session: pi · 2026-09-14 [remote-only]",
+    );
   });
   test("lists blocked tasks and formats", async () => {
     const root = await fixture();

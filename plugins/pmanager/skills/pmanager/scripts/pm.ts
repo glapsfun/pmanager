@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 import { check } from "./check";
-import { claim, claimBranch, release, remoteSessionOf } from "./claim";
+import { claim, claimBranch, release, remoteEpicOf } from "./claim";
 import { countBySeverity, formatFindings } from "./findings";
 import {
   commitPaths,
@@ -112,7 +112,7 @@ async function remoteClaims(
   const claims: RemoteClaims = new Map();
   for (const b of await listRemoteBranches(root, "pm/")) {
     const slug = b.slice("pm/".length);
-    claims.set(slug, await remoteSessionOf(root, slug));
+    claims.set(slug, await remoteEpicOf(root, slug));
   }
   return { remote: "ok", claims };
 }
