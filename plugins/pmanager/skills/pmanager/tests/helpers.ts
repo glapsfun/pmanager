@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -38,4 +38,10 @@ export async function initGitRepo(dir: string): Promise<void> {
   await gitOk(["config", "user.name", "test"], dir);
   await gitOk(["config", "user.email", "test@example.com"], dir);
   await gitOk(["commit", "-q", "--allow-empty", "-m", "init"], dir);
+}
+
+export const FIXTURE_WEBSHOP = join(import.meta.dir, "fixtures", "webshop");
+
+export async function copyFixture(dest: string): Promise<void> {
+  await cp(FIXTURE_WEBSHOP, dest, { recursive: true });
 }
