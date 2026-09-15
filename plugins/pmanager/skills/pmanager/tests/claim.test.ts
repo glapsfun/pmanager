@@ -147,4 +147,22 @@ describe("claim", () => {
       "wip: local notes",
     );
   });
+
+  test("takeover works for an epic that exists only on the remote claim branch", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    // A creates a brand-new epic (not on main) and claims it with an old date.
+    const files = await unclaimedSeed();
+    const epic = (files[EPIC] ?? "")
+      .replaceAll("app-performance", "brand-new")
+      .replace("updated: 2026-09-10", "updated: 2026-07-01");
+    await writeTree(a, { "docs/pm/brand-new/epic.md": epic });
+    expect((await claim(a, "brand-new", { ...OPTS, today: "2026-07-01" })).ok).toBe(true);
+    // B is on main and has no docs/pm/brand-new at all.
+    expect(await currentBranch(b)).toBe("main");
+    const r = await claim(b, "brand-new", { ...OPTS, harness: "pi", takeover: true });
+    expect(r.ok).toBe(true);
+    expect(await currentBranch(b)).toBe("pm/brand-new");
+    const taken = await readFile(join(b, "docs/pm/brand-new/epic.md"), "utf8");
+    expect(taken).toContain("harness: pi");
+  });
 });

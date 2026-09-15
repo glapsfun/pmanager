@@ -99,13 +99,17 @@ async function appendPlanChangelog(
   return path;
 }
 
-export async function claim(root: string, slug: string, opts: ClaimOptions): Promise<ClaimOutcome> {
-  const branch = claimBranch(slug);
+async function localEpicExists(root: string, slug: string): Promise<boolean> {
   try {
     await readFile(join(root, epicRel(slug)), "utf8");
+    return true;
   } catch {
-    return { ok: false, reason: "no-epic", message: `no ${epicRel(slug)} on the current branch` };
+    return false;
   }
+}
+
+export async function claim(root: string, slug: string, opts: ClaimOptions): Promise<ClaimOutcome> {
+  const branch = claimBranch(slug);
   if (!(await hasRemote(root))) {
     return {
       ok: false,
@@ -125,6 +129,11 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       owner: takenBy,
       message: `${slug} is owned by ${takenBy.harness} since ${takenBy.claimed || "unknown"} (branch ${branch})`,
     };
+  }
+  // A fresh claim needs the epic on the current branch. A takeover gets the
+  // file from the claimed branch itself, checked below after the checkout.
+  if (!takenBy && !(await localEpicExists(root, slug))) {
+    return { ok: false, reason: "no-epic", message: `no ${epicRel(slug)} on the current branch` };
   }
 
   const pmDir = join(root, PM_DIR);
@@ -147,6 +156,13 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     } else {
       await checkoutBranch(root, branch, true, `origin/${branch}`);
       created = true;
+    }
+    if (!(await localEpicExists(root, slug))) {
+      return {
+        ok: false,
+        reason: "no-epic",
+        message: `no ${epicRel(slug)} on ${branch} either; nothing to take over`,
+      };
     }
     const planPath = await appendPlanChangelog(
       root,
