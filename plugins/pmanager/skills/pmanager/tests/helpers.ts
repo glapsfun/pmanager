@@ -81,3 +81,18 @@ export async function fixtureFiles(): Promise<Record<string, string>> {
   await walk(FIXTURE_WEBSHOP, "");
   return out;
 }
+
+/** Fixture files with the epic's session block removed (epic unclaimed). */
+export async function unclaimedSeed(): Promise<Record<string, string>> {
+  const files = await fixtureFiles();
+  const epic = "docs/pm/app-performance/epic.md";
+  files[epic] = (files[epic] ?? "").replace(
+    "session:\n  harness: claude-code\n  claimed: 2026-09-10\n  branch: pm/app-performance\n",
+    "",
+  );
+  files["docs/pm/INDEX.md"] = (files["docs/pm/INDEX.md"] ?? "").replace(
+    "claude-code · 2026-09-10",
+    "—",
+  );
+  return files;
+}

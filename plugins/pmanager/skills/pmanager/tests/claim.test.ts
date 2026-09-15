@@ -4,23 +4,10 @@ import { join } from "node:path";
 import { claim, claimBranch, release, remoteSessionOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
 import { currentBranch, fetchOrigin, listRemoteBranches } from "../scripts/git";
-import { fixtureFiles, initGitRepo, makeTempDir, remoteWithClones, writeTree } from "./helpers";
+import { initGitRepo, makeTempDir, remoteWithClones, unclaimedSeed, writeTree } from "./helpers";
 
 const SLUG = "app-performance";
 const EPIC = `docs/pm/${SLUG}/epic.md`;
-const SESSION_BLOCK =
-  "session:\n  harness: claude-code\n  claimed: 2026-09-10\n  branch: pm/app-performance\n";
-
-export async function unclaimedSeed() {
-  const files = await fixtureFiles();
-  files[EPIC] = (files[EPIC] ?? "").replace(SESSION_BLOCK, "");
-  files["docs/pm/INDEX.md"] = (files["docs/pm/INDEX.md"] ?? "").replace(
-    "claude-code · 2026-09-10",
-    "—",
-  );
-  return files;
-}
-
 const OPTS = { harness: "claude-code", takeover: false, staleDays: 14, today: "2026-09-15" };
 
 describe("claim", () => {
