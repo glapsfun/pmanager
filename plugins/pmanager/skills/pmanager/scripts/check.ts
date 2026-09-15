@@ -23,7 +23,15 @@ import {
   TASK_V1_FIELDS,
 } from "./contract";
 import type { Finding } from "./findings";
-import { LOG_START, planRender, TASKS_START } from "./render";
+import {
+  LOG_END,
+  LOG_START,
+  type MarkerState,
+  markerState,
+  planRender,
+  TASKS_END,
+  TASKS_START,
+} from "./render";
 import { type EpicRecord, epicId, type PmRepo } from "./repo";
 
 export interface CheckOptions {
@@ -276,30 +284,41 @@ export const referenceRules: Rule = (repo) => {
   return out;
 };
 
+const MARKER_PROBLEM: Record<Exclude<MarkerState, "ok">, string> = {
+  missing: "has no",
+  unterminated: "has an unterminated",
+  misordered: "has a misordered",
+};
+
 export const derivedViewRules: Rule = (repo) => {
   const out: Finding[] = [];
   for (const e of repo.epics) {
-    if (e.plan && contractVersion(e.plan.frontmatter) >= 1 && !e.plan.raw.includes(TASKS_START)) {
+    if (!e.plan || contractVersion(e.plan.frontmatter) < 1) continue;
+    const state = markerState(e.plan.raw, TASKS_START, TASKS_END);
+    if (state !== "ok") {
       out.push(
         err(
           e.plan.path,
           "E-RND-004",
-          "plan is contract 1 but has no pm:tasks markers",
-          "run render --migrate, or add the marker pair around the task table",
+          `plan is contract 1 but ${MARKER_PROBLEM[state]} pm:tasks marker pair`,
+          "run render --migrate, or put exactly one start/end marker pair around the task table",
         ),
       );
     }
   }
   const anyV1 = repo.epics.some((e) => e.epic && contractVersion(e.epic.frontmatter) >= 1);
-  if (repo.memo && anyV1 && !repo.memo.raw.includes(LOG_START)) {
-    out.push(
-      err(
-        repo.memo.path,
-        "E-RND-004",
-        "memo has no pm:log markers",
-        "run render --migrate, or add the marker pair in the Changelog section",
-      ),
-    );
+  if (repo.memo && anyV1) {
+    const state = markerState(repo.memo.raw, LOG_START, LOG_END);
+    if (state !== "ok") {
+      out.push(
+        err(
+          repo.memo.path,
+          "E-RND-004",
+          `memo ${MARKER_PROBLEM[state]} pm:log marker pair`,
+          "run render --migrate, or put exactly one start/end marker pair in the Changelog section",
+        ),
+      );
+    }
   }
   for (const f of planRender(repo)) {
     if (f.path.endsWith("INDEX.md")) {

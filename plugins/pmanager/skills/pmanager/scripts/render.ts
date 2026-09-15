@@ -99,6 +99,20 @@ export function renderMemoLog(repo: PmRepo): string {
   return `${LOG_START}\n${lines.join("\n")}\n${LOG_END}\n`;
 }
 
+export type MarkerState = "ok" | "missing" | "unterminated" | "misordered";
+
+/** Whether `text` holds exactly one well-formed start…end region. */
+export function markerState(text: string, start: string, end: string): MarkerState {
+  const s = text.indexOf(start);
+  const e = text.indexOf(end);
+  if (s === -1) return "missing";
+  if (e === -1) return "unterminated";
+  if (e < s) return "misordered";
+  const secondStart = text.indexOf(start, s + start.length);
+  if (secondStart !== -1 && secondStart < e) return "misordered";
+  return "ok";
+}
+
 export function replaceBetweenMarkers(
   text: string,
   start: string,

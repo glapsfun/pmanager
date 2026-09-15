@@ -5,6 +5,7 @@ import { contractVersion, getString } from "../scripts/contract";
 import {
   applyRender,
   LOG_START,
+  markerState,
   migrate,
   planRender,
   renderIndex,
@@ -113,6 +114,18 @@ describe("planRender / applyRender", () => {
     const idx = renderIndex(await loadPmRepo(root));
     const order = [...idx.matchAll(/\| \[(\w)\]/g)].map((m) => m[1]);
     expect(order).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("markerState", () => {
+  test("classifies pairs", () => {
+    const S = TASKS_START;
+    const E = TASKS_END;
+    expect(markerState(`a\n${S}\nx\n${E}\n`, S, E)).toBe("ok");
+    expect(markerState("nothing", S, E)).toBe("missing");
+    expect(markerState(`${S}\nx\n`, S, E)).toBe("unterminated");
+    expect(markerState(`${E}\nx\n${S}\n`, S, E)).toBe("misordered");
+    expect(markerState(`${S}\n${S}\n${E}\n`, S, E)).toBe("misordered");
   });
 });
 

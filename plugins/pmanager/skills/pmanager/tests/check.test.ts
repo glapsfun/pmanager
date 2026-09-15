@@ -125,6 +125,25 @@ describe("derived views", () => {
     await edit(root, PLAN, "<!-- pm:tasks:start -->\n", "");
     expect(await rules(root)).toContain("E-RND-004");
   });
+  test("E-RND-004 unterminated and misordered marker pairs, plan and memo", async () => {
+    const MEMO = "docs/pm/pmanager-memo.md";
+    let root = await fixture();
+    await edit(root, PLAN, "<!-- pm:tasks:end -->\n", "");
+    expect(await rules(root)).toContain("E-RND-004");
+    root = await fixture();
+    await edit(root, PLAN, "<!-- pm:tasks:start -->", "<!-- pm:tasks:TMP -->");
+    await edit(root, PLAN, "<!-- pm:tasks:end -->", "<!-- pm:tasks:start -->");
+    await edit(root, PLAN, "<!-- pm:tasks:TMP -->", "<!-- pm:tasks:end -->");
+    expect(await rules(root)).toContain("E-RND-004");
+    root = await fixture();
+    await edit(root, MEMO, "<!-- pm:log:end -->\n", "");
+    expect(await rules(root)).toContain("E-RND-004");
+    root = await fixture();
+    await edit(root, MEMO, "<!-- pm:log:start -->", "<!-- pm:log:TMP -->");
+    await edit(root, MEMO, "<!-- pm:log:end -->", "<!-- pm:log:start -->");
+    await edit(root, MEMO, "<!-- pm:log:TMP -->", "<!-- pm:log:end -->");
+    expect(await rules(root)).toContain("E-RND-004");
+  });
   test("findings carry file and fix", async () => {
     const root = await fixture();
     await edit(root, T04, "status: todo", "status: done");
