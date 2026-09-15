@@ -154,6 +154,38 @@ describe("migrate", () => {
     expect(repo.logs[0]?.date).toBe("2026-08-01");
     expect(planRender(repo)).toEqual([]);
   });
+  test("memo migration keeps the preamble and sections after the changelog", async () => {
+    const root = await makeTempDir("migrate");
+    await writeTree(root, {
+      "docs/pm/pmanager-memo.md":
+        "# PManager memo\n\n_Last updated: 2026-08-01_\n\n## 1. Product context\n\nA shop.\n\n## Changelog\n\nnewest first:\n\n- 2026-08-01 — spec'd `old`\n- 2026-07-01 — first run\n\n## 6. Notes\n\nKeep me.\n",
+    });
+    await migrate(await loadPmRepo(root), "2026-09-15");
+    const memo = await readFile(join(root, "docs/pm/pmanager-memo.md"), "utf8");
+    expect(
+      memo.startsWith(
+        "# PManager memo\n\n_Last updated: 2026-08-01_\n\n## 1. Product context\n\nA shop.\n\n## Changelog\n",
+      ),
+    ).toBe(true);
+    expect(memo).toContain("newest first:\n\n<!-- pm:log:start -->\n");
+    expect(memo).toContain("## 6. Notes\n\nKeep me.\n");
+    expect(memo).not.toContain("- 2026-08-01 — spec'd");
+    const repo = await loadPmRepo(root);
+    expect(repo.logs.map((l) => l.date).sort()).toEqual(["2026-07-01", "2026-08-01"]);
+    expect(memo).toContain("- 2026-08-01 — `-` · update · spec'd `old`");
+  });
+  test("memo without a changelog heading keeps all content and gains a section", async () => {
+    const root = await makeTempDir("migrate");
+    const original =
+      "# PManager memo\n\n## 1. Product context\n\nA shop.\n\n## 4. Conventions\n\nNone.\n";
+    await writeTree(root, { "docs/pm/pmanager-memo.md": original });
+    await migrate(await loadPmRepo(root), "2026-09-15");
+    const memo = await readFile(join(root, "docs/pm/pmanager-memo.md"), "utf8");
+    expect(memo.startsWith(original.replace(/\n+$/, ""))).toBe(true);
+    expect(memo).toContain(
+      "## 5. Changelog\n\n<!-- pm:log:start -->\n- none yet\n<!-- pm:log:end -->\n",
+    );
+  });
   test("is a no-op on a v1 repo", async () => {
     const { repo } = await fixtureRepo();
     expect(await migrate(repo, "2026-09-15")).toEqual([]);

@@ -1,13 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  contractVersion,
-  getList,
-  getString,
-  sectionBody,
-  sessionOf,
-  setFrontmatterKey,
-} from "./contract";
+import { contractVersion, getList, getString, sessionOf, setFrontmatterKey } from "./contract";
 import { writeLogEntry } from "./log";
 import { type EpicRecord, loadPmRepo, type PmRepo } from "./repo";
 
@@ -172,6 +165,41 @@ function wrapPlanTable(raw: string): string | null {
 }
 
 const MEMO_LINE_RE = /^- (\d{4}-\d{2}-\d{2}) — (.*)$/;
+const CHANGELOG_HEADING_RE = /^## .*changelog/i;
+
+/**
+ * Line-based memo migration: only the changelog section is rewritten; every
+ * line before its heading and every section after it is preserved verbatim.
+ * Without a changelog heading a fresh section is appended.
+ */
+async function migrateMemo(raw: string, pmDir: string): Promise<string> {
+  const lines = raw.split("\n");
+  const heading = lines.findIndex((l) => CHANGELOG_HEADING_RE.test(l));
+  if (heading === -1) {
+    const base = raw.replace(/\n+$/, "");
+    return `${base}\n\n## 5. Changelog\n\n${LOG_START}\n${LOG_END}\n`;
+  }
+  let end = heading + 1;
+  while (end < lines.length && !(lines[end] ?? "").startsWith("## ")) end++;
+  const kept: string[] = [];
+  for (const l of lines.slice(heading + 1, end)) {
+    const m = MEMO_LINE_RE.exec(l);
+    if (m?.[1] && m[2] !== undefined) {
+      await writeLogEntry(pmDir, {
+        date: m[1],
+        epic: "-",
+        harness: "migrated",
+        kind: "update",
+        message: m[2],
+      });
+    } else {
+      kept.push(l);
+    }
+  }
+  while (kept.length > 0 && (kept[kept.length - 1] ?? "").trim() === "") kept.pop();
+  const section = [...kept, "", LOG_START, LOG_END, ""];
+  return [...lines.slice(0, heading + 1), ...section, ...lines.slice(end)].join("\n");
+}
 
 export async function migrate(repo: PmRepo, _today: string): Promise<string[]> {
   const touched: string[] = [];
@@ -204,25 +232,7 @@ export async function migrate(repo: PmRepo, _today: string): Promise<string[]> {
     }
   }
   if (repo.memo && !repo.memo.raw.includes(LOG_START)) {
-    const section = sectionBody(repo.memo.raw, "5. Changelog") ?? "";
-    const kept: string[] = [];
-    for (const l of section.split("\n")) {
-      const m = MEMO_LINE_RE.exec(l);
-      if (m?.[1] && m[2] !== undefined) {
-        await writeLogEntry(repo.pmDir, {
-          date: m[1],
-          epic: "-",
-          harness: "migrated",
-          kind: "update",
-          message: m[2],
-        });
-      } else {
-        kept.push(l);
-      }
-    }
-    const body = `${kept.join("\n").replace(/\n+$/, "")}\n\n${LOG_START}\n${LOG_END}\n`;
-    const head = repo.memo.raw.slice(0, repo.memo.raw.indexOf(section));
-    await writeFile(repo.memo.path, head + body);
+    await writeFile(repo.memo.path, await migrateMemo(repo.memo.raw, repo.pmDir));
     touched.push(repo.memo.path);
   }
   if (touched.length > 0) await applyRender(await loadPmRepo(repo.root));
