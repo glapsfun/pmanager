@@ -2,6 +2,7 @@
 epic: app-performance
 status: in-progress
 updated: 2026-09-10
+contract: 1
 ---
 
 # Plan — Fix orders page latency
