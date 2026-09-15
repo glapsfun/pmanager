@@ -41,7 +41,7 @@ export function buildHandoff(
   map: Record<string, string>,
 ): string {
   const epic = epicBySlug(repo, slug);
-  if (!epic || !epic.epic) throw new Error(`unknown epic ${slug}`);
+  if (!epic?.epic) throw new Error(`unknown epic ${slug}`);
   const task = taskById(epic, taskId);
   if (!task) throw new Error(`unknown task ${taskId} in ${slug}`);
   const efm = epic.epic.frontmatter;
