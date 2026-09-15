@@ -5,6 +5,7 @@ import {
   copyFixture,
   gitOk,
   initGitRepo,
+  installPreReceiveHook,
   makeTempDir,
   remoteWithClones,
   unclaimedSeed,
@@ -151,5 +152,25 @@ describe("claim through the CLI", () => {
     const row = parsed.rows.find((r) => r.slug === "brand-new");
     expect(row?.remoteOnly).toBe(true);
     expect(row?.session?.harness).toBe("test-harness");
+  });
+
+  test("a failed render push after a successful claim exits 1 and names the retry", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    // Reject only the follow-up render commit; the claim push itself succeeds.
+    await installPreReceiveHook(
+      bare,
+      'while read old new ref; do msg=$(git log -1 --format=%s "$new"); case "$msg" in *"render after"*) echo "no render pushes" >&2; exit 1;; esac; done; exit 0',
+    );
+    const r = await run(["claim", "app-performance"], a);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("claimed by test-harness");
+    expect(r.stdout).toContain("push failed");
+    expect(r.stdout).toContain("retry with: git push origin pm/app-performance");
+    expect(await gitOk(["log", "-1", "--format=%s"], a)).toContain("render after claim");
+    const j = await run(["release", "app-performance", "--json"], a);
+    const parsed = JSON.parse(j.stdout) as { ok: boolean; renderPush: { ok: boolean } };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.renderPush.ok).toBe(false);
+    expect(j.code).toBe(1);
   });
 });

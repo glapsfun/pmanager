@@ -95,13 +95,23 @@ function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function renderAndCommit(root: string, slug: string, verb: string): Promise<string[]> {
+interface RenderPush {
+  written: string[];
+  pushed: boolean;
+  error?: string;
+}
+
+async function renderAndCommit(root: string, slug: string, verb: string): Promise<RenderPush> {
   const written = await applyRender(await loadPmRepo(root));
-  if (written.length > 0) {
-    await commitPaths(root, written, `docs(pm): render after ${verb} ${slug}`);
-    await pushSetUpstream(root, claimBranch(slug));
-  }
-  return written;
+  if (written.length === 0) return { written, pushed: true };
+  await commitPaths(root, written, `docs(pm): render after ${verb} ${slug}`);
+  const push = await pushSetUpstream(root, claimBranch(slug));
+  if (push.code === 0) return { written, pushed: true };
+  return { written, pushed: false, error: push.stderr.trim() };
+}
+
+function renderPushFailure(slug: string, r: RenderPush): string {
+  return `rendered views committed locally on ${claimBranch(slug)} but push failed: ${r.error ?? "unknown"}\nretry with: git push origin ${claimBranch(slug)}\n`;
 }
 
 async function remoteClaims(
@@ -162,20 +172,40 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         staleDays: args.staleDays,
         today: opts.today,
       });
-      const rendered = result.ok
+      const render = result.ok
         ? await renderAndCommit(root, slug, args.takeover ? "takeover of" : "claim")
-        : [];
-      out(args.json ? json({ ...result, rendered }) : `${result.message}\n`);
-      if (result.ok) return 0;
+        : { written: [], pushed: true };
+      const failure = result.ok && !render.pushed ? renderPushFailure(slug, render) : "";
+      out(
+        args.json
+          ? json({
+              ...result,
+              rendered: render.written,
+              renderPush: { ok: render.pushed, error: render.error },
+            })
+          : `${result.message}\n${failure}`,
+      );
+      if (result.ok) return render.pushed ? 0 : 1;
       return result.reason === "no-epic" || result.reason === "no-remote" ? 2 : 1;
     }
     case "release": {
       const slug = args.positional[0];
       if (!slug) return fail(USAGE);
       const result = await release(root, slug, { harness: args.harness, today: opts.today });
-      const rendered = result.ok ? await renderAndCommit(root, slug, "release") : [];
-      out(args.json ? json({ ...result, rendered }) : `${result.message}\n`);
-      return result.ok ? 0 : 1;
+      const render = result.ok
+        ? await renderAndCommit(root, slug, "release")
+        : { written: [], pushed: true };
+      const failure = result.ok && !render.pushed ? renderPushFailure(slug, render) : "";
+      out(
+        args.json
+          ? json({
+              ...result,
+              rendered: render.written,
+              renderPush: { ok: render.pushed, error: render.error },
+            })
+          : `${result.message}\n${failure}`,
+      );
+      return result.ok && render.pushed ? 0 : 1;
     }
     case "status": {
       const { remote, claims } = await remoteClaims(root);
