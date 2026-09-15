@@ -96,3 +96,12 @@ export async function unclaimedSeed(): Promise<Record<string, string>> {
   );
   return files;
 }
+
+/** Install a pre-receive hook in a bare repo; the script body runs with $1..$3 unset, reads refs from stdin. */
+export async function installPreReceiveHook(bare: string, script: string): Promise<void> {
+  const { chmod } = await import("node:fs/promises");
+  const path = join(bare, "hooks", "pre-receive");
+  await mkdir(join(bare, "hooks"), { recursive: true });
+  await writeFile(path, `#!/bin/sh\n${script}\n`);
+  await chmod(path, 0o755);
+}

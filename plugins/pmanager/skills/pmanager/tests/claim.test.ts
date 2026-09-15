@@ -3,8 +3,21 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { claim, claimBranch, release, remoteSessionOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
-import { currentBranch, fetchOrigin, listRemoteBranches } from "../scripts/git";
-import { initGitRepo, makeTempDir, remoteWithClones, unclaimedSeed, writeTree } from "./helpers";
+import {
+  currentBranch,
+  fetchOrigin,
+  gitOk,
+  listRemoteBranches,
+  localBranchExists,
+} from "../scripts/git";
+import {
+  initGitRepo,
+  installPreReceiveHook,
+  makeTempDir,
+  remoteWithClones,
+  unclaimedSeed,
+  writeTree,
+} from "./helpers";
 
 const SLUG = "app-performance";
 const EPIC = `docs/pm/${SLUG}/epic.md`;
@@ -100,5 +113,38 @@ describe("claim", () => {
     const r = await claim(lonely, SLUG, OPTS);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("no-remote");
+  });
+
+  test("rejected push keeps the local branch and commit (push-failed, not taken)", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const r = await claim(a, SLUG, OPTS);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("push-failed");
+      expect(r.message).toContain("git push origin pm/app-performance");
+    }
+    expect(await currentBranch(a)).toBe("pm/app-performance");
+    expect(await localBranchExists(a, "pm/app-performance")).toBe(true);
+    expect(await gitOk(["log", "-1", "--format=%s"], a)).toContain("claim app-performance");
+    expect(await listRemoteBranches(a, "pm/")).toEqual([]);
+  });
+
+  test("concurrent winner does not delete a pre-existing local branch with unpushed work", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    // B has its own local pm/app-performance with an unpushed commit.
+    await gitOk(["checkout", "-q", "-b", "pm/app-performance"], b);
+    await writeTree(b, { "docs/pm/app-performance/notes.md": "local work\n" });
+    await gitOk(["add", "-A"], b);
+    await gitOk(["commit", "-q", "-m", "wip: local notes"], b);
+    // A claims first.
+    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const r = await claim(b, SLUG, { ...OPTS, harness: "pi" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("taken");
+    expect(await localBranchExists(b, "pm/app-performance")).toBe(true);
+    expect(await gitOk(["log", "--format=%s", "pm/app-performance"], b)).toContain(
+      "wip: local notes",
+    );
   });
 });

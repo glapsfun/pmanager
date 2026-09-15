@@ -129,6 +129,8 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
 
   const pmDir = join(root, PM_DIR);
   const paths: string[] = [];
+  const previousBranch = await currentBranch(root);
+  let created = false;
   if (takenBy) {
     const updated = await remoteUpdatedOf(root, slug);
     if (!isStale(updated, opts.today, opts.staleDays)) {
@@ -144,6 +146,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       await git(["pull", "-q", "--ff-only", "origin", branch], root);
     } else {
       await checkoutBranch(root, branch, true, `origin/${branch}`);
+      created = true;
     }
     const planPath = await appendPlanChangelog(
       root,
@@ -163,9 +166,12 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       }),
     );
   } else {
-    if ((await currentBranch(root)) !== branch) {
+    if (previousBranch !== branch) {
       if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-      else await checkoutBranch(root, branch, true);
+      else {
+        await checkoutBranch(root, branch, true);
+        created = true;
+      }
     }
     paths.push(
       await writeLogEntry(pmDir, {
@@ -192,26 +198,38 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     return { ok: true, branch, message: `${slug} claimed by ${opts.harness} on ${branch}` };
   }
 
-  if (!takenBy) {
-    // A concurrent claim landed first: undo and report as taken.
-    await checkoutBranch(root, "main", false).catch(() => undefined);
-    await deleteLocalBranch(root, branch);
+  // The push failed. Only a branch that now exists on the remote means a
+  // concurrent claim won; anything else (hook, permissions, network) keeps
+  // every local change in place.
+  await fetchOrigin(root);
+  const concurrent = !takenBy && (await remoteBranchExists(root, branch));
+  if (concurrent) {
     const owner = (await remoteSessionOf(root, slug)) ?? {
       harness: "unknown",
       claimed: "",
       branch,
     };
+    if (created) {
+      await checkoutBranch(root, previousBranch, false);
+      await deleteLocalBranch(root, branch);
+      return {
+        ok: false,
+        reason: "taken",
+        owner,
+        message: `${slug} was claimed concurrently by ${owner.harness}; local claim branch removed`,
+      };
+    }
     return {
       ok: false,
       reason: "taken",
       owner,
-      message: `${slug} was claimed concurrently by ${owner.harness}`,
+      message: `${slug} was claimed concurrently by ${owner.harness}; your local claim commit remains on ${branch} (unpushed) — inspect or delete it yourself`,
     };
   }
   return {
     ok: false,
     reason: "push-failed",
-    message: `push of ${branch} failed: ${push.stderr.trim()}`,
+    message: `push of ${branch} failed: ${push.stderr.trim()}\nyour claim commit is still on ${branch}; retry with: git push origin ${branch}`,
   };
 }
 
