@@ -5,6 +5,10 @@ and what outcome it must produce*. Every factual claim carries its source.
 Sections marked (required) must exist and be non-empty; write `none` or
 `unknown` explicitly rather than omitting a section.
 
+`repos` lists target repositories by remote URL, never local paths; local
+checkouts are mapped per machine in `docs/pm/.local/repos.json` (created by
+the tool, self-ignored). `session` is written only by `pm claim` / `pm release`.
+
 ```markdown
 ---
 id: <slug>
@@ -15,6 +19,13 @@ business-goal: <the goal this serves, one line>
 owner: <who owns the outcome — a person, or "unassigned">
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
+contract: 1
+primary-metric: <one line, mirrors the primary row of Success metrics>
+repos: []                     # remote URLs of the target repositories
+# session: set by `pm claim`; never written by hand
+#   harness: claude-code
+#   claimed: YYYY-MM-DD
+#   branch: pm/<slug>
 ---
 
 # <Title>
@@ -79,4 +90,10 @@ exists to answer it.
 Links to related epics from `docs/pm/INDEX.md` and incidents from
 `docs/sre-incidents/` with one line on what each taught us. `none` on a
 cold start.
+
+## Outcome
+
+Filled when the epic is set to done: did the hypothesis hold, what the
+validation measured, and what future epics should learn. Required for
+`status: done` (checked by `pm check`, rule E-ST-004). Leave empty until then.
 ```

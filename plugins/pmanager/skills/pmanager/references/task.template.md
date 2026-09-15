@@ -31,6 +31,7 @@ depends-on: []          # task ids, e.g. [T01, T02]
 estimate: S | M | L     # S ≤ half day, M ≤ 2 days, L ≤ 3 days (larger: split)
 owner: unassigned
 updated: YYYY-MM-DD
+contract: 1
 ---
 
 # T01 — <Title>
@@ -72,3 +73,9 @@ tracking flow when work is cut: the task moves to the plan's Won't list and
 is excluded from INDEX task counts and next-task suggestions. Status changes
 go through the tracking flow (`tracking.md`), which also updates the plan's
 task table and INDEX.md.
+
+A `done` task must have every acceptance criterion checked, or the line
+`**unverified** — <why>` under Acceptance criteria (rule E-ST-003). A
+`blocked` task must name the blocker under Notes (rule E-ST-001). A
+`descoped` task must be listed on the plan's `- Won't (this epic):` line with
+its reason (rule E-ST-002). `pm check` enforces all three.

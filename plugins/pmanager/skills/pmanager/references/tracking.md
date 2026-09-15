@@ -20,7 +20,8 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 1. If the approval came with corrections, revise the epic framing first.
 2. Epic frontmatter: `status: draft → approved`, refresh `updated`; resolve
    any Open questions the user just answered.
-3. Mirror the INDEX row and add a plan changelog row (`epic approved`).
+3. Add a plan changelog row (`epic approved`) and run `pm render` (the
+   INDEX row follows the frontmatter).
    When work starts on the first task, the same flow moves
    `approved → in-progress`.
 
@@ -28,20 +29,23 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 1. Task frontmatter: `status`, `updated`; blockers also get a Notes line
    naming the blocker.
-2. Plan task table: mirror the new status.
+2. Run `pm render` (regenerates the plan task table and INDEX).
 3. `done` claims: if acceptance criteria are checkable from the repo (file
    exists, test present), verify and check them off; if not, ask or mark
-   them explicitly unverified — never silently check boxes.
+   them explicitly unverified — never silently check boxes. An unverifiable
+   done claim gets the line `**unverified** — <why>` under Acceptance
+   criteria so `pm check` accepts it.
 
 **Scope changes** (add/split/descope tasks, shift a milestone):
 
 1. Create/edit task files per `task.template.md` (INVEST still applies —
    an update is not an excuse for an untestable task).
-2. Update the plan: task table, MoSCoW section, and one changelog row
-   (`date | change | why`). Descoped work moves to Won't with its reason
-   and the task file's frontmatter is set to `status: descoped` — a
-   recorded decision, not a deletion; descoped tasks are excluded from INDEX
-   task counts and next-task ranking.
+2. Update the plan's MoSCoW section and add one changelog row
+   (`date | change | why`); the task table is rendered. Descoped work moves
+   to the `- Won't (this epic):` line with its reason (E-ST-002) and the
+   task file's frontmatter is set to `status: descoped` — a recorded
+   decision, not a deletion; descoped tasks are excluded from INDEX task
+   counts and next-task ranking.
 3. A change that breaks the epic's framing (new scope contradicts
    non-goals, metric no longer fits) → stop and say so: that's a new epic
    or an epic revision needing approval, not a quiet plan edit.
@@ -54,10 +58,19 @@ draft-awaiting-approval state a non-interactive run leaves behind):
   the epic `done`, recording the outcome (did the hypothesis hold?) in the
   epic — that outcome line is what future recalls learn from.
 
+## Claim management and handoff
+
+"release the X epic" → `pm release <slug>`. "take over X" →
+`pm claim <slug> --takeover` only when `pm status` shows `[stale]`;
+otherwise tell the user the owner must release. "pick up T03 of X" /
+"brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
+nothing. All three end with a one-line confirmation.
+
 ## Write-back (every update run)
 
-INDEX row (status, task counts, updated), memo changelog line when
-something durable was learned, then the scoped local commit per
-`memory.md` (the single source for the command and its rules). Post a
-compact status after: epic, tasks by status, current
-blockers, suggested next task (respecting `depends-on` and priority).
+Run log entry (`kind: update`), memo hand-written sections if something
+durable was learned, `pm render`, `pm check` to exit 0, then the scoped
+commit and push of `pm/<slug>` per `memory.md` (the single source for the
+command and its rules). Post a compact status after: the `pm status` line
+for the epic, tasks by status, current blockers, suggested next task
+(respecting `depends-on` and priority).

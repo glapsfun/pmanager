@@ -35,8 +35,10 @@ constraints, "all schema changes need DBA review", test/CI expectations.
 
 ## 5. Changelog
 
-One line per run, newest first:
+Rendered from `docs/pm/log/` by `pm render`; never edit between the markers.
+Each run writes one log file instead of a line here.
 
-- YYYY-MM-DD — spec'd `app-performance`; learned checkout is the
-  revenue-critical path.
+<!-- pm:log:start -->
+- none yet
+<!-- pm:log:end -->
 ```

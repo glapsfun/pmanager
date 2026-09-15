@@ -25,7 +25,9 @@ Each document has a register (adopt the matching mindset when writing it):
    is missing, say what is missing — never present a guess as a finding.
 2. **Read-only research.** Phases 0–3 read code, history, and docs; they
    change nothing. The only writes this skill ever makes are the spec
-   documents under `docs/pm/` and their local commit.
+   documents under `docs/pm/`, their commits on the epic's `pm/<slug>`
+   branch, and pushing that branch. Never `main`, never a target
+   repository, never `--force`.
 3. **Epic approval is a gate.** Do not write plan.md or tasks until the user
    approves the epic framing (Phase 4). A wrong problem statement makes every
    downstream task wrong. (Non-interactive runs cannot clear this gate — see
@@ -45,7 +47,8 @@ Maintain one fenced block, updated at every phase, posted whenever it changes:
 ```text
 SPEC LEDGER — <one-line problem statement>
 Phase: <current phase>
-Mode: <new epic | update <slug> | status query>
+Mode: <new epic | update <slug> | status query | claim management | handoff>
+Tool: <ok | ok, no remote | unavailable (bun missing)>
 Memory: <memo found/absent; related prior epics from INDEX, or "none">
 Evidence:
   - [<source>] <fact>
@@ -58,6 +61,11 @@ Docs written: <paths, or "none yet">
 ## The loop
 
 ### Phase 0 — Bootstrap memory
+
+**Preflight.** Read `references/commands.md` and run its preflight (Bun
+check, then `pm status`). The status output is the memory scan: it lists
+every epic, its owning session, stale claims, and the next ready task.
+Semantic recall of related epics still means opening their `epic.md`.
 
 If `docs/pm/pmanager-memo.md` exists, read it: product context, business
 goals, stakeholders, conventions. If `docs/pm/INDEX.md` exists, scan it for
@@ -74,7 +82,12 @@ Neither file existing means a cold start — note it and continue. Read
   task to app-performance", "we descoped X", "the epic looks good —
   approved") → read `references/tracking.md` and follow it; skip Phases 1–5.
 - **Status query** — "where are we on…", "what's next" → answer from
-  INDEX + the epic's plan/tasks; write nothing unless asked.
+  `pm status` + the epic's plan/tasks; write nothing unless asked.
+- **Claim management** — "release the argocd epic", "take over
+  infra-netbird-vm" → run `release` or `claim --takeover` per
+  `references/commands.md`, confirm in one line, write nothing else.
+- **Handoff** — "pick up T03", "brief for T02 of infra-netbird-vm" → run
+  `handoff`, print the brief verbatim, write nothing.
 
 ### Phase 1 — Understand and scope
 
@@ -96,6 +109,11 @@ in this order of cost:
    via `gh` when available.
 3. **Breadth**: for sweeps across many files or unknown code layout,
    dispatch read-only Explore subagents rather than grepping serially.
+
+The epic's `repos` list names the target repositories by remote URL.
+Resolve each through `docs/pm/.local/repos.json`; research in the local
+checkout when mapped. A repo not checked out on this machine lowers the
+epic's confidence with that reason recorded; never clone.
 
 Every finding lands in the ledger as `[source] fact`. Behavioral evidence
 (measurements, logs, repro) outranks stated evidence (what the request
@@ -123,7 +141,10 @@ Present a compact summary (problem, hypothesis, primary metric, scope,
 non-goals) and ask the user to approve, adjust, or send you back to
 research. **Stop. Do not write plan.md or any task until the epic framing
 is approved.** On "adjust", revise and re-present; on approval, write
-`docs/pm/<slug>/epic.md` and proceed.
+`docs/pm/<slug>/epic.md` (with `contract: 1`, `repos`, `primary-metric`),
+then run `pm claim <slug> --harness <yours>`. `owned by …` means another
+session has this epic: stop and tell the user. Otherwise you are on branch
+`pm/<slug>`; proceed.
 
 Slug: short kebab-case from the problem, e.g. `app-performance`,
 `checkout-idempotency`. If `docs/pm/<slug>/` already exists for different
@@ -139,7 +160,9 @@ register (likelihood × impact, mitigation per risk); dependencies with
 owners; MoSCoW scoping with recorded reasoning (read
 `references/prioritization.md`); definition of done; validation plan that
 separates verification (meets the spec) from validation (moves the epic's
-metric); changelog.
+metric); changelog. The task table sits between `<!-- pm:tasks:start -->`
+and `<!-- pm:tasks:end -->` and is rendered from the task files; write
+everything else by hand.
 
 **Tasks** (`docs/pm/<slug>/tasks/TNN-<slug>.md`): each task follows INVEST —
 independent where possible, small (split anything you cannot estimate or
@@ -157,14 +180,14 @@ optimization task.
 ### Phase 6 — Record
 
 1. Write all documents under `docs/pm/<slug>/`.
-2. Update `docs/pm/INDEX.md` — one row per epic, newest first (schema in
-   `references/memory.md`). Create it on first use.
-3. Reconcile `docs/pm/pmanager-memo.md`: business goals or stakeholders
-   learned this run, a changelog line, refreshed `_Last updated:_`. Create
-   from `references/memo.template.md` on cold start.
-4. Commit locally per the write-back rules in `references/memory.md` —
-   the single source of truth for the scoped commit command, message
-   format, and its prohibitions and fallbacks.
+2. Write the run log entry (`kind: spec`) as described in
+   `references/commands.md`; do not edit the memo changelog.
+3. Reconcile the memo's hand-written sections (goals, stakeholders,
+   conventions) and refresh `_Last updated:_`. Create from
+   `references/memo.template.md` on cold start.
+4. `pm render`, then `pm check`; fix findings until exit 0. Commit on
+   `pm/<slug>` and push it, per `references/memory.md` — the single source
+   of truth for the commit command, message format, and its prohibitions.
 5. Post the final ledger plus a one-screen summary: epic, milestone list,
    task table (id, title, priority, depends-on), and the suggested first
    task to pick up.
@@ -178,12 +201,16 @@ optimization task.
 | User can't answer open questions | Record unknowns in the epic's Open questions; lower hypothesis confidence; prefer a discovery task (spike) as T01 |
 | Request is too small for an epic (one obvious fix) | Say so — offer a single task file or no spec at all; don't inflate a typo fix into an epic |
 | Non-interactive run (no way to ask or get approval) | Skip the elicitation round — record every uncovered category as an Open question; proceed past the Phase 4 gate with the epic marked `status: draft` and state clearly in the summary that the framing awaits human approval |
-| Existing `docs/pm/` from manual edits | INDEX is reconciled, never blindly regenerated; a directory without an INDEX row gets its row added |
+| Existing `docs/pm/` from manual edits | Hand-written sections are kept; rendered regions are regenerated by `pm render`; pre-tool documents get `render --migrate` after asking the user |
+| Bun not installed | Print the user message and install steps from `references/commands.md`; stop before tool-dependent steps; plan without the tool only if the user says so; ledger `Tool: unavailable` |
+| No origin remote / unreachable | Claims and cross-session visibility are off for this run; say so; ledger `Tool: ok, no remote`; everything else proceeds |
+| Epic already claimed by another session | Stop, name the owner and harness from the claim output; offer takeover only if status shows `[stale]` and the user asks |
 
 ## Reference files — read when the phase goes deeper
 
 | File | Read when |
 | :--- | :--- |
+| `references/commands.md` | Every run — preflight, the pm tool commands, Phase 6 order, checker rules |
 | `references/memory.md` | Phase 0 bootstrap + Phase 6 record — INDEX/memo schemas, recall and update rules |
 | `references/research.md` | Phase 2 — evidence playbook: repo, history, incidents, Explore dispatch |
 | `references/elicitation.md` | Phase 3 — question categories and how to batch them |
