@@ -11,3 +11,6 @@
 
 # Ai
 .docs
+
+# Bun / tooling
+node_modules/
