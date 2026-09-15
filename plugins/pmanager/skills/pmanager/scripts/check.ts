@@ -288,6 +288,7 @@ const MARKER_PROBLEM: Record<Exclude<MarkerState, "ok">, string> = {
   missing: "has no",
   unterminated: "has an unterminated",
   misordered: "has a misordered",
+  duplicate: "has a duplicate",
 };
 
 export const derivedViewRules: Rule = (repo) => {

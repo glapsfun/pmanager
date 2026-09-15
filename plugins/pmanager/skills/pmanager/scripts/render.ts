@@ -99,7 +99,7 @@ export function renderMemoLog(repo: PmRepo): string {
   return `${LOG_START}\n${lines.join("\n")}\n${LOG_END}\n`;
 }
 
-export type MarkerState = "ok" | "missing" | "unterminated" | "misordered";
+export type MarkerState = "ok" | "missing" | "unterminated" | "misordered" | "duplicate";
 
 /** Whether `text` holds exactly one well-formed start…end region. */
 export function markerState(text: string, start: string, end: string): MarkerState {
@@ -109,7 +109,8 @@ export function markerState(text: string, start: string, end: string): MarkerSta
   if (e === -1) return "unterminated";
   if (e < s) return "misordered";
   const secondStart = text.indexOf(start, s + start.length);
-  if (secondStart !== -1 && secondStart < e) return "misordered";
+  const secondEnd = text.indexOf(end, e + end.length);
+  if (secondStart !== -1 || secondEnd !== -1) return "duplicate";
   return "ok";
 }
 

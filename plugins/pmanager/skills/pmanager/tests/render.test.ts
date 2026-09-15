@@ -125,7 +125,9 @@ describe("markerState", () => {
     expect(markerState("nothing", S, E)).toBe("missing");
     expect(markerState(`${S}\nx\n`, S, E)).toBe("unterminated");
     expect(markerState(`${E}\nx\n${S}\n`, S, E)).toBe("misordered");
-    expect(markerState(`${S}\n${S}\n${E}\n`, S, E)).toBe("misordered");
+    expect(markerState(`${S}\n${S}\n${E}\n`, S, E)).toBe("duplicate");
+    expect(markerState(`${S}\nx\n${E}\n${E}\n`, S, E)).toBe("duplicate");
+    expect(markerState(`${S}\nx\n${E}\n${S}\n`, S, E)).toBe("duplicate");
   });
 });
 

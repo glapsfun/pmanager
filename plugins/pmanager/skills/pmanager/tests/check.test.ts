@@ -144,6 +144,20 @@ describe("derived views", () => {
     await edit(root, MEMO, "<!-- pm:log:TMP -->", "<!-- pm:log:end -->");
     expect(await rules(root)).toContain("E-RND-004");
   });
+  test("E-RND-004 duplicate end markers, plan and memo", async () => {
+    const MEMO = "docs/pm/pmanager-memo.md";
+    let root = await fixture();
+    await edit(
+      root,
+      PLAN,
+      "<!-- pm:tasks:end -->\n",
+      "<!-- pm:tasks:end -->\n<!-- pm:tasks:end -->\n",
+    );
+    expect(await rules(root)).toContain("E-RND-004");
+    root = await fixture();
+    await edit(root, MEMO, "<!-- pm:log:end -->\n", "<!-- pm:log:end -->\n<!-- pm:log:end -->\n");
+    expect(await rules(root)).toContain("E-RND-004");
+  });
   test("findings carry file and fix", async () => {
     const root = await fixture();
     await edit(root, T04, "status: todo", "status: done");
