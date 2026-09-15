@@ -173,4 +173,19 @@ describe("claim through the CLI", () => {
     expect(parsed.renderPush.ok).toBe(false);
     expect(j.code).toBe(1);
   });
+
+  test("release by a different harness exits 1 unless --force", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    expect((await run(["claim", "app-performance"], a)).code).toBe(0);
+    await gitOk(["fetch", "-q", "origin"], b);
+    await gitOk(["checkout", "-q", "-b", "pm/app-performance", "origin/pm/app-performance"], b);
+    const refused = await run(["release", "app-performance", "--harness", "pi"], b);
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain("owned by test-harness");
+    const forced = await run(["release", "app-performance", "--harness", "pi", "--force"], b);
+    expect(forced.code).toBe(0);
+    const status = await run(["status", "--json"], a);
+    const parsed = JSON.parse(status.stdout) as { rows: Array<{ session: unknown }> };
+    expect(parsed.rows[0]?.session).toBeNull();
+  });
 });

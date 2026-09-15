@@ -22,7 +22,7 @@ commands
   check                         validate docs/pm (read-only)
   render [--migrate]            regenerate INDEX.md, plan task tables, memo log
   claim <slug> [--takeover]     claim an epic on branch pm/<slug> and push it
-  release <slug>                release an epic (clears session, pushes)
+  release <slug> [--force]      release an epic you own (clears session, pushes); --force overrides another harness's claim
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
 
@@ -40,6 +40,7 @@ export interface Args {
   json: boolean;
   staleDays: number;
   takeover: boolean;
+  force: boolean;
   harness: string;
   migrate: boolean;
 }
@@ -59,6 +60,7 @@ export function parseArgs(argv: string[]): Args | null {
     json: false,
     staleDays: 14,
     takeover: false,
+    force: false,
     harness: defaultHarness(),
     migrate: false,
   };
@@ -66,6 +68,7 @@ export function parseArgs(argv: string[]): Args | null {
     const a = argv[i] ?? "";
     if (a === "--json") args.json = true;
     else if (a === "--takeover") args.takeover = true;
+    else if (a === "--force") args.force = true;
     else if (a === "--migrate") args.migrate = true;
     else if (a === "--stale-days") {
       const n = Number.parseInt(argv[++i] ?? "", 10);
@@ -191,7 +194,11 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
     case "release": {
       const slug = args.positional[0];
       if (!slug) return fail(USAGE);
-      const result = await release(root, slug, { harness: args.harness, today: opts.today });
+      const result = await release(root, slug, {
+        harness: args.harness,
+        today: opts.today,
+        force: args.force,
+      });
       const render = result.ok
         ? await renderAndCommit(root, slug, "release")
         : { written: [], pushed: true };
@@ -205,7 +212,8 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
             })
           : `${result.message}\n${failure}`,
       );
-      return result.ok && render.pushed ? 0 : 1;
+      if (result.ok) return render.pushed ? 0 : 1;
+      return result.reason === "no-remote" || result.reason === "no-branch" ? 2 : 1;
     }
     case "status": {
       const { remote, claims } = await remoteClaims(root);

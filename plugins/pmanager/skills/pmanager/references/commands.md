@@ -34,7 +34,7 @@ stands for that full prefix.
 | `render --migrate` | `check` reports `W-LEG-001` or `E-RND-004` on pre-tool documents | prints `migrated <path>` lines, then rendered paths | ask the user before running it on a repo with a hand-maintained INDEX; it rewrites files |
 | `claim <slug> --harness NAME` | Phase 4, right after the user approves the epic and `epic.md` is written | exit 0; you are now on branch `pm/<slug>`, pushed | exit 1 `owned by …`: stop, tell the user who owns it; exit 2: no remote or no epic file |
 | `claim <slug> --takeover --harness NAME` | user explicitly asks to take over a stale claim | exit 0; plan changelog records the previous owner | exit 1 `not stale`: refuse; the user must ask the owner to release |
-| `release <slug> --harness NAME` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed | exit 1: not on the branch or push failed; report the message |
+| `release <slug> --harness NAME` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed | exit 1 `owned by …, not <you>`: refuse — only the owning harness releases; the owner must release, or the user asks for `claim --takeover` (stale) or `release --force` (a deliberate override, recorded in the log and plan changelog). exit 1 `already unclaimed`; exit 2 no remote / no branch |
 | `handoff <slug> <task-id>` | user says "pick up T03", "brief for T02 of …" | exit 0; the brief on stdout — paste it to the executing agent or user, write nothing | exit 2 unknown epic/task: check `status` for the right ids |
 
 Always pass `--harness <name>` with your harness (`claude-code`, `pi`,

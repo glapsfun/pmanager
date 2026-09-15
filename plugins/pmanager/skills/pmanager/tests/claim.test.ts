@@ -165,4 +165,34 @@ describe("claim", () => {
     const taken = await readFile(join(b, "docs/pm/brand-new/epic.md"), "utf8");
     expect(taken).toContain("harness: pi");
   });
+
+  test("release refuses another harness's claim unless forced; unclaimed is reported", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    await fetchOrigin(b);
+    await gitOk(["checkout", "-q", "-b", "pm/app-performance", "origin/pm/app-performance"], b);
+    const before = await gitOk(["rev-parse", "HEAD"], b);
+    const refused = await release(b, SLUG, { harness: "pi", today: "2026-09-16" });
+    expect(refused.ok).toBe(false);
+    expect(refused.reason).toBe("not-owner");
+    expect(refused.message).toContain("owned by claude-code");
+    expect(await gitOk(["rev-parse", "HEAD"], b)).toBe(before);
+    expect(await remoteSessionOf(b, SLUG)).toEqual({
+      harness: "claude-code",
+      claimed: "2026-09-15",
+      branch: "pm/app-performance",
+    });
+    const forced = await release(b, SLUG, { harness: "pi", today: "2026-09-16", force: true });
+    expect(forced.ok).toBe(true);
+    await fetchOrigin(a);
+    expect(await remoteSessionOf(a, SLUG)).toBeNull();
+    expect(await gitOk(["show", "HEAD", "--stat", "--format=%s"], b)).toContain(
+      "release app-performance",
+    );
+    const plan = await readFile(join(b, `docs/pm/${SLUG}/plan.md`), "utf8");
+    expect(plan).toContain("force-released by pi");
+    const again = await release(b, SLUG, { harness: "pi", today: "2026-09-17" });
+    expect(again.ok).toBe(false);
+    expect(again.reason).toBe("unclaimed");
+  });
 });

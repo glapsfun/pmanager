@@ -268,27 +268,77 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   };
 }
 
+export type ReleaseReason = "no-remote" | "no-branch" | "unclaimed" | "not-owner" | "push-failed";
+
+export interface ReleaseOutcome {
+  ok: boolean;
+  message: string;
+  reason?: ReleaseReason;
+}
+
 export async function release(
   root: string,
   slug: string,
-  opts: { harness: string; today: string },
-): Promise<{ ok: boolean; message: string }> {
+  opts: { harness: string; today: string; force?: boolean },
+): Promise<ReleaseOutcome> {
   const branch = claimBranch(slug);
-  if (!(await hasRemote(root))) return { ok: false, message: "no origin remote" };
+  if (!(await hasRemote(root)))
+    return { ok: false, reason: "no-remote", message: "no origin remote" };
+  await fetchOrigin(root);
   if ((await currentBranch(root)) !== branch) {
     if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-    else return { ok: false, message: `not on ${branch} and no local branch of that name` };
+    else {
+      return {
+        ok: false,
+        reason: "no-branch",
+        message: `not on ${branch} and no local branch of that name`,
+      };
+    }
   }
-  const paths = [
-    await writeSession(root, slug, undefined, opts.today),
+  // The remote claim record is authoritative; fall back to the local file
+  // only when the branch has never been pushed.
+  const remote = await remoteEpicOf(root, slug);
+  const owner =
+    remote !== null
+      ? remote.session
+      : (await localEpicExists(root, slug))
+        ? sessionOf(
+            parseDoc(epicRel(slug), await readFile(join(root, epicRel(slug)), "utf8")).frontmatter,
+          )
+        : null;
+  if (owner === null) {
+    return { ok: false, reason: "unclaimed", message: `${slug} is already unclaimed` };
+  }
+  if (owner.harness !== opts.harness && !opts.force) {
+    return {
+      ok: false,
+      reason: "not-owner",
+      message: `${slug} is owned by ${owner.harness} (claimed ${owner.claimed || "unknown"}), not ${opts.harness}; ask that session to release it, use claim --takeover if status shows [stale], or release --force as a deliberate override`,
+    };
+  }
+  const forced = owner.harness !== opts.harness;
+  const paths = [await writeSession(root, slug, undefined, opts.today)];
+  if (forced) {
+    const planPath = await appendPlanChangelog(
+      root,
+      slug,
+      opts.today,
+      `force-released by ${opts.harness}`,
+      `claim by ${owner.harness} overridden`,
+    );
+    if (planPath) paths.push(planPath);
+  }
+  paths.push(
     await writeLogEntry(join(root, PM_DIR), {
       date: opts.today,
       epic: slug,
       harness: opts.harness,
       kind: "release",
-      message: `released by ${opts.harness}`,
+      message: forced
+        ? `force-released by ${opts.harness} (was ${owner.harness})`
+        : `released by ${opts.harness}`,
     }),
-  ];
+  );
   await commitPaths(root, paths, `docs(pm): release ${slug}`);
   const push = await pushSetUpstream(root, branch);
   return push.code === 0
@@ -296,5 +346,5 @@ export async function release(
         ok: true,
         message: `${slug} released; branch ${branch} still exists until its PR is merged`,
       }
-    : { ok: false, message: `push failed: ${push.stderr.trim()}` };
+    : { ok: false, reason: "push-failed", message: `push failed: ${push.stderr.trim()}` };
 }

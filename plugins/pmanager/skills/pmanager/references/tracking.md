@@ -60,7 +60,9 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 ## Claim management and handoff
 
-"release the X epic" → `pm release <slug>`. "take over X" →
+"release the X epic" → `pm release <slug>` — refused when another harness
+owns the claim; only `release --force`, on the user's explicit say-so,
+overrides it and the override is recorded. "take over X" →
 `pm claim <slug> --takeover` only when `pm status` shows `[stale]`;
 otherwise tell the user the owner must release. "pick up T03 of X" /
 "brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
