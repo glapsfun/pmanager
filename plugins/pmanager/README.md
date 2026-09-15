@@ -11,18 +11,20 @@ asks you only what research can't answer, frames the problem as an epic with
 a testable hypothesis and measurable success metrics, and — only after you
 approve the framing — decomposes it into a plan and executable tasks.
 
-One directory per epic, under `docs/pm/`:
+One directory per epic under `docs/pm/` of an orchestration repo; code lives
+in the target repos the epic references:
 
 ```text
-docs/pm/
-├── INDEX.md                  # memory: one row per epic, scanned every run
-├── pmanager-memo.md          # product memo: goals, stakeholders, conventions
-└── app-performance/
-    ├── epic.md               # why & what — problem, evidence, hypothesis, metrics, non-goals
-    ├── plan.md               # how & when — milestones, risks, dependencies, MoSCoW, changelog
-    └── tasks/
-        ├── T01-profile-hot-paths.md
-        └── T02-add-db-indexes.md
+manager/                          # orchestration repo — planning state only
+└── docs/pm/
+    ├── INDEX.md                  # rendered: one row per epic with owner, session, repos
+    ├── pmanager-memo.md          # product memo; changelog rendered from log/
+    ├── log/                      # one file per run (merge-safe changelog)
+    ├── argocd-compute-class/     # epic owned by session 1 (repos: argocd)
+    │   ├── epic.md · plan.md · tasks/
+    └── infra-netbird-vm/         # epic owned by session 2 (repos: infra)
+        ├── epic.md · plan.md · tasks/
+argocd/  infra/                   # target repos — code lives here, never touched by the skill
 ```
 
 The agent follows an evidence-first loop:
@@ -42,7 +44,36 @@ task table, and the index — and verifies checkable acceptance criteria
 against the repo instead of silently trusting the claim. `/pmanager what's
 next?` answers from the index, respecting dependencies and priorities.
 
+## Multi-session planning
+
+Several agent sessions, on any mix of harnesses, can plan different epics in
+the same orchestration repo:
+
+- **Branch = claim.** Approving an epic pushes `pm/<slug>`; a second session
+  that tries the same epic is told who owns it. Merge the branch through a PR
+  and delete it to release the epic.
+- **Rendered views.** `INDEX.md`, each plan's task table, and the memo
+  changelog are generated from task and epic frontmatter, so two branches
+  never conflict on them. After merging, run the renderer once.
+- **Handoff, not execution.** "pick up T03" prints a self-contained brief for
+  whoever implements it — the same session, another agent, or you. The skill
+  never runs code in a target repository.
+- **Checker.** `pm check` validates every document deterministically and
+  prints the fix for each finding; the agent runs it before every commit.
+
 ## Installation
+
+### Requirement — Bun
+
+The skill ships a small TypeScript tool (checker, renderer, claim, handoff)
+that runs on [Bun](https://bun.sh). Install it once per machine:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Without Bun the agent will stop and print these instructions before doing
+any tool-dependent work.
 
 | Target | Install |
 | :--- | :--- |
@@ -73,6 +104,9 @@ and scoping requests without the explicit command.
   it proceeds with the epic marked `draft`, says so in its summary, and
   waits for your "approved" on the next invocation to flip it.
 - Invent metric targets you didn't confirm and evidence didn't establish.
-- Push, bare-commit, or touch anything outside `docs/pm/` (research is
-  read-only).
+- Push anything except the epic's own `pm/<slug>` branch of the orchestration
+  repo (never `main`, never a target repo, never with force), bare-commit, or
+  touch anything outside `docs/pm/` (research is read-only).
+- Execute tasks in a target repository — it hands off a brief and tracks the
+  result.
 - Record secrets or PII in the docs — metadata and reasoning only.

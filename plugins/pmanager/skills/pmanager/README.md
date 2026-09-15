@@ -19,10 +19,14 @@ and a full worked example. The skill's own behavior is defined in
 | Gemini CLI | `npx skills add glapsfun/pmanager --skill pmanager --agent gemini-cli --global -y` |
 | Copilot CLI | `npx skills add glapsfun/pmanager --skill pmanager --agent copilot --global -y` |
 
+**Requirement:** Bun 1.x on every machine — `curl -fsSL https://bun.sh/install | bash`.
+The skill ships a small tool (`scripts/pm.ts`) for checking, rendering,
+claiming, and handing off; the agent runs it for you.
+
 ## How to use it
 
 Invoke it explicitly with `/pmanager <request>`, or just describe the work —
-the skill triggers on planning/scoping language. Three kinds of request:
+the skill triggers on planning/scoping language. Four kinds of request:
 
 **1. New work — a problem or idea:**
 
@@ -59,15 +63,28 @@ checkable — the agent doesn't silently trust them.
 Recommendations respect task dependencies and priorities — a task whose
 dependency is blocked won't be suggested.
 
+**4. Ownership and handoff (multi-session):**
+
+```text
+/pmanager release the argocd epic
+/pmanager take over infra-netbird-vm          # only if its claim is stale
+/pmanager pick up T03 of infra-netbird-vm     # prints an execution brief
+```
+
+Approving an epic claims it by pushing the branch `pm/<slug>`; another
+session that tries the same epic is told who owns it. Merging and deleting
+the branch releases it.
+
 ## What it writes
 
-Everything lives under `docs/pm/` in your repo, committed locally (scoped,
-never pushed):
+Everything lives under `docs/pm/` in your orchestration repo, committed on
+the epic's `pm/<slug>` branch and pushed there (never `main`):
 
 ```text
 docs/pm/
-├── INDEX.md                  # one row per epic — the memory scanned every run
-├── pmanager-memo.md          # product memo: goals, stakeholders, conventions
+├── INDEX.md                  # rendered: one row per epic with owner, session, repos
+├── pmanager-memo.md          # product memo; changelog rendered from log/
+├── log/                      # one file per run (merge-safe changelog)
 └── <epic-slug>/
     ├── epic.md               # why & what — problem, evidence, hypothesis, metrics, non-goals
     ├── plan.md               # how & when — milestones, risks, dependencies, MoSCoW, changelog
@@ -169,8 +186,11 @@ commits, and answers:
 - **Nothing is written before you approve the epic** — except in
   non-interactive runs (nobody to ask), where the spec is written with the
   epic marked `draft` and your later "approved" flips it.
-- **Research is read-only**; the only writes are `docs/pm/` and its scoped
-  local commit. No pushes, no secrets/PII in the docs.
+- **Research is read-only**; the only writes are `docs/pm/`, its scoped
+  commit, and the push of the epic's own `pm/<slug>` branch. Never `main`,
+  never a target repo, no secrets/PII in the docs.
+- **Rendered files:** `INDEX.md`, the plan's task table, and the memo
+  changelog are generated; edit task files instead and the agent re-renders.
 - **Too small for an epic?** The agent says so and offers a single task
   file instead of inflating a typo fix into a program of work.
 - **Evidence honesty:** stated claims ("customers keep asking") are labeled

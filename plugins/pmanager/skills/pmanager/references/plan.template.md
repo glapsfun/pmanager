@@ -9,6 +9,7 @@ first approval appends a changelog line, never silently rewrites history.
 epic: <slug>
 status: draft | approved | in-progress | done | abandoned
 updated: YYYY-MM-DD
+contract: 1
 ---
 
 # Plan — <epic title>
@@ -33,12 +34,15 @@ Exit criteria:
 
 ## Task breakdown & traceability
 
+<!-- pm:tasks:start -->
 | Task | Title | Milestone | Priority | Depends on | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | T01 | Profile checkout hot paths | M1 | must | — | todo |
 | T02 | Add index on orders.user_id | M2 | must | T01 | todo |
+<!-- pm:tasks:end -->
 
-Every task maps to a milestone; every milestone serves the epic's primary
+This table is rendered from the task files by `pm render`; never edit it by
+hand. Every task maps to a milestone; every milestone serves the epic's primary
 metric. A task that maps to nothing is a scope-creep flag — cut it or
 re-frame the epic.
 
