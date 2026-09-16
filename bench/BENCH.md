@@ -7,6 +7,7 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 | Harness | Model | Scenario | Score | Δ score | Failed | Duration | Δ duration | Tokens in/out | Cache r/w | Δ tokens | Cost | Turns | Tool calls | Date | Sha |
 | :--- | :--- | :--- | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- | :--- |
 | claude-code 2.1.273 | — | two-session-claim-conflict | 1.00 | — | — | 41s | — | 12/2406 | 144387/23185 | — | $0.37 | 7 | Bash 4, Skill 1 | 2026-09-16 | c7fcbb6 |
+| codex 0.154.0 | — | two-session-claim-conflict | 0.80 | — | names-owner | 46s | — | 131483/1883 | 110208/0 | — | — | — | command_execution 12 | 2026-09-16 | 6973336 |
 
 ## Tool microbench
 
@@ -18,4 +19,5 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 
 | Date | Sha | Harness | Model | Scenario | Run | Score | Failed | Duration | Tokens in/out | Cost |
 | :--- | :--- | :--- | :--- | :--- | ---: | ---: | :--- | ---: | ---: | ---: |
+| 2026-09-16 | 6973336 | codex | — | two-session-claim-conflict | 1 | 0.80 | names-owner | 46s | 131483/1883 | — |
 | 2026-09-16 | c7fcbb6 | claude-code | — | two-session-claim-conflict | 1 | 1.00 | — | 41s | 12/2406 | $0.37 |
