@@ -1,6 +1,7 @@
+import { join } from "node:path";
 import { detectCli, parseLines } from "./claude-code";
 import { spawnWithTimeout } from "./spawn";
-import { type Adapter, addCount, EMPTY_TELEMETRY, type Telemetry } from "./types";
+import { type Adapter, addCount, EMPTY_TELEMETRY, type Isolation, type Telemetry } from "./types";
 
 type Json = Record<string, unknown>;
 
@@ -50,6 +51,26 @@ export function parsePiStream(jsonl: string): Telemetry {
   return t;
 }
 
+const PI_ISOLATION_FLAGS = [
+  "--no-skills",
+  "--no-extensions",
+  "--no-prompt-templates",
+  "--no-context-files",
+];
+
+/** Flags disable every user resource; the with-skill condition loads the fixture copy explicitly. */
+export async function isolatePi(): Promise<Isolation> {
+  return {
+    mode: "flags",
+    env: {},
+    args: (condition, fixtureDir) =>
+      condition === "with-skill"
+        ? [...PI_ISOLATION_FLAGS, "--skill", join(fixtureDir, ".agents/skills/pmanager")]
+        : [...PI_ISOLATION_FLAGS],
+    cleanup: async () => undefined,
+  };
+}
+
 export const pi: Adapter = {
   name: "pi",
   defaultModel: undefined,
@@ -61,8 +82,9 @@ export const pi: Adapter = {
     "PI_OFFLINE",
   ],
   detect: () => detectCli("pi", ["--version"]),
+  isolate: isolatePi,
   async run(opts) {
-    const cmd = ["pi", "-p", "--mode", "json", "--no-session"];
+    const cmd = ["pi", "-p", "--mode", "json", "--no-session", ...(opts.extraArgs ?? [])];
     if (opts.model) cmd.push("--model", opts.model);
     cmd.push(opts.prompt);
     const r = await spawnWithTimeout(cmd, opts);

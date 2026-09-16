@@ -1,6 +1,15 @@
-import { detectCliLastToken, parseLines } from "./claude-code";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { detectCliLastToken, exists, parseLines } from "./claude-code";
 import { spawnWithTimeout } from "./spawn";
-import { type Adapter, addCount, EMPTY_TELEMETRY, type Telemetry } from "./types";
+import {
+  type Adapter,
+  addCount,
+  EMPTY_TELEMETRY,
+  type IsolateOptions,
+  type Isolation,
+  type Telemetry,
+} from "./types";
 
 type Json = Record<string, unknown>;
 
@@ -42,11 +51,28 @@ export function parseCodexStream(jsonl: string): Telemetry {
   return t;
 }
 
+/** A temporary HOME and CODEX_HOME seeded with auth.json only: no user skills, memories or hooks. */
+export async function isolateCodex(opts: IsolateOptions): Promise<Isolation | null> {
+  const auth = join(opts.home, ".codex", "auth.json");
+  if (!(await exists(auth))) return null;
+  const home = await mkdtemp(join(opts.tmp, "codex-home-"));
+  const codexHome = join(home, ".codex");
+  await mkdir(codexHome, { recursive: true });
+  await copyFile(auth, join(codexHome, "auth.json"));
+  return {
+    mode: "home-dir",
+    env: { HOME: home, CODEX_HOME: codexHome },
+    args: () => [],
+    cleanup: () => rm(home, { recursive: true, force: true }),
+  };
+}
+
 export const codex: Adapter = {
   name: "codex",
   defaultModel: undefined,
   envPassthrough: ["OPENAI_API_KEY", "CODEX_HOME"],
   detect: () => detectCliLastToken("codex", ["--version"]),
+  isolate: isolateCodex,
   async run(opts) {
     const cmd = [
       "codex",
@@ -54,6 +80,7 @@ export const codex: Adapter = {
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
       "--skip-git-repo-check",
+      ...(opts.extraArgs ?? []),
       "-C",
       opts.cwd,
     ];

@@ -7,6 +7,9 @@ export const geminiCli: Adapter = {
   name: "gemini-cli",
   defaultModel: undefined,
   envPassthrough: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  async isolate() {
+    return null;
+  },
   async detect() {
     return { available: false, reason: REASON };
   },

@@ -15,6 +15,7 @@ describe("adapter registry", () => {
       const d = await a?.detect();
       expect(d?.available).toBe(false);
       expect(d?.reason).toContain("not implemented");
+      expect(await a?.isolate({ home: "/nonexistent", tmp: "/tmp" })).toBeNull();
       await expect(
         a?.run({
           cwd: "/tmp",

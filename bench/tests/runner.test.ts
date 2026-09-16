@@ -17,6 +17,9 @@ function fakeAdapter(act: (opts: RunOptions) => Promise<void>): Adapter {
     async detect() {
       return { available: true, version: "0.0.0" };
     },
+    async isolate() {
+      return null;
+    },
     async run(opts): Promise<RunOutcome> {
       await act(opts);
       await writeFile(opts.rawLogPath, "{}\n");

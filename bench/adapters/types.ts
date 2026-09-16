@@ -1,3 +1,5 @@
+import type { Condition } from "../scenarios/types";
+
 export type HarnessName = "claude-code" | "codex" | "pi" | "gemini-cli" | "copilot";
 
 /** input is the uncached part of the prompt on every harness; cache reads and writes are separate. */
@@ -28,6 +30,18 @@ export const EMPTY_TELEMETRY: Telemetry = {
   model: null,
 };
 
+export interface Isolation {
+  mode: string;
+  env: Record<string, string>;
+  args(condition: Condition, fixtureDir: string): string[];
+  cleanup(): Promise<void>;
+}
+
+export interface IsolateOptions {
+  home: string;
+  tmp: string;
+}
+
 export interface Detection {
   available: boolean;
   version?: string;
@@ -41,6 +55,7 @@ export interface RunOptions {
   timeoutMs: number;
   env: Record<string, string>;
   rawLogPath: string;
+  extraArgs?: string[];
 }
 
 export interface RunOutcome {
@@ -56,6 +71,7 @@ export interface Adapter {
   defaultModel: string | undefined;
   envPassthrough: string[];
   detect(): Promise<Detection>;
+  isolate(opts: IsolateOptions): Promise<Isolation | null>;
   run(opts: RunOptions): Promise<RunOutcome>;
 }
 

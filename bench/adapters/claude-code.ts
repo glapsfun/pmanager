@@ -1,5 +1,15 @@
+import { copyFile, mkdtemp, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { spawnWithTimeout } from "./spawn";
-import { type Adapter, addCount, type Detection, EMPTY_TELEMETRY, type Telemetry } from "./types";
+import {
+  type Adapter,
+  addCount,
+  type Detection,
+  EMPTY_TELEMETRY,
+  type IsolateOptions,
+  type Isolation,
+  type Telemetry,
+} from "./types";
 
 type Json = Record<string, unknown>;
 
@@ -75,14 +85,39 @@ export function parseClaudeStream(jsonl: string): Telemetry {
   return t;
 }
 
+export async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A config dir holding only the credentials file: no user skills, plugins, settings or memory. */
+export async function isolateClaude(opts: IsolateOptions): Promise<Isolation | null> {
+  const creds = join(opts.home, ".claude", ".credentials.json");
+  if (!(await exists(creds))) return null;
+  const dir = await mkdtemp(join(opts.tmp, "claude-config-"));
+  await copyFile(creds, join(dir, ".credentials.json"));
+  return {
+    mode: "config-dir",
+    env: { CLAUDE_CONFIG_DIR: dir },
+    args: () => [],
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  };
+}
+
 export const claudeCode: Adapter = {
   name: "claude-code",
   defaultModel: undefined,
   envPassthrough: ["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_BUDGET_USD"],
   detect: () => detectCli("claude", ["--version"]),
+  isolate: isolateClaude,
   async run(opts) {
     const cmd = [
       "claude",
+      ...(opts.extraArgs ?? []),
       "-p",
       opts.prompt,
       "--output-format",
