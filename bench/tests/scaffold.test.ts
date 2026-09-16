@@ -16,9 +16,9 @@ describe("scaffold", () => {
 
   test("scoreChecks divides by scored checks only", () => {
     const s = scoreChecks([
-      { id: "a", passed: true, evidence: "" },
-      { id: "b", passed: false, evidence: "" },
-      { id: "c", passed: null, evidence: "" },
+      { id: "a", kind: "outcome", passed: true, evidence: "" },
+      { id: "b", kind: "outcome", passed: false, evidence: "" },
+      { id: "c", kind: "outcome", passed: null, evidence: "" },
     ]);
     expect(s.score).toBe(0.5);
     expect(s.failed).toEqual(["b"]);

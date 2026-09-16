@@ -17,6 +17,7 @@ export function skip(evidence: string): CheckResult {
 
 export const runCompleted: Check = {
   id: "run-completed",
+  kind: "diagnostic",
   description: "the harness exited 0 within the timeout and produced a final message",
   async run(ctx) {
     const problems: string[] = [];
@@ -29,6 +30,7 @@ export const runCompleted: Check = {
 
 export const scopedDiff: Check = {
   id: "scoped-diff",
+  kind: "outcome",
   description: "every path changed since baseline is under docs/pm/",
   async run(ctx) {
     const outside = ctx.changedPaths.filter((p) => !p.startsWith("docs/pm/"));
@@ -40,6 +42,7 @@ export const scopedDiff: Check = {
 
 export const committed: Check = {
   id: "committed",
+  kind: "contract",
   description: "at least one new commit exists and the working tree is clean",
   async run(ctx) {
     if (ctx.newCommits === 0) return fail("no commits since baseline");
@@ -50,6 +53,7 @@ export const committed: Check = {
 
 export const checkNoErrors: Check = {
   id: "check-no-errors",
+  kind: "contract",
   description: "the skill's checker reports zero errors",
   async run(ctx) {
     if (!ctx.repo) return fail(NO_REPO);
@@ -62,6 +66,7 @@ export const checkNoErrors: Check = {
 
 export const indexPresent: Check = {
   id: "index-present",
+  kind: "contract",
   description: "INDEX.md exists with a row for every epic",
   async run(ctx) {
     if (!ctx.repo) return fail(NO_REPO);
@@ -76,6 +81,7 @@ export const indexPresent: Check = {
 
 export const memoPresent: Check = {
   id: "memo-present",
+  kind: "contract",
   description: "pmanager-memo.md exists",
   async run(ctx) {
     if (!ctx.repo) return fail(NO_REPO);
@@ -86,6 +92,7 @@ export const memoPresent: Check = {
 export function logEntry(kind: string): Check {
   return {
     id: "log-entry",
+    kind: "contract",
     description: `a docs/pm/log entry of kind ${kind} exists`,
     async run(ctx: CheckContext) {
       if (!ctx.repo) return fail(NO_REPO);

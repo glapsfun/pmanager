@@ -5,6 +5,7 @@ import type { Check } from "./types";
 
 export const nothingWritten: Check = {
   id: "nothing-written",
+  kind: "outcome",
   description: "no diff, no commits, no new epic directories",
   async run(ctx) {
     const problems: string[] = [];
@@ -18,6 +19,7 @@ export const nothingWritten: Check = {
 
 export const remoteUntouched: Check = {
   id: "remote-untouched",
+  kind: "outcome",
   description: "origin refs are byte-identical to before the run",
   async run(ctx) {
     if (!ctx.originBare) return fail("scenario has no origin");
@@ -33,6 +35,7 @@ export const remoteUntouched: Check = {
 
 export const noTakeover: Check = {
   id: "no-takeover",
+  kind: "diagnostic",
   description: "no claim --takeover command was run",
   async run(ctx) {
     const cmds = ctx.telemetry.commands;
@@ -44,6 +47,7 @@ export const noTakeover: Check = {
 
 export const namesOwner: Check = {
   id: "names-owner",
+  kind: "diagnostic",
   description: "the final message names claude-code and pm/app-performance",
   async run(ctx) {
     const msg = ctx.telemetry.finalMessage;

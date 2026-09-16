@@ -6,7 +6,7 @@ import {
 import type { EpicRecord } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import { fail, pass } from "./common";
 import { newEpics } from "./context";
-import type { Check, CheckContext, CheckResult } from "./types";
+import type { Check, CheckContext, CheckKind, CheckResult } from "./types";
 
 const TASK_FIELDS = ["id", "epic", "milestone", "status", "depends-on"];
 const WINDOW = /\b(d|day|days|week|weeks|wk|h|hour|hours|sprint|sprints|month|months)\b/i;
@@ -27,9 +27,15 @@ function isResult(x: EpicRecord | CheckResult): x is CheckResult {
   return "passed" in x;
 }
 
-function epicCheck(id: string, description: string, fn: (e: EpicRecord) => CheckResult): Check {
+function epicCheck(
+  id: string,
+  kind: CheckKind,
+  description: string,
+  fn: (e: EpicRecord) => CheckResult,
+): Check {
   return {
     id,
+    kind,
     description,
     async run(ctx) {
       const e = single(ctx);
@@ -40,6 +46,7 @@ function epicCheck(id: string, description: string, fn: (e: EpicRecord) => Check
 
 export const epicAndPlan = epicCheck(
   "epic-and-plan",
+  "outcome",
   "exactly one new epic with epic.md and plan.md",
   (e) =>
     e.epic && e.plan
@@ -51,6 +58,7 @@ export const epicAndPlan = epicCheck(
 
 export const tasksMin3 = epicCheck(
   "tasks-min-3",
+  "contract",
   "at least three tasks with the traceability chain",
   (e) => {
     if (e.tasks.length < 3) return fail(`${e.tasks.length} task file(s)`);
@@ -63,6 +71,7 @@ export const tasksMin3 = epicCheck(
 
 export const binaryAcceptance = epicCheck(
   "binary-acceptance",
+  "contract",
   "every task has checkbox acceptance criteria",
   (e) => {
     const bad = e.tasks.filter(
@@ -78,6 +87,7 @@ export const binaryAcceptance = epicCheck(
 
 export const evidenceCitesRepo = epicCheck(
   "evidence-cites-repo",
+  "outcome",
   "Evidence cites app/app.py, schema.sql, or the pagination commit",
   (e) => {
     const ev = sectionBody(e.epic?.body ?? "", "Evidence") ?? "";
@@ -90,6 +100,7 @@ export const evidenceCitesRepo = epicCheck(
 
 export const metricHasTarget = epicCheck(
   "metric-has-target",
+  "outcome",
   "a success-metric row has a number and a window",
   (e) => {
     const rows = (sectionBody(e.epic?.body ?? "", "Success metrics") ?? "")
@@ -102,13 +113,14 @@ export const metricHasTarget = epicCheck(
   },
 );
 
-export const nonGoals = epicCheck("non-goals", "Non-goals section is non-empty", (e) => {
+export const nonGoals = epicCheck("non-goals", "outcome", "Non-goals section is non-empty", (e) => {
   const body = (sectionBody(e.epic?.body ?? "", "Non-goals") ?? "").trim();
   return body ? pass(body.split("\n")[0] ?? "") : fail("Non-goals section missing or empty");
 });
 
 export const draftAwaitsApproval = epicCheck(
   "draft-awaits-approval",
+  "outcome",
   "epic status is draft",
   (e) => {
     const s = getString(e.epic?.frontmatter ?? {}, "status");
@@ -118,6 +130,7 @@ export const draftAwaitsApproval = epicCheck(
 
 export const riskiestFirst = epicCheck(
   "riskiest-first",
+  "outcome",
   "the lowest-numbered dependency-free task is a measurement task",
   (e) => {
     const first = [...e.tasks]
@@ -133,6 +146,7 @@ export const riskiestFirst = epicCheck(
 
 export const confidenceNotHigh = epicCheck(
   "confidence-not-high",
+  "outcome",
   "epic confidence is not high",
   (e) => {
     const m = (e.epic?.body ?? "").match(/\*\*Confidence:\*\*\s*(\w+)/i);

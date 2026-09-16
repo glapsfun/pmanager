@@ -7,6 +7,8 @@ export interface CheckResult {
   evidence: string;
 }
 
+export type CheckKind = "outcome" | "contract" | "diagnostic";
+
 export interface RunStatus {
   exitCode: number | null;
   timedOut: boolean;
@@ -31,12 +33,14 @@ export interface CheckContext {
 
 export interface Check {
   id: string;
+  kind: CheckKind;
   description: string;
   run(ctx: CheckContext): Promise<CheckResult>;
 }
 
 export interface CheckOutcome {
   id: string;
+  kind: CheckKind;
   passed: boolean | null;
   evidence: string;
 }
@@ -53,9 +57,14 @@ export async function runChecks(checks: Check[], ctx: CheckContext): Promise<Che
   for (const c of checks) {
     try {
       const r = await c.run(ctx);
-      out.push({ id: c.id, passed: r.passed, evidence: r.evidence });
+      out.push({ id: c.id, kind: c.kind, passed: r.passed, evidence: r.evidence });
     } catch (e) {
-      out.push({ id: c.id, passed: false, evidence: `check threw: ${(e as Error).message}` });
+      out.push({
+        id: c.id,
+        kind: c.kind,
+        passed: false,
+        evidence: `check threw: ${(e as Error).message}`,
+      });
     }
   }
   return out;
@@ -67,4 +76,16 @@ export function scoreChecks(outcomes: CheckOutcome[]): Score {
   const scored = outcomes.length - skipped.length;
   const passed = outcomes.filter((o) => o.passed === true).length;
   return { score: scored === 0 ? 0 : passed / scored, failed, skipped, outcomes };
+}
+
+export function scoreByKind(outcomes: CheckOutcome[], kind: CheckKind): number | null {
+  const scored = outcomes.filter((o) => o.kind === kind && o.passed !== null);
+  if (scored.length === 0) return null;
+  return scored.filter((o) => o.passed === true).length / scored.length;
+}
+
+/** Task success: at least one outcome check exists and every outcome check passed. */
+export function isSuccess(outcomes: CheckOutcome[]): boolean {
+  const outcome = outcomes.filter((o) => o.kind === "outcome");
+  return outcome.length > 0 && outcome.every((o) => o.passed === true);
 }

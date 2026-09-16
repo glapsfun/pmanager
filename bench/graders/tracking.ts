@@ -8,7 +8,7 @@ import {
 } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import { fail, pass, skip } from "./common";
 import { newEpics } from "./context";
-import type { Check, CheckContext, CheckResult } from "./types";
+import type { Check, CheckContext, CheckKind, CheckResult } from "./types";
 
 const SLUG = "app-performance";
 
@@ -30,12 +30,14 @@ function task(ctx: CheckContext, id: string): TaskDoc | CheckResult {
 
 function taskCheck(
   id: string,
+  kind: CheckKind,
   description: string,
   taskId: string,
   fn: (t: TaskDoc) => CheckResult,
 ): Check {
   return {
     id,
+    kind,
     description,
     async run(ctx) {
       const t = task(ctx, taskId);
@@ -46,6 +48,7 @@ function taskCheck(
 
 export const noNewEpic: Check = {
   id: "no-new-epic",
+  kind: "outcome",
   description: "no epic directory was added",
   async run(ctx) {
     const added = newEpics(ctx);
@@ -57,6 +60,7 @@ export const noNewEpic: Check = {
 
 export const t01Done = taskCheck(
   "t01-done",
+  "outcome",
   "T01 is done and its updated date advanced",
   "T01",
   (t) => {
@@ -71,6 +75,7 @@ export const t01Done = taskCheck(
 
 export const t02BlockedNoted = taskCheck(
   "t02-blocked-noted",
+  "outcome",
   "T02 is blocked and names the DBA review",
   "T02",
   (t) => {
@@ -84,6 +89,7 @@ export const t02BlockedNoted = taskCheck(
 
 export const tableMirrors: Check = {
   id: "table-mirrors",
+  kind: "contract",
   description: "the rendered plan task table shows T01 done and T02 blocked",
   async run(ctx) {
     const e = epic(ctx);
@@ -103,6 +109,7 @@ export const tableMirrors: Check = {
 
 export const indexCounts: Check = {
   id: "index-counts",
+  kind: "contract",
   description: "INDEX row shows 1/4 tasks done",
   async run(ctx) {
     if (!ctx.repo?.index) return fail("docs/pm/INDEX.md missing");
@@ -113,6 +120,7 @@ export const indexCounts: Check = {
 
 export const nextNotT03: Check = {
   id: "next-not-t03",
+  kind: "diagnostic",
   description: "the final message does not recommend T03 and names T04 or the blocker",
   async run(ctx) {
     const msg = ctx.telemetry.finalMessage;
@@ -129,6 +137,7 @@ export const nextNotT03: Check = {
 
 export const verifiedEvidence = taskCheck(
   "verified-evidence",
+  "outcome",
   "T01 references profile-results.txt and criteria are checked or marked unverified",
   "T01",
   (t) => {
