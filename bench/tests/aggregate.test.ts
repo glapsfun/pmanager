@@ -26,6 +26,7 @@ describe("aggregate", () => {
     expect(g("with-skill")?.checkFailureRate).toEqual({ o1: 1 / 3, c1: 0 });
     expect(g("with-skill")?.cost).toEqual({ sumUsd: 2, n: 2 });
     expect(g("with-skill")?.tokens.input).toEqual({ median: 10, q1: 10, q3: 10, n: 2 });
+    expect(g("with-skill")?.tokens.fresh).toEqual({ median: 10, q1: 10, q3: 10, n: 2 });
     expect(g("without-skill")).toMatchObject({
       planned: 3,
       attempted: 2,

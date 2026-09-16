@@ -194,7 +194,7 @@ scores the produced documents with deterministic checks (the skill's own
 checker, evidence citations, task ordering, approval gates, claim handling).
 Score is the share of checks passed; 1.00 means every check passed. Fresh
 tokens are the uncached prompt tokens the harness paid for, on one definition
-for every harness. Cost is shown only where the harness reports it. A free
+for every harness. Cost is shown only where the harness reports it; Codex reports tokens but no dollars, so its rows carry fresh tokens and a blank cost. The model cell includes the reasoning effort when one was requested. A free
 microbench times the `pm` tool on a large synthetic `docs/pm`.
 
 The table below is rendered by `bun run bench/bench.ts report` from

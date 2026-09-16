@@ -147,14 +147,18 @@ export function renderExperimentsSection(items: ExperimentItem[]): string[] {
         ? `${pct(a?.successRate ?? null)} / ${pct(b.successRate)}`
         : pct(a?.successRate ?? null);
       const diff = p?.scoreDiff ? fixed(p.scoreDiff.median, true) : DASH;
-      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${m.modelRequested} | ${sc.name} | ${pairs} | ${success} | ${diff} | ${money(s.spendUsd)} |`;
+      const fresh = (g: GroupStats | undefined) =>
+        g?.tokens.fresh ? String(Math.round(g.tokens.fresh.median)) : DASH;
+      const tokens = b ? `${fresh(a)} / ${fresh(b)}` : fresh(a);
+      const model = `${m.modelRequested}${m.reasoning ? ` (${m.reasoning})` : ""}`;
+      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${pairs} | ${success} | ${diff} | ${tokens} | ${money(s.spendUsd)} |`;
     });
   });
   return [
     "## Experiments",
     "",
-    "| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Cost |",
-    "| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: |",
+    "| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |",
+    "| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     "",
   ];

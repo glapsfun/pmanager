@@ -25,6 +25,8 @@ export interface GroupStats {
     output: Quartiles | null;
     cacheRead: Quartiles | null;
     cacheWrite: Quartiles | null;
+    /** input + cacheWrite per attempt: the prompt tokens the harness paid for fresh */
+    fresh: Quartiles | null;
   };
   cost: { sumUsd: number | null; n: number };
 }
@@ -128,6 +130,11 @@ function groupStats(
       output: tok("output"),
       cacheRead: tok("cacheRead"),
       cacheWrite: tok("cacheWrite"),
+      fresh: quartiles(
+        done
+          .filter((a) => a.telemetry.tokens)
+          .map((a) => (a.telemetry.tokens?.input ?? 0) + (a.telemetry.tokens?.cacheWrite ?? 0)),
+      ),
     },
     cost: { sumUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null, n: costs.length },
   };
