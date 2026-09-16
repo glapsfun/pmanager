@@ -69,6 +69,10 @@ the same orchestration repo:
 
 ---
 
+## Benchmark
+
+`bench/` measures the skill on any harness with a headless mode (Claude Code, Codex CLI, pi): deterministic scores from the produced documents, plus tokens, cost, and timing where the harness reports them, and a free microbench of the `pm` tool. See `bench/README.md` and `bench/BENCH.md`.
+
 ## Installation
 
 ### Requirement — Bun
