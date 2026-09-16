@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { EMPTY_TELEMETRY } from "../adapters/types";
+import { installContract } from "../contract";
 import { type FixtureInfo, gitCommitAll, headSha, snapshotDirty } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { buildCheckContext } from "../graders/context";
@@ -74,6 +75,14 @@ describe("common checks", () => {
     for (const r of res.filter((r) => r.id !== "scoped-diff" && r.id !== "committed")) {
       expect(r.passed).toBe(false);
       expect(r.evidence).toContain("docs/pm");
+    }
+    await installContract(dir);
+    const ctx2 = await buildCheckContext(dir, { ...info, epicSlugsBefore: [] }, EMPTY_TELEMETRY);
+    const res2 = await runChecks(commonChecks("spec"), ctx2);
+    for (const id of ["index-present", "memo-present", "log-entry", "check-no-errors"]) {
+      const r = res2.find((x) => x.id === id);
+      expect([id, r?.passed]).toEqual([id, false]);
+      expect(r?.evidence).toContain("docs/pm");
     }
   });
 });

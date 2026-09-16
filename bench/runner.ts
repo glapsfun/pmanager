@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitOk } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import type { Adapter } from "./adapters/types";
+import { installContract } from "./contract";
 import { linkSkill } from "./fixture";
 import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
@@ -65,6 +66,7 @@ export async function runScenario(req: RunRequest): Promise<RunResult> {
     const info = await req.scenario.buildFixture(fixtureDir);
     originBare = info.originBare;
     await linkSkill(fixtureDir, SKILL_DIR);
+    await installContract(fixtureDir);
     await mkdir(req.rawDir, { recursive: true });
     const rawLogPath = join(
       req.rawDir,

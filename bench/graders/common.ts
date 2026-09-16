@@ -3,6 +3,12 @@ import type { Check, CheckContext, CheckResult } from "./types";
 
 const NO_REPO = "docs/pm is missing or unreadable";
 
+/** A docs/pm holding nothing but the contract file counts as absent for the doc checks. */
+function emptyRepo(ctx: CheckContext): boolean {
+  const r = ctx.repo;
+  return r === null || (r.epics.length === 0 && r.index === null && r.memo === null);
+}
+
 export function pass(evidence: string): CheckResult {
   return { passed: true, evidence };
 }
@@ -69,7 +75,7 @@ export const indexPresent: Check = {
   kind: "contract",
   description: "INDEX.md exists with a row for every epic",
   async run(ctx) {
-    if (!ctx.repo) return fail(NO_REPO);
+    if (!ctx.repo || emptyRepo(ctx)) return fail(NO_REPO);
     if (ctx.repo.index === null) return fail("docs/pm/INDEX.md missing");
     const index = ctx.repo.index;
     const missing = ctx.repo.epics.filter((e) => !index.includes(`[${e.slug}](`));
@@ -84,7 +90,7 @@ export const memoPresent: Check = {
   kind: "contract",
   description: "pmanager-memo.md exists",
   async run(ctx) {
-    if (!ctx.repo) return fail(NO_REPO);
+    if (!ctx.repo || emptyRepo(ctx)) return fail(NO_REPO);
     return ctx.repo.memo ? pass(ctx.repo.memo.path) : fail("docs/pm/pmanager-memo.md missing");
   },
 };
@@ -95,7 +101,7 @@ export function logEntry(kind: string): Check {
     kind: "contract",
     description: `a docs/pm/log entry of kind ${kind} exists`,
     async run(ctx: CheckContext) {
-      if (!ctx.repo) return fail(NO_REPO);
+      if (!ctx.repo || emptyRepo(ctx)) return fail(NO_REPO);
       const hit = ctx.repo.logs.find((l) => l.kind === kind);
       return hit ? pass(hit.path) : fail(`no log entry with kind: ${kind} in docs/pm/log`);
     },
