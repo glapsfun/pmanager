@@ -1,0 +1,97 @@
+import { describe, expect, test } from "bun:test";
+import { stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import type { Adapter, RunOptions, RunOutcome } from "../adapters/types";
+import { gitCommitAll } from "../fixture";
+import { readHistory } from "../history";
+import { runScenario } from "../runner";
+import { scenarioByName } from "../scenarios/registry";
+import type { Scenario } from "../scenarios/types";
+
+function fakeAdapter(act: (opts: RunOptions) => Promise<void>): Adapter {
+  return {
+    name: "codex",
+    defaultModel: "fake-model",
+    envPassthrough: [],
+    async detect() {
+      return { available: true, version: "0.0.0" };
+    },
+    async run(opts): Promise<RunOutcome> {
+      await act(opts);
+      await writeFile(opts.rawLogPath, "{}\n");
+      return {
+        exitCode: 0,
+        timedOut: false,
+        durationMs: 5,
+        rawLogPath: opts.rawLogPath,
+        telemetry: {
+          tokens: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0 },
+          costUsd: null,
+          turns: null,
+          toolCalls: { command_execution: 1 },
+          commands: ["ls"],
+          finalMessage: "done",
+        },
+      };
+    },
+  };
+}
+
+const META = { sha: "abc1234", skillVersion: "0.2.0", harnessVersion: "0.0.0" };
+
+describe("runScenario", () => {
+  test("a fake adapter that restores the fixture docs scores well and appends history", async () => {
+    const scenario = scenarioByName("perf-bug-new-epic") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const adapter = fakeAdapter(async (opts) => {
+      expect(opts.env.PM_TODAY).toBe("2026-09-15");
+      expect(opts.prompt).toBe(scenario.prompt);
+      await stat(join(opts.cwd, ".agents", "skills", "pmanager", "SKILL.md"));
+      await copyFixture(opts.cwd);
+      const epic = join(opts.cwd, "docs", "pm", "app-performance", "epic.md");
+      const raw = await Bun.file(epic).text();
+      await writeFile(epic, raw.replace("status: in-progress", "status: draft"));
+      await gitCommitAll(opts.cwd, "docs(pm): spec app-performance");
+    });
+    const result = await runScenario({
+      adapter,
+      scenario,
+      model: undefined,
+      timeoutMs: 10_000,
+      keep: false,
+      run: 1,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.kind).toBe("agent");
+    expect(result.line.model).toBe("fake-model");
+    expect(result.line.harness).toBe("codex");
+    expect(result.line.score).toBeGreaterThan(0.8);
+    expect(result.line.telemetry.toolCalls).toEqual({ command_execution: 1 });
+    expect((result.line.telemetry as Record<string, unknown>).finalMessage).toBeUndefined();
+    expect(await readHistory(historyPath)).toEqual([result.line]);
+    await expect(stat(result.fixtureDir)).rejects.toThrow();
+  });
+
+  test("keep leaves the fixture on disk and a no-op adapter scores low", async () => {
+    const scenario = scenarioByName("perf-bug-new-epic") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const result = await runScenario({
+      adapter: fakeAdapter(async () => {}),
+      scenario,
+      model: "m",
+      timeoutMs: 10_000,
+      keep: true,
+      run: 2,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.model).toBe("m");
+    expect(result.line.run).toBe(2);
+    expect(result.line.score).toBeLessThan(0.5);
+    expect((await stat(result.fixtureDir)).isDirectory()).toBe(true);
+  });
+});
