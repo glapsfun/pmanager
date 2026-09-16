@@ -252,7 +252,7 @@ and [bench/BENCH.md](bench/BENCH.md).
 | Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |
 | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
 | codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — |
-| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | 1 (1) | 100% / 0% | +0.21 | 61243 / 46930 | $1.29 |
+| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | $2.71 |
 
 Tool microbench: status 102 ms, check 123 ms, render 95 ms (median on 50 epics, 1000 tasks).
 

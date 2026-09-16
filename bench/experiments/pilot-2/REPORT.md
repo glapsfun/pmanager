@@ -8,14 +8,14 @@ claude-code 2.1.273 · model claude-sonnet-5 · 2 conditions · 2 pairs · timeo
 
 | Scenario | Condition | Planned | Attempted | Completed | Failed | Success rate | Score median (IQR) | Duration median | Tokens in/out (n) | Cost (n) |
 | :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| perf-bug-new-epic | with-skill | 2 | 1 | 1 | — | 100% | 1.00 (1.00–1.00) | 267s | 54/23367 (1) | $0.79 (1) |
-| perf-bug-new-epic | without-skill | 2 | 1 | 1 | — | 0% | 0.79 (0.79–0.79) | 168s | 32/15787 (1) | $0.50 (1) |
+| perf-bug-new-epic | with-skill | 2 | 2 | 2 | — | 100% | 1.00 (1.00–1.00) | 288s | 50/24084 (2) | $1.54 (2) |
+| perf-bug-new-epic | without-skill | 2 | 2 | 2 | — | 0% | 0.79 (0.79–0.79) | 200s | 32/18718 (2) | $1.16 (2) |
 
 ## Paired differences (with-skill minus without-skill)
 
 | Scenario | Pairs completed | Pairs excluded | Score diff median (IQR) | Success diff |
 | :--- | ---: | ---: | ---: | ---: |
-| perf-bug-new-epic | 1 | 1 | +0.21 (+0.21–+0.21) | +100% |
+| perf-bug-new-epic | 2 | 0 | +0.21 (+0.21–+0.21) | +100% |
 
 ## Check failure rates over completed attempts
 
@@ -24,4 +24,4 @@ claude-code 2.1.273 · model claude-sonnet-5 · 2 conditions · 2 pairs · timeo
 | perf-bug-new-epic | with-skill | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
 | perf-bug-new-epic | without-skill | 0% | 100% | 100% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 100% |
 
-Spend: $1.29 across 2 attempts with cost telemetry; 2 attempts total.
+Spend: $2.71 across 4 attempts with cost telemetry; 4 attempts total.
