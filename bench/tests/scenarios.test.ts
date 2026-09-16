@@ -26,6 +26,8 @@ describe("scenarios", () => {
       expect(info?.epicSlugsBefore).toEqual([]);
       await expect(stat(join(dir, "docs", "pm"))).rejects.toThrow();
       expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+      expect((await gitOk(["log", "--all", "--oneline", "--", "docs/pm"], dir)).trim()).toBe("");
+      expect((await gitOk(["log", "--oneline"], dir)).trim().split("\n")).toHaveLength(3);
       expect(info?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], dir)).trim());
     }
   });

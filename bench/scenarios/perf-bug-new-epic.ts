@@ -1,15 +1,12 @@
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
-import { type FixtureInfo, gitCommitAll, headSha } from "../fixture";
+import { type FixtureInfo, headSha } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { newEpicChecks } from "../graders/new-epic";
 import { CONTRACT_SENTENCE, type Scenario } from "./types";
 
+/** No revision of this fixture ever held docs/pm, so neither condition can recover documents from history. */
 export async function buildNewEpicFixture(dir: string): Promise<FixtureInfo> {
-  await buildWebshopRepo(dir);
-  await rm(join(dir, "docs", "pm"), { recursive: true, force: true });
-  await gitCommitAll(dir, "chore: drop docs/pm");
+  await buildWebshopRepo(dir, { withPmDocs: false });
   return {
     baselineSha: await headSha(dir),
     originBare: null,

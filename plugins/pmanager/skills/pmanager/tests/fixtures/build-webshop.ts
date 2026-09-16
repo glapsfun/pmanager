@@ -8,8 +8,14 @@ const PAGINATED = `    page = int(request.args.get("page", 1))
 const UNPAGINATED = `    rows = conn.execute("SELECT id, user_id, total FROM orders ORDER BY id DESC").fetchall()
 `;
 
-/** Build a git repo from the static fixture with the history the evals describe. */
-export async function buildWebshopRepo(dest: string): Promise<void> {
+/**
+ * Build a git repo from the static fixture with the history the evals describe.
+ * With `withPmDocs: false` the third commit is skipped, so no revision ever contained docs/pm.
+ */
+export async function buildWebshopRepo(
+  dest: string,
+  opts: { withPmDocs?: boolean } = {},
+): Promise<void> {
   await copyFixture(dest);
   await initGitRepo(dest);
   const pmDir = join(dest, "docs", "pm");
@@ -43,6 +49,7 @@ export async function buildWebshopRepo(dest: string): Promise<void> {
     ],
     dest,
   );
+  if (opts.withPmDocs === false) return;
   // commit 3: docs/pm restored from the fixture
   await copyFixture(dest);
   await gitOk(["add", "-A"], dest);

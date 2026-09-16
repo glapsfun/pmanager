@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -215,5 +216,36 @@ describe("experiment lifecycle", () => {
     expect(await readAttempts(dir)).toEqual([]);
     await writeFile(join(dir, "attempts.jsonl"), '{"attemptId":"x"}\n\n\nnot json\n');
     await expect(readAttempts(dir)).rejects.toThrow(/malformed JSON on line 4/);
+  });
+
+  test("a run stops when the experiment directory disappears", async () => {
+    const root = await makeTempDir("bench-exp");
+    let calls = 0;
+    const a = adapter(async () => {
+      calls++;
+      return {};
+    });
+    await createExperiment(
+      {
+        id: "e5",
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill"],
+        pairs: 2,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    await expect(
+      runExperiment(join(root, "e5"), {
+        adapter: a,
+        env: { PATH: "" },
+        home: root,
+        tmp: root,
+        onAttempt: () => rmSync(join(root, "e5"), { recursive: true, force: true }),
+      }),
+    ).rejects.toThrow(/was removed while the experiment was running/);
+    expect(calls).toBe(1);
   });
 });

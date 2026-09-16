@@ -320,6 +320,11 @@ export async function runExperiment(
       const scenario = scenarioByName(p.scenario);
       const entry = m.scenarios.find((s) => s.name === p.scenario);
       if (!scenario || !entry) throw new Error(`manifest names unknown scenario ${p.scenario}`);
+      if (!(await exists(join(dir, "manifest.json")))) {
+        throw new Error(
+          `${dir} was removed while the experiment was running; ${ran} attempt(s) of this run are recorded only in the console`,
+        );
+      }
       const artifactsDir = join(dir, "artifacts", p.attemptId);
       await mkdir(artifactsDir, { recursive: true });
       const startedAt = new Date().toISOString();
