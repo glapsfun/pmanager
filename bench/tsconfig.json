@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "types": ["bun-types"]
+  },
+  "include": [
+    "**/*.ts",
+    "../plugins/pmanager/skills/pmanager/scripts/**/*.ts",
+    "../plugins/pmanager/skills/pmanager/tests/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}
