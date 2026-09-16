@@ -6,7 +6,7 @@ Measures how effectively the pmanager skill does its job, on any harness with a 
 - `bun run bench.ts tool [--epics N] [--tasks N] [--iterations N]` times `status`, `check`, and `render` on a synthetic `docs/pm`. Free.
 - `bun run bench.ts report` regenerates `BENCH.md` from `results/history.jsonl`.
 
-Scores come only from disk. Tokens, cost, turns, and tool calls are recorded when the harness reports them and stored as `null` otherwise. Numbers are comparable only within one harness and model.
+Scores come only from disk. Token columns use one definition on every harness: `input` is the uncached part of the prompt, cache reads and writes are separate (Codex reports cached tokens inside its input count, so the adapter subtracts them). Tokens, cost, turns, and tool calls are recorded when the harness reports them and stored as `null` otherwise. Numbers are comparable only within one harness and model.
 
 Credentials come from your environment: `ANTHROPIC_API_KEY` for Claude Code and pi (Anthropic models), `OPENAI_API_KEY` for Codex. Claude Code honours `CLAUDE_CODE_MAX_BUDGET_USD`. `bench run` only checks that the harness binary is installed; an unauthenticated harness shows up as a score-0 run whose `run-completed` check failed, with the reason in the raw log. Raw harness output lands in `results/raw/` (gitignored). Commit `results/history.jsonl` and `BENCH.md` after a run you want to keep.
 

@@ -1,5 +1,6 @@
 export type HarnessName = "claude-code" | "codex" | "pi" | "gemini-cli" | "copilot";
 
+/** input is the uncached part of the prompt on every harness; cache reads and writes are separate. */
 export interface TokenUsage {
   input: number;
   output: number;

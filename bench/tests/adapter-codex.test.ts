@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { codex, parseCodexStream } from "../adapters/codex";
 
 describe("codex adapter", () => {
-  test("sums usage across turns, counts items, keeps commands and the last agent message", async () => {
+  test("sums usage across turns with input excluding cached tokens, counts items, keeps commands and the last agent message", async () => {
     const raw = await readFile(join(import.meta.dir, "samples", "codex.jsonl"), "utf8");
     expect(parseCodexStream(raw)).toEqual({
-      tokens: { input: 5000, output: 600, cacheRead: 3900, cacheWrite: 50 },
+      tokens: { input: 1100, output: 600, cacheRead: 3900, cacheWrite: 50 },
       costUsd: null,
       turns: null,
       toolCalls: { command_execution: 2, file_change: 1 },

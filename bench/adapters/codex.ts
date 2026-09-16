@@ -17,9 +17,12 @@ export function parseCodexStream(jsonl: string): Telemetry {
       const u = ev.usage as Json | undefined;
       if (!u) continue;
       sawUsage = true;
-      sum.input += Number(u.input_tokens ?? 0);
+      // OpenAI counts cached tokens inside input_tokens; Anthropic reports them separately.
+      // Store the uncached part so "input" means the same thing for every harness.
+      const cached = Number(u.cached_input_tokens ?? 0);
+      sum.input += Math.max(0, Number(u.input_tokens ?? 0) - cached);
       sum.output += Number(u.output_tokens ?? 0);
-      sum.cacheRead += Number(u.cached_input_tokens ?? 0);
+      sum.cacheRead += cached;
       sum.cacheWrite += Number(u.cache_write_input_tokens ?? 0);
     } else if (ev.type === "turn.failed") {
       t.finalMessage = null;
