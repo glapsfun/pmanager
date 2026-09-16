@@ -8,6 +8,7 @@ Agentic technical project/product manager for [Claude Code](https://docs.anthrop
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![runtime: Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
 [![Agent Skills](https://img.shields.io/badge/standard-Agent%20Skills-8a2be2)](https://agentskills.io)
+[![install with gskill](https://img.shields.io/badge/install%20with-gskill-0a7f5a?logo=npm&logoColor=white)](https://github.com/glapsfun/gskill)
 [![harnesses](https://img.shields.io/badge/harnesses-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20pi%20%C2%B7%20Gemini%20%C2%B7%20Copilot-555)](#benchmark)
 
 Distributed as a single-plugin [Claude Code plugin marketplace](https://docs.anthropic.com/en/docs/claude-code) and as a standard Agent Skill.
@@ -49,7 +50,7 @@ The agent follows an evidence-first loop:
 
 ## Quick start
 
-The skill ships a small TypeScript tool (checker, renderer, claim, handoff)
+The fastest path is gskill below. Whichever route you take, the skill ships a small TypeScript tool (checker, renderer, claim, handoff)
 that runs on [Bun](https://bun.sh). Install it once per machine:
 
 ```bash
@@ -59,7 +60,34 @@ curl -fsSL https://bun.sh/install | bash
 Without Bun the agent will stop and print these instructions before doing
 any tool-dependent work.
 
-### Claude Code (slash commands, recommended)
+### Recommended: install with gskill
+
+[gskill](https://github.com/glapsfun/gskill) treats skills like dependencies: pmanager is resolved from this repo, content-hashed, recorded in a committed `skills-lock.json`, and restored byte-for-byte on any machine or in CI. One command per agent, run from the project that should get the skill (Node.js 20 or newer):
+
+```bash
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent codex
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent gemini-cli
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent cursor
+```
+
+Commit `skills-lock.json`. Teammates and CI then get the identical version with:
+
+```bash
+npx @glapsfun/gskill install --frozen-lockfile
+```
+
+Keep it current and honest:
+
+```bash
+npx @glapsfun/gskill project verify           # re-hash the installed skill against the lock
+npx @glapsfun/gskill update --list            # see newer pmanager releases
+npx @glapsfun/gskill upgrade pmanager --latest
+```
+
+gskill also installs via Homebrew (`brew install glapsfun/tap/gskill`), Go, or its install script; see its [quick start](https://github.com/glapsfun/gskill#quick-start). It installs the skill folder, which is the whole product: pmanager triggers on planning and scoping language without a slash command. Only the optional `/pmanager` command needs the Claude Code plugin route below.
+
+### Claude Code plugin (adds the `/pmanager` slash command)
 
 ```
 /plugin marketplace add glapsfun/pmanager
@@ -97,31 +125,7 @@ npx @anthropic-ai/claude-code plugin install pmanager@pmanager
 
 </details>
 
-### Any agent via gskill (reproducible, locked)
-
-[gskill](https://github.com/glapsfun/gskill) installs skills like dependencies: content-hashed, recorded in a committed `skills-lock.json`, and restorable byte-for-byte on another machine or in CI. Run it with npx (Node.js 20 or newer) from the project that should get the skill:
-
-```bash
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent codex
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent gemini-cli
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent cursor
-```
-
-Commit `skills-lock.json`; teammates and CI reproduce the same skill version with:
-
-```bash
-npx @glapsfun/gskill install --frozen-lockfile
-```
-
-<details>
-<summary>Verify, update, other install routes</summary>
-
-`npx @glapsfun/gskill project verify` re-hashes the installed skill against the lock. `npx @glapsfun/gskill update --list` shows newer pmanager versions; `npx @glapsfun/gskill upgrade pmanager --latest` moves to one. gskill also installs via Homebrew (`brew install glapsfun/tap/gskill`), Go, or its install script; see its [README](https://github.com/glapsfun/gskill#quick-start). Like `npx skills`, it installs the skill folder only, so the `/pmanager` slash command comes from the Claude Code plugin install.
-
-</details>
-
-### Codex, Gemini CLI, Copilot CLI (Agent Skill via `npx skills`)
+### Alternative: `npx skills` (Codex, Gemini CLI, Copilot CLI)
 
 ```bash
 npx skills add glapsfun/pmanager --skill pmanager --agent codex --global -y
