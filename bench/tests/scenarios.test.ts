@@ -30,7 +30,7 @@ describe("scenarios", () => {
   test("tracking fixture has the uncommitted profile artifact and ignores it", async () => {
     const dir = await makeTempDir("bench-scn");
     const info = await scenarioByName("tracking-update-memory")?.buildFixture(dir);
-    expect(info?.ignorePaths).toEqual(["docs/profile-results.txt"]);
+    expect(Object.keys(info?.initialDirty ?? {})).toEqual(["docs/profile-results.txt"]);
     expect(await Bun.file(join(dir, "docs", "profile-results.txt")).text()).toContain("85%");
     expect(info?.epicSlugsBefore).toEqual(["app-performance"]);
   });

@@ -7,27 +7,16 @@ import {
   type PmRepo,
 } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import type { Telemetry } from "../adapters/types";
-import type { FixtureInfo } from "../fixture";
+import { contentHash, type FixtureInfo, porcelainPaths } from "../fixture";
 import { PM_TODAY } from "../skill-paths";
 import { type CheckContext, COMPLETED_RUN, type RunStatus } from "./types";
 
 export const CHECK_OPTS = { staleDays: 14, today: PM_TODAY };
 
-function porcelainPaths(out: string): string[] {
-  return out
-    .split("\n")
-    .filter((l) => l.trim() !== "")
-    .map((l) => {
-      const p = l.slice(3).trim();
-      const arrow = p.indexOf(" -> ");
-      return arrow === -1 ? p : p.slice(arrow + 4);
-    });
-}
-
 export async function changedPathsSince(
   dir: string,
   baseline: string,
-  ignore: string[],
+  initialDirty: Record<string, string>,
 ): Promise<{ paths: string[]; dirty: boolean }> {
   const committed = (await gitOk(["diff", "--name-only", baseline, "HEAD"], dir))
     .split("\n")
@@ -35,7 +24,11 @@ export async function changedPathsSince(
   const uncommitted = porcelainPaths(
     await gitOk(["status", "--porcelain", "--untracked-files=all"], dir),
   );
-  const keep = (p: string) => !ignore.includes(p);
+  const unchanged: string[] = [];
+  for (const p of uncommitted) {
+    if (p in initialDirty && (await contentHash(dir, p)) === initialDirty[p]) unchanged.push(p);
+  }
+  const keep = (p: string) => !unchanged.includes(p);
   const paths = [...new Set([...committed, ...uncommitted])].filter(keep).sort();
   return { paths, dirty: uncommitted.filter(keep).length > 0 };
 }
@@ -59,7 +52,7 @@ export async function buildCheckContext(
   } catch {
     repo = null;
   }
-  const { paths, dirty } = await changedPathsSince(fixtureDir, info.baselineSha, info.ignorePaths);
+  const { paths, dirty } = await changedPathsSince(fixtureDir, info.baselineSha, info.initialDirty);
   return {
     fixtureDir,
     run,

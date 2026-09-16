@@ -23,7 +23,7 @@ export const twoSessionClaimConflict: Scenario = {
       originBare: bare,
       originRefs: await lsRemoteRefs(dir, "origin"),
       epicSlugsBefore: ["app-performance"],
-      ignorePaths: [],
+      initialDirty: {},
     };
   },
   checks: claimConflictChecks(),

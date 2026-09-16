@@ -6,7 +6,7 @@ import { loadPmRepo } from "../../plugins/pmanager/skills/pmanager/scripts/repo"
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
-import { type FixtureInfo, headSha } from "../fixture";
+import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
 import { trackingChecks } from "../graders/tracking";
 import { runChecks } from "../graders/types";
@@ -30,7 +30,7 @@ async function fixture() {
     originBare: null,
     originRefs: {},
     epicSlugsBefore: ["app-performance"],
-    ignorePaths: ["docs/profile-results.txt"],
+    initialDirty: await snapshotDirty(dir),
   };
   return { dir, info };
 }

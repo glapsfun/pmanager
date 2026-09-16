@@ -23,7 +23,7 @@ async function fixture() {
     originBare: bare,
     originRefs: await lsRemoteRefs(dir, "origin"),
     epicSlugsBefore: ["app-performance"],
-    ignorePaths: [],
+    initialDirty: {},
   };
   return { dir, info };
 }

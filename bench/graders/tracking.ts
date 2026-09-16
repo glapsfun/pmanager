@@ -1,4 +1,8 @@
-import { getString, sectionBody } from "../../plugins/pmanager/skills/pmanager/scripts/contract";
+import {
+  getList,
+  getString,
+  sectionBody,
+} from "../../plugins/pmanager/skills/pmanager/scripts/contract";
 import { TASKS_END, TASKS_START } from "../../plugins/pmanager/skills/pmanager/scripts/render";
 import {
   type EpicRecord,
@@ -118,20 +122,50 @@ export const indexCounts: Check = {
   },
 };
 
+function readyIds(e: EpicRecord): Set<string> {
+  const status = new Map(e.tasks.map((t) => [t.id, getString(t.frontmatter, "status") ?? ""]));
+  return new Set(
+    e.tasks
+      .filter(
+        (t) =>
+          status.get(t.id) === "todo" &&
+          getList(t.frontmatter, "depends-on").every((d) => status.get(d) === "done"),
+      )
+      .map((t) => t.id),
+  );
+}
+
+/** Ids in a clause count as recommendations unless that clause says something waits or is blocked. */
+function recommendedIds(paragraph: string): string[] {
+  const out: string[] = [];
+  for (const clause of paragraph.split(/[.!?;,()]+/)) {
+    if (/\b(wait|waits|waiting|blocked|blocks)\b/i.test(clause)) continue;
+    for (const m of clause.matchAll(/\bT\d{2}\b/g)) out.push(m[0]);
+  }
+  return [...new Set(out)];
+}
+
 export const nextNotT03: Check = {
   id: "next-not-t03",
   kind: "diagnostic",
-  description: "the final message does not recommend T03 and names T04 or the blocker",
+  description: "the recommended next task is unblocked per depends-on",
   async run(ctx) {
     const msg = ctx.telemetry.finalMessage;
     if (msg === null) return skip("harness reported no final message");
-    const t03 = /\bT03\b/.test(msg);
-    const t04 = /\bT04\b/.test(msg);
-    if (t03 && !t04) return fail("final message names T03 but not T04");
-    const good = t04 || /blocker|blocked|critical path/i.test(msg);
-    return good
-      ? pass("names T04 or the blocker")
-      : fail("final message names neither T04 nor the blocker");
+    const e = epic(ctx);
+    if (isResult(e)) return e;
+    const last =
+      msg
+        .trim()
+        .split(/\n\s*\n/)
+        .pop() ?? "";
+    const recommended = recommendedIds(last);
+    if (recommended.length === 0) return fail("final message recommends no task id");
+    const ready = readyIds(e);
+    const blocked = recommended.filter((id) => !ready.has(id));
+    return blocked.length === 0
+      ? pass(`recommends ${recommended.join(", ")}, all unblocked`)
+      : fail(`recommends blocked task(s): ${blocked.join(", ")}`);
   },
 };
 

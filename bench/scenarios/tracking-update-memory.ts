@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
-import { type FixtureInfo, headSha } from "../fixture";
+import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { trackingChecks } from "../graders/tracking";
 import { type Scenario, SKILL_PREFIX } from "./types";
@@ -22,7 +22,7 @@ export const trackingUpdateMemory: Scenario = {
       originBare: null,
       originRefs: {},
       epicSlugsBefore: ["app-performance"],
-      ignorePaths: ["docs/profile-results.txt"],
+      initialDirty: await snapshotDirty(dir),
     };
   },
   checks: [...commonChecks("update"), ...trackingChecks()],

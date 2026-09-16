@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { EMPTY_TELEMETRY } from "../adapters/types";
-import { type FixtureInfo, gitCommitAll, headSha } from "../fixture";
+import { type FixtureInfo, gitCommitAll, headSha, snapshotDirty } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { buildCheckContext } from "../graders/context";
 import { runChecks } from "../graders/types";
@@ -17,7 +17,7 @@ async function webshop() {
     originBare: null,
     originRefs: {},
     epicSlugsBefore: ["app-performance"],
-    ignorePaths: [],
+    initialDirty: {},
   };
   return { dir, info };
 }
@@ -54,12 +54,12 @@ describe("common checks", () => {
     expect(o["scoped-diff"]).toBe(true);
   });
 
-  test("dirty tree fails committed; ignored paths are excluded from the diff", async () => {
+  test("dirty tree fails committed; unchanged pre-existing dirty paths are excluded", async () => {
     const { dir, info } = await webshop();
     await writeFile(join(dir, "docs", "profile-results.txt"), "85%\n");
     let o = await outcomes(dir, info);
     expect(o["scoped-diff"]).toBe(false);
-    o = await outcomes(dir, { ...info, ignorePaths: ["docs/profile-results.txt"] });
+    o = await outcomes(dir, { ...info, initialDirty: await snapshotDirty(dir) });
     expect(o["scoped-diff"]).toBe(true);
     expect(o.committed).toBe(false);
   });

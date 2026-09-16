@@ -15,7 +15,7 @@ export async function buildNewEpicFixture(dir: string): Promise<FixtureInfo> {
     originBare: null,
     originRefs: {},
     epicSlugsBefore: [],
-    ignorePaths: [],
+    initialDirty: {},
   };
 }
 

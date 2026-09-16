@@ -22,7 +22,7 @@ async function goodRun() {
     originBare: null,
     originRefs: {},
     epicSlugsBefore: [],
-    ignorePaths: [],
+    initialDirty: {},
   };
   await copyFixture(dir);
   return { dir, info };

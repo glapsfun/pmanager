@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   getList,
   getString,
@@ -9,7 +11,6 @@ import { newEpics } from "./context";
 import type { Check, CheckContext, CheckKind, CheckResult } from "./types";
 
 const TASK_FIELDS = ["id", "epic", "milestone", "status", "depends-on"];
-const WINDOW = /\b(d|day|days|week|weeks|wk|h|hour|hours|sprint|sprints|month|months)\b/i;
 const RISKY = /profil|benchmark|measur|confirm|reproduc/i;
 
 function single(ctx: CheckContext): EpicRecord | CheckResult {
@@ -31,7 +32,7 @@ function epicCheck(
   id: string,
   kind: CheckKind,
   description: string,
-  fn: (e: EpicRecord) => CheckResult,
+  fn: (e: EpicRecord, ctx: CheckContext) => CheckResult,
 ): Check {
   return {
     id,
@@ -39,7 +40,7 @@ function epicCheck(
     description,
     async run(ctx) {
       const e = single(ctx);
-      return isResult(e) ? e : fn(e);
+      return isResult(e) ? e : fn(e, ctx);
     },
   };
 }
@@ -88,28 +89,55 @@ export const binaryAcceptance = epicCheck(
 export const evidenceCitesRepo = epicCheck(
   "evidence-cites-repo",
   "outcome",
-  "Evidence cites app/app.py, schema.sql, or the pagination commit",
-  (e) => {
+  "every [path:line] citation in Evidence resolves to a fixture file, and at least one exists",
+  (e, ctx) => {
     const ev = sectionBody(e.epic?.body ?? "", "Evidence") ?? "";
-    const m = ev.match(/app\/app\.py|schema\.sql|pagination/i);
-    return m
-      ? pass(`evidence mentions ${m[0]}`)
-      : fail("Evidence section cites none of app/app.py, schema.sql, pagination");
+    const cited = [...ev.matchAll(/\[([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)(?::[\d-]+)?\]/g)].map(
+      (m) => m[1] as string,
+    );
+    if (cited.length === 0) return fail("Evidence cites no file path");
+    const missing = cited.filter((p) => !existsSync(join(ctx.fixtureDir, p)));
+    return missing.length === 0
+      ? pass(`cites ${cited.join(", ")}`)
+      : fail(`cited paths not in the repo: ${missing.join(", ")}`);
   },
 );
+
+const TARGET = /[<>≤≥=]\s*\d|\d+(\.\d+)?\s*(%|ms|s|x|k)?\b/;
+const DURATION =
+  /\b\d+\s*(d|day|days|week|weeks|wk|h|hour|hours|sprint|sprints|month|months)\b|\bpost-ship\b/i;
+
+function tableRows(section: string): { header: string[]; rows: string[][] } {
+  const lines = section.split("\n").filter((l) => l.trim().startsWith("|"));
+  const cells = (l: string) =>
+    l
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim());
+  const header = lines[0] ? cells(lines[0]).map((h) => h.toLowerCase()) : [];
+  const rows = lines.slice(2).map(cells);
+  return { header, rows };
+}
 
 export const metricHasTarget = epicCheck(
   "metric-has-target",
   "outcome",
-  "a success-metric row has a number and a window",
+  "the primary success-metric row has a numeric target and a duration window",
   (e) => {
-    const rows = (sectionBody(e.epic?.body ?? "", "Success metrics") ?? "")
-      .split("\n")
-      .filter((l) => l.startsWith("|") && !l.startsWith("| :") && !/^\|\s*Metric/i.test(l));
-    const hit = rows.find((r) => /\d/.test(r) && WINDOW.test(r));
-    return hit
-      ? pass(hit.trim())
-      : fail(`${rows.length} metric row(s), none with a number and a window`);
+    const { header, rows } = tableRows(sectionBody(e.epic?.body ?? "", "Success metrics") ?? "");
+    const role = header.indexOf("role");
+    const target = header.indexOf("target");
+    const window = header.indexOf("window");
+    if (role === -1 || target === -1 || window === -1) {
+      return fail("metrics table lacks Role, Target or Window columns");
+    }
+    const primary = rows.find((r) => (r[role] ?? "").toLowerCase() === "primary");
+    if (!primary) return fail("no row with Role = primary");
+    const t = primary[target] ?? "";
+    const w = primary[window] ?? "";
+    if (!TARGET.test(t)) return fail(`primary target is not numeric: "${t}"`);
+    if (!DURATION.test(w)) return fail(`primary window is not a duration: "${w}"`);
+    return pass(`target ${t}, window ${w}`);
   },
 );
 
