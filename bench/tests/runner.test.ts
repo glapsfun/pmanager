@@ -168,6 +168,33 @@ describe("runScenario on a failed harness run", () => {
   });
 });
 
+describe("runScenario scoring", () => {
+  test("a completed run failing one of four checks scores 0.75, not 0.80", async () => {
+    const scenario = scenarioByName("two-session-claim-conflict") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const result = await runScenario({
+      adapter: fakeAdapter(async () => {}),
+      scenario,
+      model: undefined,
+      timeoutMs: 10_000,
+      keep: false,
+      run: 1,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.failed).toEqual(["names-owner"]);
+    expect(result.line.score).toBe(0.75);
+    expect(result.score.outcomes.map((o) => o.id)).toEqual([
+      "run-completed",
+      "nothing-written",
+      "remote-untouched",
+      "no-takeover",
+      "names-owner",
+    ]);
+  });
+});
+
 describe("runScenario model fallback", () => {
   test("uses the harness-reported model when none was requested or defaulted", async () => {
     const scenario = scenarioByName("two-session-claim-conflict") as Scenario;

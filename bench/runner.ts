@@ -83,8 +83,13 @@ export async function runScenario(req: RunRequest): Promise<RunResult> {
       exitCode: outcome.exitCode,
       timedOut: outcome.timedOut,
     });
-    const score = scoreChecks(await runChecks([runCompleted, ...req.scenario.checks], ctx));
-    const completed = !score.failed.includes(runCompleted.id);
+    // Completion gates the score but never enters its denominator: a run that did not
+    // finish records 0, a run that did is scored on the scenario checks alone.
+    const completion = await runChecks([runCompleted], ctx);
+    const completed = completion.every((o) => o.passed === true);
+    const score = scoreChecks(await runChecks(req.scenario.checks, ctx));
+    score.outcomes = [...completion, ...score.outcomes];
+    if (!completed) score.failed = [runCompleted.id, ...score.failed];
     const line: AgentRunLine = {
       kind: "agent",
       date: new Date().toISOString(),
