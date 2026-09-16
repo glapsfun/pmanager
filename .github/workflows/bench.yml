@@ -48,7 +48,11 @@ jobs:
           case "$HARNESS" in
             claude-code) npm install -g @anthropic-ai/claude-code ;;
             codex) npm install -g @openai/codex ;;
-            pi) npm install -g @mariozechner/pi-coding-agent ;;
+            pi)
+              npm install -g @mariozechner/pi-coding-agent
+              mkdir -p ~/.pi/agent
+              echo '{"defaultProjectTrust":"always"}' > ~/.pi/agent/settings.json
+              ;;
             *) echo "unknown harness $HARNESS" >&2; exit 2 ;;
           esac
       - name: Check credentials

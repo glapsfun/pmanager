@@ -7,8 +7,16 @@ export interface CheckResult {
   evidence: string;
 }
 
+export interface RunStatus {
+  exitCode: number | null;
+  timedOut: boolean;
+}
+
+export const COMPLETED_RUN: RunStatus = { exitCode: 0, timedOut: false };
+
 export interface CheckContext {
   fixtureDir: string;
+  run: RunStatus;
   baselineSha: string;
   originBare: string | null;
   originRefs: Record<string, string>;

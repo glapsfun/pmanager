@@ -34,3 +34,26 @@ describe("spawnWithTimeout", () => {
     expect(r.durationMs).toBeLessThan(5000);
   });
 });
+
+describe("spawnWithTimeout process tree", () => {
+  test("kills grandchildren that ignore SIGINT and SIGTERM", async () => {
+    const dir = await makeTempDir("bench-spawn");
+    const marker = `pm-bench-zombie-${process.pid}-${Date.now()}`;
+    const r = await spawnWithTimeout(
+      ["bash", "-c", `trap '' INT TERM; bash -c 'exec -a ${marker} sleep 60' & wait`],
+      {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? "" },
+        timeoutMs: 300,
+        rawLogPath: join(dir, "raw.jsonl"),
+        graceMs: 200,
+      },
+    );
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(300);
+    const pgrep = Bun.spawn(["pgrep", "-f", marker], { stdout: "pipe" });
+    const alive = (await new Response(pgrep.stdout).text()).trim();
+    await pgrep.exited;
+    expect(alive).toBe("");
+  });
+});

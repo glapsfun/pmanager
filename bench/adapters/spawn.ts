@@ -19,6 +19,7 @@ export interface SpawnResult {
 }
 
 const DRAIN_MS = 500;
+const SETSID = Bun.which("setsid");
 
 async function collect(
   stream: ReadableStream<Uint8Array>,
@@ -41,9 +42,18 @@ async function collect(
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function signalTree(proc: { pid: number; kill(sig: NodeJS.Signals): void }, sig: NodeJS.Signals) {
+  try {
+    if (SETSID) process.kill(-proc.pid, sig);
+    else proc.kill(sig);
+  } catch {
+    // process group already gone
+  }
+}
+
 export async function spawnWithTimeout(cmd: string[], opts: SpawnOptions): Promise<SpawnResult> {
   const started = performance.now();
-  const proc = Bun.spawn(cmd, {
+  const proc = Bun.spawn(SETSID ? [SETSID, ...cmd] : cmd, {
     cwd: opts.cwd,
     env: opts.env,
     stdin: opts.stdin === undefined ? "ignore" : new TextEncoder().encode(opts.stdin),
@@ -52,19 +62,22 @@ export async function spawnWithTimeout(cmd: string[], opts: SpawnOptions): Promi
   });
   let timedOut = false;
   const grace = opts.graceMs ?? 10_000;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill("SIGINT");
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  timers.push(
     setTimeout(() => {
-      if (proc.exitCode === null) proc.kill("SIGTERM");
-    }, grace);
-  }, opts.timeoutMs);
+      timedOut = true;
+      signalTree(proc, "SIGINT");
+      timers.push(setTimeout(() => signalTree(proc, "SIGTERM"), grace));
+      timers.push(setTimeout(() => signalTree(proc, "SIGKILL"), grace * 2));
+    }, opts.timeoutMs),
+  );
   const [stdout, stderr] = await Promise.all([
     collect(proc.stdout, proc.exited),
     collect(proc.stderr, proc.exited),
   ]);
   await proc.exited;
-  clearTimeout(timer);
+  for (const t of timers) clearTimeout(t);
+  if (timedOut) signalTree(proc, "SIGKILL");
   await mkdir(dirname(opts.rawLogPath), { recursive: true });
   await writeFile(opts.rawLogPath, stdout);
   return {

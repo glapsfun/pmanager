@@ -9,7 +9,7 @@ import {
 import type { Telemetry } from "../adapters/types";
 import type { FixtureInfo } from "../fixture";
 import { PM_TODAY } from "../skill-paths";
-import type { CheckContext } from "./types";
+import { type CheckContext, COMPLETED_RUN, type RunStatus } from "./types";
 
 export const CHECK_OPTS = { staleDays: 14, today: PM_TODAY };
 
@@ -49,6 +49,7 @@ export async function buildCheckContext(
   fixtureDir: string,
   info: FixtureInfo,
   telemetry: Telemetry,
+  run: RunStatus = COMPLETED_RUN,
 ): Promise<CheckContext> {
   let repo: PmRepo | null = null;
   let findings: Finding[] = [];
@@ -61,6 +62,7 @@ export async function buildCheckContext(
   const { paths, dirty } = await changedPathsSince(fixtureDir, info.baselineSha, info.ignorePaths);
   return {
     fixtureDir,
+    run,
     baselineSha: info.baselineSha,
     originBare: info.originBare,
     originRefs: info.originRefs,

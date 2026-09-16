@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { gitOk } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import type { Adapter } from "./adapters/types";
 import { linkSkill } from "./fixture";
+import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
 import { runChecks, type Score, scoreChecks } from "./graders/types";
 import { type AgentRunLine, appendHistory, stripTelemetry } from "./history";
@@ -75,8 +76,12 @@ export async function runScenario(req: RunRequest): Promise<RunResult> {
     env: buildEnv(req.adapter),
     rawLogPath,
   });
-  const ctx = await buildCheckContext(fixtureDir, info, outcome.telemetry);
-  const score = scoreChecks(await runChecks(req.scenario.checks, ctx));
+  const ctx = await buildCheckContext(fixtureDir, info, outcome.telemetry, {
+    exitCode: outcome.exitCode,
+    timedOut: outcome.timedOut,
+  });
+  const score = scoreChecks(await runChecks([runCompleted, ...req.scenario.checks], ctx));
+  const completed = !score.failed.includes(runCompleted.id);
   const line: AgentRunLine = {
     kind: "agent",
     date: new Date().toISOString(),
@@ -87,7 +92,7 @@ export async function runScenario(req: RunRequest): Promise<RunResult> {
     model: model ?? null,
     scenario: req.scenario.name,
     run: req.run,
-    score: Number(score.score.toFixed(4)),
+    score: completed ? Number(score.score.toFixed(4)) : 0,
     failed: score.failed,
     skipped: score.skipped,
     durationMs: outcome.durationMs,

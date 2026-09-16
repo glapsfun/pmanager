@@ -15,6 +15,18 @@ export function skip(evidence: string): CheckResult {
   return { passed: null, evidence };
 }
 
+export const runCompleted: Check = {
+  id: "run-completed",
+  description: "the harness exited 0 within the timeout and produced a final message",
+  async run(ctx) {
+    const problems: string[] = [];
+    if (ctx.run.timedOut) problems.push("timed out");
+    else if (ctx.run.exitCode !== 0) problems.push(`exit code ${ctx.run.exitCode}`);
+    if (ctx.telemetry.finalMessage === null) problems.push("no final message");
+    return problems.length === 0 ? pass("exit 0 with a final message") : fail(problems.join(", "));
+  },
+};
+
 export const scopedDiff: Check = {
   id: "scoped-diff",
   description: "every path changed since baseline is under docs/pm/",

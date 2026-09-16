@@ -95,3 +95,72 @@ describe("runScenario", () => {
     expect((await stat(result.fixtureDir)).isDirectory()).toBe(true);
   });
 });
+
+describe("runScenario on a failed harness run", () => {
+  test("no final message zeroes the score even when disk checks pass", async () => {
+    const scenario = scenarioByName("two-session-claim-conflict") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const crashed: Adapter = {
+      ...fakeAdapter(async () => {}),
+      async run(opts): Promise<RunOutcome> {
+        await writeFile(opts.rawLogPath, "");
+        return {
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 1,
+          rawLogPath: opts.rawLogPath,
+          telemetry: {
+            tokens: null,
+            costUsd: null,
+            turns: null,
+            toolCalls: null,
+            commands: null,
+            finalMessage: null,
+          },
+        };
+      },
+    };
+    const result = await runScenario({
+      adapter: crashed,
+      scenario,
+      model: undefined,
+      timeoutMs: 10_000,
+      keep: false,
+      run: 1,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.score).toBe(0);
+    expect(result.line.failed).toEqual(["run-completed"]);
+    expect(result.score.outcomes.find((o) => o.id === "nothing-written")?.passed).toBe(true);
+  });
+
+  test("a timed-out run is recorded as failed with exitCode null", async () => {
+    const scenario = scenarioByName("two-session-claim-conflict") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const hung: Adapter = {
+      ...fakeAdapter(async () => {}),
+      async run(opts): Promise<RunOutcome> {
+        await writeFile(opts.rawLogPath, "");
+        const base = await fakeAdapter(async () => {}).run(opts);
+        return { ...base, exitCode: null, timedOut: true };
+      },
+    };
+    const result = await runScenario({
+      adapter: hung,
+      scenario,
+      model: undefined,
+      timeoutMs: 10_000,
+      keep: false,
+      run: 1,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.score).toBe(0);
+    expect(result.line.timedOut).toBe(true);
+    expect(result.line.exitCode).toBeNull();
+    expect(result.line.failed).toContain("run-completed");
+  });
+});
