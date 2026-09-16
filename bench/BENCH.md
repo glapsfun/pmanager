@@ -21,6 +21,13 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- |
 | 50 | 1000 | 3 | 102/107 ms | — | 123/134 ms | — | 95/118 ms | — | 2026-09-16 | 0364fad |
 
+## Experiments
+
+| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |
+| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — |
+| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | $2.71 |
+
 ## History (last 20 agent runs)
 
 | Date | Sha | Harness | Model | Scenario | Run | Score | Failed | Duration | Tokens in/out | Cost |
