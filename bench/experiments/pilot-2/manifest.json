@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "pilot-2",
+  "createdAt": "2026-09-16T16:39:59.465Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.273",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill",
+    "without-skill"
+  ],
+  "pairs": 2,
+  "timeoutS": 900,
+  "repoSha": "35247b6",
+  "repoDirty": true,
+  "skillVersion": "0.2.0",
+  "skillHash": "sha256:4a9d5addee9d2145a6314f96c0f54c9a06ae47e4a31956df3aae47ed9343405c",
+  "contractHash": "sha256:86ca041eefd1e4797212882a9238f330426534a63e1e22f9740eda637d8d34d0",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "perf-bug-new-epic",
+      "version": 1,
+      "promptHash": "sha256:1fba7099bb06d4292d7da160c06af0820fd8c599a804b314dfacca2c06a00986",
+      "fixtureHash": "sha256:99c393bae65dc3e20f1821055888c2cf24c505f9df9a391d29c40fdcbc2d8579",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "pilot-2-p1-perf-bug-new-epic-with-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "pilot-2-p1-perf-bug-new-epic-without-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "without-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "pilot-2-p2-perf-bug-new-epic-without-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "without-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "pilot-2-p2-perf-bug-new-epic-with-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    }
+  ]
+}
