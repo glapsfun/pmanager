@@ -199,14 +199,21 @@ describe("experiment lifecycle", () => {
     const stale = {
       ...m,
       skillHash: "sha256:stale",
-      scenarios: [{ ...m.scenarios[0], graderVersion: 99 }],
+      contractHash: "sha256:stale",
+      harnessVersion: "0.0.0",
+      scenarios: [
+        { ...m.scenarios[0], graderVersion: 99, promptHash: "sha256:stale" },
+        { ...m.scenarios[0], name: "gone" },
+      ],
     };
     await writeFile(join(dir, "manifest.json"), JSON.stringify(stale));
     await expect(
       runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root }),
-    ).rejects.toThrow(/skill hash[\s\S]*grader version/);
+    ).rejects.toThrow(
+      /harness version[\s\S]*skill hash[\s\S]*contract hash[\s\S]*prompt of[\s\S]*grader version[\s\S]*gone no longer exists/,
+    );
     expect(await readAttempts(dir)).toEqual([]);
-    await writeFile(join(dir, "attempts.jsonl"), '{"attemptId":"x"}\nnot json\n');
-    await expect(readAttempts(dir)).rejects.toThrow(/malformed JSON on line 2/);
+    await writeFile(join(dir, "attempts.jsonl"), '{"attemptId":"x"}\n\n\nnot json\n');
+    await expect(readAttempts(dir)).rejects.toThrow(/malformed JSON on line 4/);
   });
 });

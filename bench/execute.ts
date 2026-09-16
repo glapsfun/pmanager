@@ -1,6 +1,7 @@
-import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { exists } from "./adapters/claude-code";
 import type { Adapter, RunOutcome } from "./adapters/types";
 import { installContract } from "./contract";
 import { linkSkill } from "./fixture";
@@ -45,15 +46,6 @@ export function classify(outcome: RunOutcome, completion: CheckOutcome): Attempt
   if (outcome.timedOut) return "timeout";
   if (completion.passed !== true) return "harness-error";
   return "completed";
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function writeArtifacts(

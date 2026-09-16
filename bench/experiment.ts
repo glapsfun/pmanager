@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
+import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
 import { installContract, renderContract } from "./contract";
 import { type AttemptStatus, executeScenario } from "./execute";
@@ -162,6 +163,10 @@ export async function createExperiment(
   opts: NewExperimentOptions,
   deps: CreateDeps,
 ): Promise<Manifest> {
+  const dir = join(deps.experimentsDir, opts.id);
+  if (await exists(join(dir, "manifest.json"))) {
+    throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
+  }
   const scenarios = opts.scenarios.map((n) => {
     const s = scenarioByName(n);
     if (!s) throw new Error(`unknown scenario: ${n}`);
@@ -200,12 +205,11 @@ export async function createExperiment(
     scenarios: entries,
     planned: planAttempts(opts.id, opts.scenarios, opts.conditions, opts.pairs),
   };
-  const dir = join(deps.experimentsDir, opts.id);
-  if (await exists(join(dir, "manifest.json"))) {
-    throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
-  }
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  // "wx" fails if the file appeared meanwhile, so two concurrent creations cannot both win.
+  await writeFile(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, {
+    flag: "wx",
+  });
   return manifest;
 }
 
@@ -213,39 +217,32 @@ export async function readManifest(dir: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")) as Manifest;
 }
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** A missing file is an empty history; a malformed line is an error, never silently dropped. */
 export async function readAttempts(dir: string): Promise<AttemptRecord[]> {
   const path = join(dir, "attempts.jsonl");
   if (!(await exists(path))) return [];
-  const raw = await readFile(path, "utf8");
-  return raw
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((l, i) => {
-      try {
-        return JSON.parse(l) as AttemptRecord;
-      } catch {
-        throw new Error(`${path}: malformed JSON on line ${i + 1}`);
-      }
-    });
+  const out: AttemptRecord[] = [];
+  const lines = (await readFile(path, "utf8")).split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i] ?? "";
+    if (!l.trim()) continue;
+    try {
+      out.push(JSON.parse(l) as AttemptRecord);
+    } catch {
+      throw new Error(`${path}: malformed JSON on line ${i + 1}`);
+    }
+  }
+  return out;
 }
 
 /** Everything the manifest pinned must still hold before more attempts join the same experiment. */
 export async function validateManifest(m: Manifest, adapter: Adapter): Promise<string[]> {
   const problems: string[] = [];
   const d = await adapter.detect();
+  const version = d.version ?? "unknown";
   if (!d.available) problems.push(`${adapter.name} unavailable: ${d.reason ?? "unknown"}`);
-  else if ((d.version ?? "unknown") !== m.harnessVersion) {
-    problems.push(`harness version ${d.version} differs from manifest ${m.harnessVersion}`);
+  else if (version !== m.harnessVersion) {
+    problems.push(`harness version ${version} differs from manifest ${m.harnessVersion}`);
   }
   const skillHash = await hashSkill();
   if (skillHash !== m.skillHash)
@@ -310,7 +307,7 @@ export async function runExperiment(
   }
   const todo = remaining(m, await readAttempts(dir));
   const isoTmp = await mkdtemp(join(deps.tmp, "pm-bench-iso-"));
-  const iso = await deps.adapter.isolate({ home: deps.home, tmp: isoTmp });
+  const iso = await deps.adapter.isolate({ home: deps.home, tmp: isoTmp, env: deps.env });
   if (m.conditions.length > 1 && !iso) {
     await rm(isoTmp, { recursive: true, force: true });
     throw new Error("isolation unavailable; refusing a two-condition experiment");

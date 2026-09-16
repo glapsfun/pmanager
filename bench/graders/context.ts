@@ -18,7 +18,7 @@ export async function changedPathsSince(
   baseline: string,
   initialDirty: Record<string, string>,
 ): Promise<{ paths: string[]; dirty: boolean }> {
-  const committed = (await gitOk(["diff", "--name-only", baseline, "HEAD"], dir))
+  const committed = (await gitOk(["diff", "--name-only", "--no-renames", baseline, "HEAD"], dir))
     .split("\n")
     .filter((l) => l.trim() !== "");
   const uncommitted = porcelainPaths(
@@ -28,11 +28,12 @@ export async function changedPathsSince(
   for (const p of uncommitted) {
     if (p in initialDirty && (await contentHash(dir, p)) === initialDirty[p]) unchanged.push(p);
   }
-  // A file that was dirty at the start and is now gone from git's view was deleted.
+  // A file that was dirty at the start, is gone from git's view, and no longer exists was
+  // deleted without a commit; an edit or deletion that was committed shows up in `committed`.
   const vanished: string[] = [];
   for (const p of Object.keys(initialDirty)) {
-    if (!uncommitted.includes(p) && (await contentHash(dir, p)) !== initialDirty[p])
-      vanished.push(p);
+    const tracked = uncommitted.includes(p) || committed.includes(p);
+    if (!tracked && (await contentHash(dir, p)) === "deleted") vanished.push(p);
   }
   const keep = (p: string) => !unchanged.includes(p);
   const paths = [...new Set([...committed, ...uncommitted, ...vanished])].filter(keep).sort();

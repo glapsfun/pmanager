@@ -10,6 +10,7 @@ import {
   remaining,
   repoDirty,
   runExperiment,
+  validateManifest,
 } from "./experiment";
 import { appendHistory, readHistory } from "./history";
 import { runMicrobench, toToolLine } from "./microbench/run";
@@ -121,7 +122,21 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
     io.err(`${adapter.name} unavailable: ${d.reason ?? "unknown"}\n`);
     return 1;
   }
-  const todo = remaining(manifest, await readAttempts(dir));
+  const problems = await validateManifest(manifest, adapter);
+  if (problems.length) {
+    const list = problems.join("\n  ");
+    io.err(
+      `experiment ${manifest.id} inputs changed since it was created:\n  ${list}\nstart a new experiment instead\n`,
+    );
+    return 1;
+  }
+  let todo: ReturnType<typeof remaining>;
+  try {
+    todo = remaining(manifest, await readAttempts(dir));
+  } catch (e) {
+    io.err(`${(e as Error).message}\n`);
+    return 1;
+  }
   const est = estimateCost(manifest, await readHistory(a.historyPath ?? HISTORY_PATH), todo.length);
   const shape = `${manifest.scenarios.length} scenario(s) × ${manifest.pairs} pair(s) × ${manifest.conditions.length} condition(s)`;
   const cost = est === null ? "unknown" : `$${est.toFixed(2)}`;
@@ -144,6 +159,9 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
       },
     });
     io.out(`ran ${r.ran}, remaining ${r.remaining}\n`);
+  } catch (e) {
+    io.err(`${(e as Error).message}\n`);
+    return 1;
   } finally {
     await writeExperimentReport(dir);
     await writeReport(

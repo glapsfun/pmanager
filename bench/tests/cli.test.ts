@@ -244,4 +244,18 @@ describe("experiment commands", () => {
     expect(code).toBe(0);
     expect(await Bun.file(report).text()).toContain("## Experiments");
   });
+
+  test("run exits 1 with a readable message on a stale manifest", async () => {
+    const dir = await makeTempDir("bench-cli-exp");
+    const expDir = join(dir, "t");
+    await mkdir(expDir, { recursive: true });
+    await writeFile(
+      join(expDir, "manifest.json"),
+      JSON.stringify({ ...manifest, harness: "codex" }),
+    );
+    const { err, io: i } = io();
+    const code = await main(["experiment", "run", "--id", "t", "--experiments-dir", dir], i);
+    expect(code).toBe(1);
+    expect(err.join("")).toMatch(/inputs changed|unavailable/);
+  });
 });

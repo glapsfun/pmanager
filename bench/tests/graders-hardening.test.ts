@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
-import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
+import { type FixtureInfo, gitCommitAll, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
 import { evidenceCitesRepo, metricHasTarget } from "../graders/new-epic";
 import { nextNotT03 } from "../graders/tracking";
@@ -137,5 +137,31 @@ describe("dirty-tree comparison against the starting state", () => {
     const ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
     expect(ctx.changedPaths).toEqual(["docs/notes.txt"]);
     expect(ctx.dirty).toBe(true);
+  });
+
+  test("editing or deleting an initially dirty file and committing leaves the tree clean", async () => {
+    for (const action of ["edit", "delete"] as const) {
+      const dir = await makeTempDir("bench-harden");
+      await buildWebshopRepo(dir);
+      await writeFile(join(dir, "docs", "notes.txt"), "keep me\n");
+      if (action === "delete") await gitCommitAll(dir, "chore: track notes");
+      const baselineSha = await headSha(dir);
+      if (action === "delete") await writeFile(join(dir, "docs", "notes.txt"), "dirty\n");
+      const info: FixtureInfo = {
+        baselineSha,
+        originBare: null,
+        originRefs: {},
+        epicSlugsBefore: ["app-performance"],
+        initialDirty: await snapshotDirty(dir),
+      };
+      expect(Object.keys(info.initialDirty)).toEqual(["docs/notes.txt"]);
+      if (action === "edit") await writeFile(join(dir, "docs", "notes.txt"), "v2\n");
+      else await rm(join(dir, "docs", "notes.txt"));
+      await gitCommitAll(dir, `chore: ${action} notes`);
+      const ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
+      expect(ctx.dirty).toBe(false);
+      expect(ctx.newCommits).toBe(1);
+      expect(ctx.changedPaths).toEqual(["docs/notes.txt"]);
+    }
   });
 });
