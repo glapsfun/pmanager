@@ -12,6 +12,17 @@ Credentials come from your environment: `ANTHROPIC_API_KEY` for Claude Code and 
 
 pi loads project skills only from trusted projects; set `defaultProjectTrust: always` in pi's settings for headless runs.
 
+## Experiments
+
+An experiment pairs attempts on one harness and one model, optionally with and without the skill.
+
+    bun run bench.ts experiment new --id pilot-1 --harness claude-code --model claude-sonnet-5 --condition both --pairs 2 --scenario perf-bug-new-epic
+    bun run bench.ts experiment run --id pilot-1          # dry run: prints the plan and estimated cost, exit 3
+    bun run bench.ts experiment run --id pilot-1 --yes    # spends money; resumable
+    bun run bench.ts experiment report --id pilot-1
+
+Both conditions get the same fixture plus a generated `docs/pm/CONTRACT.md` describing the document format; only the with-skill condition gets the activation sentence and the skill copy. Codex experiments must pass `--model` and `--reasoning` explicitly; both are recorded in the manifest and passed on the command line so the run never follows the local config. Manifest, attempts, and `REPORT.md` are committed under `experiments/<id>/`; `artifacts/` is kept locally.
+
 Gemini CLI and Copilot CLI have stub adapters that report why they are unavailable.
 
 Design: `.docs/specs/2026-09-15-pmanager-benchmark-design.md` (local, not in git).

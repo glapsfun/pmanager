@@ -43,6 +43,13 @@ describe("cli-args", () => {
       historyPath: undefined,
       reportPath: undefined,
       rawDir: undefined,
+      sub: undefined,
+      id: undefined,
+      condition: "with-skill",
+      pairs: 1,
+      reasoning: undefined,
+      yes: false,
+      experimentsDir: undefined,
     });
   });
 
@@ -148,5 +155,63 @@ describe("main", () => {
     );
     await main(["report", "--history", history, "--report", report], i);
     expect(await Bun.file(README_PATH).text()).toBe(before);
+  });
+});
+
+describe("experiment commands", () => {
+  test("parseArgs reads experiment flags", () => {
+    const a = parseArgs([
+      "experiment",
+      "new",
+      "--id",
+      "e1",
+      "--harness",
+      "pi",
+      "--model",
+      "m",
+      "--condition",
+      "both",
+      "--pairs",
+      "2",
+      "--reasoning",
+      "high",
+      "--experiments-dir",
+      "/x",
+    ]);
+    expect(a).toMatchObject({
+      command: "experiment",
+      sub: "new",
+      id: "e1",
+      harness: "pi",
+      model: "m",
+      condition: "both",
+      pairs: 2,
+      reasoning: "high",
+      experimentsDir: "/x",
+    });
+    expect(parseArgs(["experiment", "run", "--id", "e1", "--yes"])).toMatchObject({
+      sub: "run",
+      id: "e1",
+      yes: true,
+    });
+    expect(() => parseArgs(["experiment", "--id", "e1"])).toThrow(/experiment needs/);
+    expect(() => parseArgs(["experiment", "new", "--condition", "maybe"])).toThrow(/condition/);
+  });
+
+  test("new requires --model and an available harness; run and report need an experiment", async () => {
+    const dir = await makeTempDir("bench-cli-exp");
+    const { err, out, io: i } = io();
+    const base = ["--id", "e", "--harness", "copilot", "--experiments-dir", dir];
+    expect(await main(["experiment", "new", ...base], i)).toBe(2);
+    expect(err.join("")).toContain("--model");
+    expect(await main(["experiment", "new", ...base, "--model", "m"], i)).toBe(1);
+    expect(err.join("")).toContain("not implemented");
+    expect(await main(["experiment", "run", "--id", "missing", "--experiments-dir", dir], i)).toBe(
+      1,
+    );
+    expect(
+      await main(["experiment", "report", "--id", "missing", "--experiments-dir", dir], i),
+    ).toBe(1);
+    expect(out.join("")).toBe("");
   });
 });
