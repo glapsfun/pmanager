@@ -8,7 +8,7 @@ Agentic technical project/product manager for [Claude Code](https://docs.anthrop
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![runtime: Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
 [![Agent Skills](https://img.shields.io/badge/standard-Agent%20Skills-8a2be2)](https://agentskills.io)
-[![install with gskill](https://img.shields.io/badge/install%20with-gskill-0a7f5a?logo=npm&logoColor=white)](https://github.com/glapsfun/gskill)
+[![install with gskill](https://img.shields.io/badge/install%20with-gskill-0a7f5a?logo=bun&logoColor=white)](https://github.com/glapsfun/gskill)
 [![harnesses](https://img.shields.io/badge/harnesses-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20pi%20%C2%B7%20Gemini%20%C2%B7%20Copilot-555)](#benchmark)
 
 Distributed as a single-plugin [Claude Code plugin marketplace](https://docs.anthropic.com/en/docs/claude-code) and as a standard Agent Skill.
@@ -62,30 +62,36 @@ any tool-dependent work.
 
 ### Recommended: install with gskill
 
-[gskill](https://github.com/glapsfun/gskill) treats skills like dependencies: pmanager is resolved from this repo, content-hashed, recorded in a committed `skills-lock.json`, and restored byte-for-byte on any machine or in CI. One command per agent, run from the project that should get the skill (Node.js 20 or newer):
+[gskill](https://github.com/glapsfun/gskill) treats skills like dependencies: pmanager is resolved from this repo, content-hashed, recorded in a committed `skills-lock.json`, and restored byte-for-byte on any machine or in CI. You already have Bun for the pm tool, so install gskill with it once:
 
 ```bash
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent codex
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent gemini-cli
-npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent cursor
+bun install --global @glapsfun/gskill
+```
+
+Then add pmanager from the project that should get the skill, one command per agent:
+
+```bash
+gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
+gskill add github.com/glapsfun/pmanager --skill pmanager --agent codex
+gskill add github.com/glapsfun/pmanager --skill pmanager --agent gemini-cli
+gskill add github.com/glapsfun/pmanager --skill pmanager --agent cursor
 ```
 
 Commit `skills-lock.json`. Teammates and CI then get the identical version with:
 
 ```bash
-npx @glapsfun/gskill install --frozen-lockfile
+gskill install --frozen-lockfile
 ```
 
 Keep it current and honest:
 
 ```bash
-npx @glapsfun/gskill project verify           # re-hash the installed skill against the lock
-npx @glapsfun/gskill update --list            # see newer pmanager releases
-npx @glapsfun/gskill upgrade pmanager --latest
+gskill project verify           # re-hash the installed skill against the lock
+gskill update --list            # see newer pmanager releases
+gskill upgrade pmanager --latest
 ```
 
-gskill also installs via Homebrew (`brew install glapsfun/tap/gskill`), Go, or its install script; see its [quick start](https://github.com/glapsfun/gskill#quick-start). It installs the skill folder, which is the whole product: pmanager triggers on planning and scoping language without a slash command. Only the optional `/pmanager` command needs the Claude Code plugin route below.
+No Bun on a teammate's machine? `bunx @glapsfun/gskill …` and `npx @glapsfun/gskill …` run it without installing, and gskill also ships via Homebrew (`brew install glapsfun/tap/gskill`), Go, and an install script; see its [quick start](https://github.com/glapsfun/gskill#quick-start). It installs the skill folder, which is the whole product: pmanager triggers on planning and scoping language without a slash command. Only the optional `/pmanager` command needs the Claude Code plugin route below.
 
 ### Claude Code plugin (adds the `/pmanager` slash command)
 
