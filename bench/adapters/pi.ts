@@ -94,6 +94,7 @@ export const pi: Adapter = {
       durationMs: r.durationMs,
       telemetry: parsePiStream(r.stdout),
       rawLogPath: opts.rawLogPath,
+      stderr: r.stderr,
     };
   },
 };

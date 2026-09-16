@@ -1,16 +1,12 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk } from "../plugins/pmanager/skills/pmanager/scripts/git";
-import type { Adapter } from "./adapters/types";
-import { installContract } from "./contract";
-import { linkSkill } from "./fixture";
-import { runCompleted } from "./graders/common";
-import { buildCheckContext } from "./graders/context";
-import { runChecks, type Score, scoreChecks } from "./graders/types";
+import { type Adapter, EMPTY_TELEMETRY } from "./adapters/types";
+import { executeScenario } from "./execute";
+import type { Score } from "./graders/types";
 import { type AgentRunLine, appendHistory, stripTelemetry } from "./history";
-import { composePrompt, type Scenario } from "./scenarios/types";
-import { PM_TODAY, REPO_ROOT, SKILL_DIR } from "./skill-paths";
+import type { Scenario } from "./scenarios/types";
+import { PM_TODAY, REPO_ROOT } from "./skill-paths";
 
 export interface RunMeta {
   sha: string;
@@ -60,62 +56,44 @@ function stamp(): string {
 }
 
 export async function runScenario(req: RunRequest): Promise<RunResult> {
-  const fixtureDir = await mkdtemp(join(tmpdir(), `pm-bench-${req.scenario.name}-`));
-  let originBare: string | null = null;
-  try {
-    const info = await req.scenario.buildFixture(fixtureDir);
-    originBare = info.originBare;
-    await linkSkill(fixtureDir, SKILL_DIR);
-    await installContract(fixtureDir);
-    await mkdir(req.rawDir, { recursive: true });
-    const rawLogPath = join(
-      req.rawDir,
-      `${stamp()}-${req.adapter.name}-${req.scenario.name}-${req.run}.jsonl`,
-    );
-    const requested = req.model ?? req.adapter.defaultModel;
-    const outcome = await req.adapter.run({
-      cwd: fixtureDir,
-      prompt: composePrompt(req.scenario, "with-skill"),
-      model: requested,
-      timeoutMs: req.timeoutMs,
-      env: buildEnv(req.adapter),
-      rawLogPath,
-    });
-    const ctx = await buildCheckContext(fixtureDir, info, outcome.telemetry, {
-      exitCode: outcome.exitCode,
-      timedOut: outcome.timedOut,
-    });
-    // Completion gates the score but never enters its denominator: a run that did not
-    // finish records 0, a run that did is scored on the scenario checks alone.
-    const completion = await runChecks([runCompleted], ctx);
-    const completed = completion.every((o) => o.passed === true);
-    const score = scoreChecks(await runChecks(req.scenario.checks, ctx));
-    score.outcomes = [...completion, ...score.outcomes];
-    if (!completed) score.failed = [runCompleted.id, ...score.failed];
-    const line: AgentRunLine = {
-      kind: "agent",
-      date: new Date().toISOString(),
-      sha: req.meta.sha,
-      skillVersion: req.meta.skillVersion,
-      harness: req.adapter.name,
-      harnessVersion: req.meta.harnessVersion,
-      model: requested ?? outcome.telemetry.model,
-      scenario: req.scenario.name,
-      run: req.run,
-      score: completed ? Number(score.score.toFixed(4)) : 0,
-      failed: score.failed,
-      skipped: score.skipped,
-      durationMs: outcome.durationMs,
-      timedOut: outcome.timedOut,
-      exitCode: outcome.exitCode,
-      telemetry: stripTelemetry(outcome.telemetry),
-    };
-    await appendHistory(req.historyPath, line);
-    return { line, score, fixtureDir, rawLogPath };
-  } finally {
-    if (!req.keep) {
-      await rm(fixtureDir, { recursive: true, force: true });
-      if (originBare) await rm(originBare, { recursive: true, force: true });
-    }
-  }
+  await mkdir(req.rawDir, { recursive: true });
+  const rawLogPath = join(
+    req.rawDir,
+    `${stamp()}-${req.adapter.name}-${req.scenario.name}-${req.run}.jsonl`,
+  );
+  const requested = req.model ?? req.adapter.defaultModel;
+  const r = await executeScenario({
+    adapter: req.adapter,
+    scenario: req.scenario,
+    condition: "with-skill",
+    model: requested,
+    timeoutMs: req.timeoutMs,
+    env: buildEnv(req.adapter),
+    extraArgs: [],
+    rawLogPath,
+    keep: req.keep,
+  });
+  const failed = r.checks.filter((c) => c.passed === false).map((c) => c.id);
+  const skipped = r.checks.filter((c) => c.passed === null).map((c) => c.id);
+  const line: AgentRunLine = {
+    kind: "agent",
+    date: new Date().toISOString(),
+    sha: req.meta.sha,
+    skillVersion: req.meta.skillVersion,
+    harness: req.adapter.name,
+    harnessVersion: req.meta.harnessVersion,
+    model: requested ?? r.outcome?.telemetry.model ?? null,
+    scenario: req.scenario.name,
+    run: req.run,
+    score: r.score,
+    failed,
+    skipped,
+    durationMs: r.outcome?.durationMs ?? 0,
+    timedOut: r.outcome?.timedOut ?? false,
+    exitCode: r.outcome?.exitCode ?? null,
+    telemetry: stripTelemetry(r.outcome?.telemetry ?? EMPTY_TELEMETRY),
+  };
+  await appendHistory(req.historyPath, line);
+  const score: Score = { score: r.score, failed, skipped, outcomes: r.checks };
+  return { line, score, fixtureDir: r.fixtureDir, rawLogPath };
 }

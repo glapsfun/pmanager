@@ -135,6 +135,7 @@ export const claudeCode: Adapter = {
       durationMs: r.durationMs,
       telemetry: parseClaudeStream(r.stdout),
       rawLogPath: opts.rawLogPath,
+      stderr: r.stderr,
     };
   },
 };

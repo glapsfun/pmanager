@@ -64,6 +64,7 @@ export interface RunOutcome {
   durationMs: number;
   telemetry: Telemetry;
   rawLogPath: string;
+  stderr?: string;
 }
 
 export interface Adapter {

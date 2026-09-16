@@ -93,6 +93,7 @@ export const codex: Adapter = {
       durationMs: r.durationMs,
       telemetry: parseCodexStream(r.stdout),
       rawLogPath: opts.rawLogPath,
+      stderr: r.stderr,
     };
   },
 };
