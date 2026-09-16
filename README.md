@@ -97,6 +97,30 @@ npx @anthropic-ai/claude-code plugin install pmanager@pmanager
 
 </details>
 
+### Any agent via gskill (reproducible, locked)
+
+[gskill](https://github.com/glapsfun/gskill) installs skills like dependencies: content-hashed, recorded in a committed `skills-lock.json`, and restorable byte-for-byte on another machine or in CI. Run it with npx (Node.js 20 or newer) from the project that should get the skill:
+
+```bash
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent codex
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent gemini-cli
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent cursor
+```
+
+Commit `skills-lock.json`; teammates and CI reproduce the same skill version with:
+
+```bash
+npx @glapsfun/gskill install --frozen-lockfile
+```
+
+<details>
+<summary>Verify, update, other install routes</summary>
+
+`npx @glapsfun/gskill project verify` re-hashes the installed skill against the lock. `npx @glapsfun/gskill update --list` shows newer pmanager versions; `npx @glapsfun/gskill upgrade pmanager --latest` moves to one. gskill also installs via Homebrew (`brew install glapsfun/tap/gskill`), Go, or its install script; see its [README](https://github.com/glapsfun/gskill#quick-start). Like `npx skills`, it installs the skill folder only, so the `/pmanager` slash command comes from the Claude Code plugin install.
+
+</details>
+
 ### Codex, Gemini CLI, Copilot CLI (Agent Skill via `npx skills`)
 
 ```bash
