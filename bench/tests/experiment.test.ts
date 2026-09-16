@@ -175,4 +175,38 @@ describe("experiment lifecycle", () => {
       ),
     ).rejects.toThrow(/isolation/);
   });
+
+  test("an existing id is refused, stale inputs are refused on run, malformed history is an error", async () => {
+    const root = await makeTempDir("bench-exp");
+    const a = adapter(async () => ({}));
+    const opts = {
+      id: "e4",
+      harness: "claude-code" as const,
+      model: "claude-sonnet-5",
+      conditions: ["with-skill"] as const,
+      pairs: 1,
+      scenarios: [CLAIM],
+      timeoutS: 10,
+    };
+    const m = await createExperiment({ ...opts, conditions: [...opts.conditions] }, deps(a, root));
+    await expect(
+      createExperiment(
+        { ...opts, conditions: [...opts.conditions], model: "other" },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/already exists/);
+    const dir = join(root, "e4");
+    const stale = {
+      ...m,
+      skillHash: "sha256:stale",
+      scenarios: [{ ...m.scenarios[0], graderVersion: 99 }],
+    };
+    await writeFile(join(dir, "manifest.json"), JSON.stringify(stale));
+    await expect(
+      runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root }),
+    ).rejects.toThrow(/skill hash[\s\S]*grader version/);
+    expect(await readAttempts(dir)).toEqual([]);
+    await writeFile(join(dir, "attempts.jsonl"), '{"attemptId":"x"}\nnot json\n');
+    await expect(readAttempts(dir)).rejects.toThrow(/malformed JSON on line 2/);
+  });
 });

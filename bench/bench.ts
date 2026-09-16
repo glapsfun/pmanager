@@ -236,7 +236,12 @@ export async function main(argv: string[], io: Io): Promise<number> {
     case "experiment":
       return cmdExperiment(a, io);
     case "report":
-      await writeReport(a.historyPath ?? HISTORY_PATH, a.reportPath ?? REPORT_PATH, readmeFor(a));
+      await writeReport(
+        a.historyPath ?? HISTORY_PATH,
+        a.reportPath ?? REPORT_PATH,
+        readmeFor(a),
+        experimentsFor(a),
+      );
       io.out(`wrote ${a.reportPath ?? REPORT_PATH}\n`);
       return 0;
     default:

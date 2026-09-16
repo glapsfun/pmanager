@@ -97,9 +97,11 @@ export async function exists(p: string): Promise<boolean> {
 /** A config dir holding only the credentials file: no user skills, plugins, settings or memory. */
 export async function isolateClaude(opts: IsolateOptions): Promise<Isolation | null> {
   const creds = join(opts.home, ".claude", ".credentials.json");
-  if (!(await exists(creds))) return null;
+  const hasFile = await exists(creds);
+  const env = opts.env ?? process.env;
+  if (!hasFile && !env.ANTHROPIC_API_KEY) return null;
   const dir = await mkdtemp(join(opts.tmp, "claude-config-"));
-  await copyFile(creds, join(dir, ".credentials.json"));
+  if (hasFile) await copyFile(creds, join(dir, ".credentials.json"));
   return {
     mode: "config-dir",
     env: { CLAUDE_CONFIG_DIR: dir },

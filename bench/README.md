@@ -21,7 +21,7 @@ An experiment pairs attempts on one harness and one model, optionally with and w
     bun run bench.ts experiment run --id pilot-1 --yes    # spends money; resumable
     bun run bench.ts experiment report --id pilot-1
 
-Both conditions get the same fixture plus a generated `docs/pm/CONTRACT.md` describing the document format; only the with-skill condition gets the activation sentence and the skill copy. Codex experiments must pass `--model` and `--reasoning` explicitly; both are recorded in the manifest and passed on the command line so the run never follows the local config. Manifest, attempts, and `REPORT.md` are committed under `experiments/<id>/`; `artifacts/` is kept locally.
+Both conditions get the same fixture plus a generated `docs/pm/CONTRACT.md` describing the document format; only the with-skill condition gets the activation sentence and the skill copy. Codex experiments must pass `--model` and `--reasoning` explicitly; both are recorded in the manifest and passed on the command line so the run never follows the local config. Manifest, attempts, and `REPORT.md` are committed under `experiments/<id>/`; `artifacts/` is kept locally. An experiment id is never reused, and `run` refuses to resume when the skill, contract, prompts, grader versions, or harness version differ from the manifest: start a new experiment instead so results are never mixed across inputs.
 
 Gemini CLI and Copilot CLI have stub adapters that report why they are unavailable.
 

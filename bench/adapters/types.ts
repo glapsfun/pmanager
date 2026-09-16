@@ -40,6 +40,8 @@ export interface Isolation {
 export interface IsolateOptions {
   home: string;
   tmp: string;
+  /** credentials source for API-key auth; defaults to process.env */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface Detection {

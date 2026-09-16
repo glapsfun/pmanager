@@ -54,11 +54,13 @@ export function parseCodexStream(jsonl: string): Telemetry {
 /** A temporary HOME and CODEX_HOME seeded with auth.json only: no user skills, memories or hooks. */
 export async function isolateCodex(opts: IsolateOptions): Promise<Isolation | null> {
   const auth = join(opts.home, ".codex", "auth.json");
-  if (!(await exists(auth))) return null;
+  const hasFile = await exists(auth);
+  const env = opts.env ?? process.env;
+  if (!hasFile && !env.OPENAI_API_KEY) return null;
   const home = await mkdtemp(join(opts.tmp, "codex-home-"));
   const codexHome = join(home, ".codex");
   await mkdir(codexHome, { recursive: true });
-  await copyFile(auth, join(codexHome, "auth.json"));
+  if (hasFile) await copyFile(auth, join(codexHome, "auth.json"));
   return {
     mode: "home-dir",
     env: { HOME: home, CODEX_HOME: codexHome },

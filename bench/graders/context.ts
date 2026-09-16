@@ -28,9 +28,15 @@ export async function changedPathsSince(
   for (const p of uncommitted) {
     if (p in initialDirty && (await contentHash(dir, p)) === initialDirty[p]) unchanged.push(p);
   }
+  // A file that was dirty at the start and is now gone from git's view was deleted.
+  const vanished: string[] = [];
+  for (const p of Object.keys(initialDirty)) {
+    if (!uncommitted.includes(p) && (await contentHash(dir, p)) !== initialDirty[p])
+      vanished.push(p);
+  }
   const keep = (p: string) => !unchanged.includes(p);
-  const paths = [...new Set([...committed, ...uncommitted])].filter(keep).sort();
-  return { paths, dirty: uncommitted.filter(keep).length > 0 };
+  const paths = [...new Set([...committed, ...uncommitted, ...vanished])].filter(keep).sort();
+  return { paths, dirty: uncommitted.filter(keep).length + vanished.length > 0 };
 }
 
 export async function newCommitsSince(dir: string, baseline: string): Promise<number> {

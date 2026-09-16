@@ -36,9 +36,24 @@ describe("adapter isolation", () => {
     await expect(stat(cfg)).rejects.toThrow();
   });
 
-  test("claude-code: no credentials means no isolation", async () => {
+  test("claude-code: no credentials file and no API key means no isolation", async () => {
     const home = await makeTempDir("bench-home");
-    expect(await claudeCode.isolate({ home, tmp: await makeTempDir("bench-iso") })).toBeNull();
+    const tmp = await makeTempDir("bench-iso");
+    expect(await claudeCode.isolate({ home, tmp, env: {} })).toBeNull();
+  });
+
+  test("claude-code and codex: an API key alone yields an empty isolated config", async () => {
+    const home = await makeTempDir("bench-home");
+    const tmp = await makeTempDir("bench-iso");
+    const c = await claudeCode.isolate({ home, tmp, env: { ANTHROPIC_API_KEY: "k" } });
+    expect(c?.mode).toBe("config-dir");
+    await expect(
+      stat(join(c?.env.CLAUDE_CONFIG_DIR as string, ".credentials.json")),
+    ).rejects.toThrow();
+    const x = await codex.isolate({ home, tmp, env: { OPENAI_API_KEY: "k" } });
+    expect(x?.mode).toBe("home-dir");
+    await expect(stat(join(x?.env.CODEX_HOME as string, "auth.json"))).rejects.toThrow();
+    expect(await codex.isolate({ home, tmp, env: {} })).toBeNull();
   });
 
   test("codex: temp HOME and CODEX_HOME hold only auth.json", async () => {

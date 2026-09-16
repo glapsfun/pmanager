@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
@@ -201,6 +201,9 @@ export async function createExperiment(
     planned: planAttempts(opts.id, opts.scenarios, opts.conditions, opts.pairs),
   };
   const dir = join(deps.experimentsDir, opts.id);
+  if (await exists(join(dir, "manifest.json"))) {
+    throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
+  }
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
@@ -210,16 +213,61 @@ export async function readManifest(dir: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")) as Manifest;
 }
 
-export async function readAttempts(dir: string): Promise<AttemptRecord[]> {
+async function exists(p: string): Promise<boolean> {
   try {
-    const raw = await readFile(join(dir, "attempts.jsonl"), "utf8");
-    return raw
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => JSON.parse(l) as AttemptRecord);
+    await stat(p);
+    return true;
   } catch {
-    return [];
+    return false;
   }
+}
+
+/** A missing file is an empty history; a malformed line is an error, never silently dropped. */
+export async function readAttempts(dir: string): Promise<AttemptRecord[]> {
+  const path = join(dir, "attempts.jsonl");
+  if (!(await exists(path))) return [];
+  const raw = await readFile(path, "utf8");
+  return raw
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l, i) => {
+      try {
+        return JSON.parse(l) as AttemptRecord;
+      } catch {
+        throw new Error(`${path}: malformed JSON on line ${i + 1}`);
+      }
+    });
+}
+
+/** Everything the manifest pinned must still hold before more attempts join the same experiment. */
+export async function validateManifest(m: Manifest, adapter: Adapter): Promise<string[]> {
+  const problems: string[] = [];
+  const d = await adapter.detect();
+  if (!d.available) problems.push(`${adapter.name} unavailable: ${d.reason ?? "unknown"}`);
+  else if ((d.version ?? "unknown") !== m.harnessVersion) {
+    problems.push(`harness version ${d.version} differs from manifest ${m.harnessVersion}`);
+  }
+  const skillHash = await hashSkill();
+  if (skillHash !== m.skillHash)
+    problems.push(`skill hash ${skillHash} differs from manifest ${m.skillHash}`);
+  const contractHash = hashString(renderContract());
+  if (contractHash !== m.contractHash) problems.push("contract hash differs from manifest");
+  for (const entry of m.scenarios) {
+    const s = scenarioByName(entry.name);
+    if (!s) {
+      problems.push(`scenario ${entry.name} no longer exists`);
+      continue;
+    }
+    const promptHash = hashString(composePrompt(s, "with-skill"));
+    if (promptHash !== entry.promptHash)
+      problems.push(`prompt of ${entry.name} differs from manifest`);
+    if (s.graderVersion !== entry.graderVersion) {
+      problems.push(
+        `grader version of ${entry.name} is ${s.graderVersion}, manifest has ${entry.graderVersion}`,
+      );
+    }
+  }
+  return problems;
 }
 
 export async function appendAttempt(dir: string, rec: AttemptRecord): Promise<void> {
@@ -254,6 +302,12 @@ export async function runExperiment(
   deps: RunDeps,
 ): Promise<{ ran: number; remaining: number }> {
   const m = await readManifest(dir);
+  const problems = await validateManifest(m, deps.adapter);
+  if (problems.length) {
+    throw new Error(
+      `experiment ${m.id} inputs changed since it was created:\n  ${problems.join("\n  ")}`,
+    );
+  }
   const todo = remaining(m, await readAttempts(dir));
   const isoTmp = await mkdtemp(join(deps.tmp, "pm-bench-iso-"));
   const iso = await deps.adapter.isolate({ home: deps.home, tmp: isoTmp });

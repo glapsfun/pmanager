@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { main } from "../bench";
 import { parseArgs } from "../cli-args";
 import { README_PATH } from "../skill-paths";
+import { attempts, manifest } from "./fixtures/experiment-fixture";
 
 function io() {
   const out: string[] = [];
@@ -213,5 +215,33 @@ describe("experiment commands", () => {
       await main(["experiment", "report", "--id", "missing", "--experiments-dir", dir], i),
     ).toBe(1);
     expect(out.join("")).toBe("");
+  });
+
+  test("report includes the experiments section when an experiments dir is given", async () => {
+    const dir = await makeTempDir("bench-cli-exp");
+    const expDir = join(dir, "experiments", "t");
+    await mkdir(expDir, { recursive: true });
+    await writeFile(join(expDir, "manifest.json"), JSON.stringify(manifest));
+    await writeFile(
+      join(expDir, "attempts.jsonl"),
+      `${attempts.map((r) => JSON.stringify(r)).join("\n")}\n`,
+    );
+    const { io: i } = io();
+    const history = join(dir, "h.jsonl");
+    const report = join(dir, "BENCH.md");
+    const code = await main(
+      [
+        "report",
+        "--history",
+        history,
+        "--report",
+        report,
+        "--experiments-dir",
+        join(dir, "experiments"),
+      ],
+      i,
+    );
+    expect(code).toBe(0);
+    expect(await Bun.file(report).text()).toContain("## Experiments");
   });
 });
