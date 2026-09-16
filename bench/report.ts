@@ -1,5 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { replaceBetweenMarkers } from "../plugins/pmanager/skills/pmanager/scripts/render";
 import { type AgentRunLine, type HistoryLine, readHistory, type ToolBenchLine } from "./history";
+
+export const README_START = "<!-- bench:start -->";
+export const README_END = "<!-- bench:end -->";
 
 const DASH = "—";
 
@@ -183,8 +187,7 @@ function renderHistory(agents: AgentRunLine[]): string[] {
 }
 
 export function renderReport(lines: HistoryLine[]): string {
-  const agents = lines.filter((l): l is AgentRunLine => l.kind === "agent");
-  const tools = lines.filter((l): l is ToolBenchLine => l.kind === "tool");
+  const { agents, tools } = split(lines);
   const out = [
     "# PManager benchmark",
     "",
@@ -203,8 +206,65 @@ export function renderReport(lines: HistoryLine[]): string {
   return out.join("\n");
 }
 
-export async function writeReport(historyPath: string, reportPath: string): Promise<void> {
-  await writeFile(reportPath, renderReport(await readHistory(historyPath)));
+function freshTokens(l: AgentRunLine): string {
+  const t = l.telemetry.tokens;
+  return t ? String(t.input + t.cacheWrite) : DASH;
+}
+
+function split(lines: HistoryLine[]): { agents: AgentRunLine[]; tools: ToolBenchLine[] } {
+  return {
+    agents: lines.filter((l): l is AgentRunLine => l.kind === "agent"),
+    tools: lines.filter((l): l is ToolBenchLine => l.kind === "tool"),
+  };
+}
+
+/** The compact block embedded in the root README between the bench markers. */
+export function renderReadmeSection(lines: HistoryLine[]): string {
+  const { agents, tools } = split(lines);
+  const body: string[] = [];
+  if (agents.length === 0) {
+    body.push("_no benchmark runs recorded_");
+  } else {
+    body.push(
+      "| Harness | Model | Scenario | Score | Duration | Fresh tokens | Cost |",
+      "| :--- | :--- | :--- | ---: | ---: | ---: | ---: |",
+      ...latestPerSeries(agents).map(
+        ({ cur }) =>
+          `| ${cur.harness} ${cur.harnessVersion} | ${cur.model ?? DASH} | ${cur.scenario} | ${score(cur.score)} | ${secs(cur.durationMs)} | ${freshTokens(cur)} | ${cost(cur)} |`,
+      ),
+    );
+  }
+  const latestTool = [...tools].sort(byDateAsc).pop();
+  if (latestTool) {
+    body.push(
+      "",
+      `Tool microbench: status ${latestTool.statusMs.median} ms, check ${latestTool.checkMs.median} ms, render ${latestTool.renderMs.median} ms (median on ${latestTool.epics} epics, ${latestTool.tasks} tasks).`,
+    );
+  }
+  const last = [...lines].sort(byDateAsc).pop();
+  if (last) body.push("", `_Last run: ${day(last.date)} at ${last.sha}._`);
+  return [README_START, ...body, README_END, ""].join("\n");
+}
+
+export async function writeReadmeSection(
+  readmePath: string,
+  lines: HistoryLine[],
+): Promise<boolean> {
+  const before = await readFile(readmePath, "utf8");
+  const after = replaceBetweenMarkers(before, README_START, README_END, renderReadmeSection(lines));
+  if (after === null) return false;
+  if (after !== before) await writeFile(readmePath, after);
+  return true;
+}
+
+export async function writeReport(
+  historyPath: string,
+  reportPath: string,
+  readmePath?: string,
+): Promise<void> {
+  const lines = await readHistory(historyPath);
+  await writeFile(reportPath, renderReport(lines));
+  if (readmePath) await writeReadmeSection(readmePath, lines);
 }
 
 export async function readReport(reportPath: string): Promise<string> {

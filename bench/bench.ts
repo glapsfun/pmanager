@@ -5,7 +5,7 @@ import { runMicrobench, toToolLine } from "./microbench/run";
 import { writeReport } from "./report";
 import { repoSha, runScenario } from "./runner";
 import { SCENARIOS, scenarioByName } from "./scenarios/registry";
-import { HISTORY_PATH, RAW_DIR, REPORT_PATH, readSkillVersion } from "./skill-paths";
+import { HISTORY_PATH, RAW_DIR, README_PATH, REPORT_PATH, readSkillVersion } from "./skill-paths";
 
 export interface Io {
   out(s: string): void;
@@ -67,7 +67,7 @@ async function cmdRun(a: ParsedArgs, io: Io): Promise<number> {
       io.out(`  raw log ${r.rawLogPath}\n`);
     }
   }
-  await writeReport(historyPath, a.reportPath ?? REPORT_PATH);
+  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, README_PATH);
   return 0;
 }
 
@@ -76,7 +76,7 @@ async function cmdTool(a: ParsedArgs, io: Io): Promise<number> {
   const line = toToolLine(r, { sha: await repoSha(), skillVersion: await readSkillVersion() });
   const historyPath = a.historyPath ?? HISTORY_PATH;
   await appendHistory(historyPath, line);
-  await writeReport(historyPath, a.reportPath ?? REPORT_PATH);
+  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, README_PATH);
   io.out(`epics ${r.epics}, tasks ${r.tasks}, iterations ${r.iterations}\n`);
   io.out(
     `status ${r.statusMs.median}/${r.statusMs.max} ms  check ${r.checkMs.median}/${r.checkMs.max} ms  render ${r.renderMs.median}/${r.renderMs.max} ms (median/max)\n`,
@@ -98,7 +98,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     case "tool":
       return cmdTool(a, io);
     case "report":
-      await writeReport(a.historyPath ?? HISTORY_PATH, a.reportPath ?? REPORT_PATH);
+      await writeReport(a.historyPath ?? HISTORY_PATH, a.reportPath ?? REPORT_PATH, README_PATH);
       io.out(`wrote ${a.reportPath ?? REPORT_PATH}\n`);
       return 0;
     default:
