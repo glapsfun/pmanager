@@ -15,6 +15,7 @@ export const HISTORY_PATH = join(BENCH_DIR, "results", "history.jsonl");
 export const RAW_DIR = join(BENCH_DIR, "results", "raw");
 export const REPORT_PATH = join(BENCH_DIR, "BENCH.md");
 export const README_PATH = join(REPO_ROOT, "README.md");
+export const EXPERIMENTS_DIR = join(BENCH_DIR, "experiments");
 export const PM_TODAY = "2026-09-15";
 
 export async function readSkillVersion(): Promise<string> {

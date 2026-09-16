@@ -1,6 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { replaceBetweenMarkers } from "../plugins/pmanager/skills/pmanager/scripts/render";
 import { type AgentRunLine, type HistoryLine, readHistory, type ToolBenchLine } from "./history";
+import {
+  type ExperimentItem,
+  loadExperiments,
+  renderExperimentsSection,
+} from "./report-experiment";
 
 export const README_START = "<!-- bench:start -->";
 export const README_END = "<!-- bench:end -->";
@@ -186,7 +191,7 @@ function renderHistory(agents: AgentRunLine[]): string[] {
   ];
 }
 
-export function renderReport(lines: HistoryLine[]): string {
+export function renderReport(lines: HistoryLine[], experiments: ExperimentItem[] = []): string {
   const { agents, tools } = split(lines);
   const out = [
     "# PManager benchmark",
@@ -199,6 +204,7 @@ export function renderReport(lines: HistoryLine[]): string {
     "## Tool microbench",
     "",
     ...renderTool(tools),
+    ...renderExperimentsSection(experiments),
     "## History (last 20 agent runs)",
     "",
     ...renderHistory(agents),
@@ -219,7 +225,10 @@ function split(lines: HistoryLine[]): { agents: AgentRunLine[]; tools: ToolBench
 }
 
 /** The compact block embedded in the root README between the bench markers. */
-export function renderReadmeSection(lines: HistoryLine[]): string {
+export function renderReadmeSection(
+  lines: HistoryLine[],
+  experiments: ExperimentItem[] = [],
+): string {
   const { agents, tools } = split(lines);
   const body: string[] = [];
   if (agents.length === 0) {
@@ -234,6 +243,8 @@ export function renderReadmeSection(lines: HistoryLine[]): string {
       ),
     );
   }
+  const experimentLines = renderExperimentsSection(experiments);
+  if (experimentLines.length) body.push("", ...experimentLines.slice(0, -1));
   const latestTool = [...tools].sort(byDateAsc).pop();
   if (latestTool) {
     body.push(
@@ -249,9 +260,15 @@ export function renderReadmeSection(lines: HistoryLine[]): string {
 export async function writeReadmeSection(
   readmePath: string,
   lines: HistoryLine[],
+  experiments: ExperimentItem[] = [],
 ): Promise<boolean> {
   const before = await readFile(readmePath, "utf8");
-  const after = replaceBetweenMarkers(before, README_START, README_END, renderReadmeSection(lines));
+  const after = replaceBetweenMarkers(
+    before,
+    README_START,
+    README_END,
+    renderReadmeSection(lines, experiments),
+  );
   if (after === null) return false;
   if (after !== before) await writeFile(readmePath, after);
   return true;
@@ -261,10 +278,12 @@ export async function writeReport(
   historyPath: string,
   reportPath: string,
   readmePath?: string,
+  experimentsDir?: string,
 ): Promise<void> {
   const lines = await readHistory(historyPath);
-  await writeFile(reportPath, renderReport(lines));
-  if (readmePath) await writeReadmeSection(readmePath, lines);
+  const experiments = experimentsDir ? await loadExperiments(experimentsDir) : [];
+  await writeFile(reportPath, renderReport(lines, experiments));
+  if (readmePath) await writeReadmeSection(readmePath, lines, experiments);
 }
 
 export async function readReport(reportPath: string): Promise<string> {
