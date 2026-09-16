@@ -4,11 +4,12 @@ import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { claimConflictChecks } from "../graders/claim-conflict";
-import { type Scenario, SKILL_PREFIX } from "./types";
+import { CONTRACT_SENTENCE, type Scenario } from "./types";
 
 export const twoSessionClaimConflict: Scenario = {
   name: "two-session-claim-conflict",
-  prompt: `${SKILL_PREFIX}Plan the work to fix the orders page performance as an epic. I'm on the pi harness (pass --harness pi to the pm tool). Assume reasonable answers, I'm not available.`,
+  task: `Plan the work to fix the orders page performance as an epic. I'm on the pi harness (pass --harness pi to the pm tool). Assume reasonable answers, I'm not available. ${CONTRACT_SENTENCE}`,
+  graderVersion: 1,
   async buildFixture(dir: string): Promise<FixtureInfo> {
     await buildWebshopRepo(dir);
     const bare = join(dirname(dir), `${basename(dir)}-origin.git`);

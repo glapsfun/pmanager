@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { SCENARIOS, scenarioByName } from "../scenarios/registry";
+import { CONTRACT_SENTENCE, composePrompt, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
   test("registry has the four scenarios with skill-naming prompts", () => {
@@ -12,7 +13,9 @@ describe("scenarios", () => {
       "tracking-update-memory",
       "two-session-claim-conflict",
     ]);
-    for (const s of SCENARIOS) expect(s.prompt.startsWith("Use the pmanager skill.")).toBe(true);
+    for (const s of SCENARIOS) {
+      expect(composePrompt(s, "with-skill").startsWith("Use the pmanager skill.")).toBe(true);
+    }
     expect(scenarioByName("nope")).toBeUndefined();
   });
 
@@ -45,5 +48,17 @@ describe("scenarios", () => {
     ]);
     expect(await gitOk(["branch", "-r"], dir)).toContain("origin/pm/app-performance");
     expect((await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], dir)).trim()).toBe("main");
+  });
+});
+
+describe("condition prompts", () => {
+  test("both conditions share the task and the contract sentence; only the activation differs", () => {
+    for (const s of SCENARIOS) {
+      expect(s.task.endsWith(CONTRACT_SENTENCE)).toBe(true);
+      expect(s.task.includes("pmanager")).toBe(false);
+      expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
+      expect(composePrompt(s, "without-skill")).toBe(s.task);
+      expect(s.graderVersion).toBe(1);
+    }
   });
 });

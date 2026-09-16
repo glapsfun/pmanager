@@ -7,7 +7,7 @@ import { gitCommitAll } from "../fixture";
 import { readHistory } from "../history";
 import { runScenario } from "../runner";
 import { scenarioByName } from "../scenarios/registry";
-import type { Scenario } from "../scenarios/types";
+import { composePrompt, type Scenario } from "../scenarios/types";
 
 function fakeAdapter(act: (opts: RunOptions) => Promise<void>): Adapter {
   return {
@@ -47,7 +47,7 @@ describe("runScenario", () => {
     const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
     const adapter = fakeAdapter(async (opts) => {
       expect(opts.env.PM_TODAY).toBe("2026-09-15");
-      expect(opts.prompt).toBe(scenario.prompt);
+      expect(opts.prompt).toBe(composePrompt(scenario, "with-skill"));
       await stat(join(opts.cwd, ".agents", "skills", "pmanager", "SKILL.md"));
       await copyFixture(opts.cwd);
       const epic = join(opts.cwd, "docs", "pm", "app-performance", "epic.md");

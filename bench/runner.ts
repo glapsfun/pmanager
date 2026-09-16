@@ -8,7 +8,7 @@ import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
 import { runChecks, type Score, scoreChecks } from "./graders/types";
 import { type AgentRunLine, appendHistory, stripTelemetry } from "./history";
-import type { Scenario } from "./scenarios/types";
+import { composePrompt, type Scenario } from "./scenarios/types";
 import { PM_TODAY, REPO_ROOT, SKILL_DIR } from "./skill-paths";
 
 export interface RunMeta {
@@ -73,7 +73,7 @@ export async function runScenario(req: RunRequest): Promise<RunResult> {
     const requested = req.model ?? req.adapter.defaultModel;
     const outcome = await req.adapter.run({
       cwd: fixtureDir,
-      prompt: req.scenario.prompt,
+      prompt: composePrompt(req.scenario, "with-skill"),
       model: requested,
       timeoutMs: req.timeoutMs,
       env: buildEnv(req.adapter),
