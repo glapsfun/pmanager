@@ -32,6 +32,7 @@ function fakeAdapter(act: (opts: RunOptions) => Promise<void>): Adapter {
           toolCalls: { command_execution: 1 },
           commands: ["ls"],
           finalMessage: "done",
+          model: "reported-model",
         },
       };
     },
@@ -67,6 +68,7 @@ describe("runScenario", () => {
     });
     expect(result.line.kind).toBe("agent");
     expect(result.line.model).toBe("fake-model");
+    expect((result.line.telemetry as Record<string, unknown>).model).toBeUndefined();
     expect(result.line.harness).toBe("codex");
     expect(result.line.score).toBeGreaterThan(0.8);
     expect(result.line.telemetry.toolCalls).toEqual({ command_execution: 1 });
@@ -116,6 +118,7 @@ describe("runScenario on a failed harness run", () => {
             toolCalls: null,
             commands: null,
             finalMessage: null,
+            model: null,
           },
         };
       },
@@ -162,5 +165,25 @@ describe("runScenario on a failed harness run", () => {
     expect(result.line.timedOut).toBe(true);
     expect(result.line.exitCode).toBeNull();
     expect(result.line.failed).toContain("run-completed");
+  });
+});
+
+describe("runScenario model fallback", () => {
+  test("uses the harness-reported model when none was requested or defaulted", async () => {
+    const scenario = scenarioByName("two-session-claim-conflict") as Scenario;
+    const historyPath = join(await makeTempDir("bench-runner"), "history.jsonl");
+    const adapter: Adapter = { ...fakeAdapter(async () => {}), defaultModel: undefined };
+    const result = await runScenario({
+      adapter,
+      scenario,
+      model: undefined,
+      timeoutMs: 10_000,
+      keep: false,
+      run: 1,
+      historyPath,
+      rawDir: await makeTempDir("bench-raw"),
+      meta: META,
+    });
+    expect(result.line.model).toBe("reported-model");
   });
 });

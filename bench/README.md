@@ -8,7 +8,7 @@ Measures how effectively the pmanager skill does its job, on any harness with a 
 
 Scores come only from disk. Tokens, cost, turns, and tool calls are recorded when the harness reports them and stored as `null` otherwise. Numbers are comparable only within one harness and model.
 
-Credentials come from your environment: `ANTHROPIC_API_KEY` for Claude Code and pi (Anthropic models), `OPENAI_API_KEY` for Codex. Claude Code honours `CLAUDE_CODE_MAX_BUDGET_USD`. Raw harness output lands in `results/raw/` (gitignored). Commit `results/history.jsonl` and `BENCH.md` after a run you want to keep.
+Credentials come from your environment: `ANTHROPIC_API_KEY` for Claude Code and pi (Anthropic models), `OPENAI_API_KEY` for Codex. Claude Code honours `CLAUDE_CODE_MAX_BUDGET_USD`. `bench run` only checks that the harness binary is installed; an unauthenticated harness shows up as a score-0 run whose `run-completed` check failed, with the reason in the raw log. Raw harness output lands in `results/raw/` (gitignored). Commit `results/history.jsonl` and `BENCH.md` after a run you want to keep.
 
 pi loads project skills only from trusted projects; set `defaultProjectTrust: always` in pi's settings for headless runs.
 

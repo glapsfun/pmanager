@@ -117,8 +117,10 @@ export const nextNotT03: Check = {
   async run(ctx) {
     const msg = ctx.telemetry.finalMessage;
     if (msg === null) return skip("harness reported no final message");
-    if (/next[^\n]*\bT03\b/i.test(msg)) return fail("final message recommends T03");
-    const good = /\bT04\b/.test(msg) || /blocker|blocked|critical path/i.test(msg);
+    const t03 = /\bT03\b/.test(msg);
+    const t04 = /\bT04\b/.test(msg);
+    if (t03 && !t04) return fail("final message names T03 but not T04");
+    const good = t04 || /blocker|blocked|critical path/i.test(msg);
     return good
       ? pass("names T04 or the blocker")
       : fail("final message names neither T04 nor the blocker");

@@ -16,6 +16,7 @@ describe("claude-code adapter", () => {
         "git log --oneline -5",
       ],
       finalMessage: "Epic written as draft; awaiting approval.",
+      model: "claude-sonnet-5",
     });
   });
 

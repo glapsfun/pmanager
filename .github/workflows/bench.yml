@@ -38,6 +38,8 @@ jobs:
       CLAUDE_CODE_MAX_BUDGET_USD: "10"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -85,6 +87,7 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "chore(bench): record ${{ env.HARNESS }} run ${{ github.run_id }}"
+          base: ${{ github.head_ref || github.ref_name }}
           branch: bench/results-${{ github.run_id }}
           title: "bench: ${{ env.HARNESS }} results ${{ github.run_id }}"
           body: "Appends bench/results/history.jsonl and regenerates bench/BENCH.md."

@@ -1,5 +1,5 @@
-import { appendFile, cp, mkdir, symlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { appendFile, cp, mkdir } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { git, gitOk } from "../plugins/pmanager/skills/pmanager/scripts/git";
 
 export interface FixtureInfo {
@@ -32,17 +32,19 @@ export async function gitCommitAll(dir: string, message: string): Promise<void> 
   await gitOk(["commit", "-q", "-m", message], dir);
 }
 
-async function linkOrCopy(target: string, linkPath: string): Promise<void> {
-  await mkdir(dirname(linkPath), { recursive: true });
-  try {
-    await symlink(target, linkPath, "dir");
-  } catch {
-    await cp(target, linkPath, { recursive: true });
-  }
+const SKIP = new Set(["node_modules", "bun.lock", ".git"]);
+
+/** Copies, never symlinks: the harness runs with permission checks off and must not reach the real tree. */
+async function copySkill(skillDir: string, dest: string): Promise<void> {
+  await mkdir(dirname(dest), { recursive: true });
+  await cp(skillDir, dest, {
+    recursive: true,
+    filter: (src) => !SKIP.has(basename(src)),
+  });
 }
 
 export async function linkSkill(fixtureDir: string, skillDir: string): Promise<void> {
-  for (const rel of SKILL_LINKS) await linkOrCopy(skillDir, join(fixtureDir, rel));
+  for (const rel of SKILL_LINKS) await copySkill(skillDir, join(fixtureDir, rel));
   const exclude = join(fixtureDir, ".git", "info", "exclude");
   await mkdir(dirname(exclude), { recursive: true });
   await appendFile(exclude, ".agents/\n.claude/\n");

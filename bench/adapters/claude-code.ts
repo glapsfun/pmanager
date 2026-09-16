@@ -45,7 +45,9 @@ export function parseClaudeStream(jsonl: string): Telemetry {
   const commands: string[] = [];
   const t: Telemetry = { ...EMPTY_TELEMETRY, toolCalls, commands };
   for (const ev of parseLines(jsonl)) {
-    if (ev.type === "assistant") {
+    if (ev.type === "system" && ev.subtype === "init" && typeof ev.model === "string") {
+      t.model = ev.model;
+    } else if (ev.type === "assistant") {
       const msg = ev.message as Json | undefined;
       const content = (msg?.content as Json[] | undefined) ?? [];
       for (const block of content) {

@@ -15,6 +15,24 @@ describe("pi adapter", () => {
       "bun run .agents/skills/pmanager/scripts/pm.ts status --harness pi",
     ]);
     expect(t.finalMessage).toBe("Draft epic committed; awaiting approval.");
+    expect(t.model).toBe("claude-sonnet-5");
+  });
+
+  test("an assistant message ending in an error stop reason clears the final message", () => {
+    const line = JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        model: "m",
+        stopReason: "error",
+        errorMessage: "No API key found",
+        content: [{ type: "text", text: "partial" }],
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+      },
+    });
+    const t = parsePiStream(`${line}\n`);
+    expect(t.finalMessage).toBeNull();
+    expect(t.turns).toBe(1);
   });
 
   test("no assistant messages yields nulls", () => {

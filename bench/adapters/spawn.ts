@@ -19,6 +19,8 @@ export interface SpawnResult {
 }
 
 const DRAIN_MS = 500;
+// setsid makes the child a group leader so kill(-pid) reaches its whole tree; it only
+// execs in place because a fresh Bun child is never already a group leader.
 const SETSID = Bun.which("setsid");
 
 async function collect(

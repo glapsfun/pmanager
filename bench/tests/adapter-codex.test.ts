@@ -13,6 +13,7 @@ describe("codex adapter", () => {
       toolCalls: { command_execution: 2, file_change: 1 },
       commands: ["git log --oneline -5", "bun run .agents/skills/pmanager/scripts/pm.ts check"],
       finalMessage: "Committed on pm/x; awaiting approval.",
+      model: null,
     });
   });
 
@@ -20,6 +21,13 @@ describe("codex adapter", () => {
     const t = parseCodexStream('{"type":"thread.started","thread_id":"x"}\n');
     expect(t.tokens).toBeNull();
     expect(t.toolCalls).toEqual({});
+    expect(t.finalMessage).toBeNull();
+  });
+
+  test("turn.failed clears the final message so run-completed fails", () => {
+    const t = parseCodexStream(
+      '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"hi"}}\n{"type":"turn.failed","error":{"message":"rate limited"}}\n',
+    );
     expect(t.finalMessage).toBeNull();
   });
 

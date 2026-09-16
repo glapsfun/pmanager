@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { HarnessName, Telemetry } from "./adapters/types";
 
-export type StoredTelemetry = Omit<Telemetry, "finalMessage" | "commands">;
+export type StoredTelemetry = Omit<Telemetry, "finalMessage" | "commands" | "model">;
 
 export interface AgentRunLine {
   kind: "agent";

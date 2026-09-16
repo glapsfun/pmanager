@@ -4,6 +4,8 @@ import { type Adapter, addCount, EMPTY_TELEMETRY, type Telemetry } from "./types
 
 type Json = Record<string, unknown>;
 
+const FAILED_STOPS = new Set(["error", "aborted"]);
+
 export function parsePiStream(jsonl: string): Telemetry {
   const toolCalls: Record<string, number> = {};
   const commands: string[] = [];
@@ -16,6 +18,7 @@ export function parsePiStream(jsonl: string): Telemetry {
       const msg = ev.message as Json | undefined;
       if (msg?.role !== "assistant") continue;
       turns++;
+      if (typeof msg.model === "string") t.model = msg.model;
       const u = msg.usage as Json | undefined;
       if (u) {
         sum.input += Number(u.input ?? 0);
@@ -27,6 +30,9 @@ export function parsePiStream(jsonl: string): Telemetry {
       }
       for (const block of (msg.content as Json[] | undefined) ?? []) {
         if (block.type === "text" && typeof block.text === "string") t.finalMessage = block.text;
+      }
+      if (FAILED_STOPS.has(String(msg.stopReason))) t.finalMessage = null;
+      for (const block of (msg.content as Json[] | undefined) ?? []) {
         if (block.type === "toolCall" && block.name === "bash") {
           const args = block.arguments as Json | undefined;
           if (typeof args?.command === "string") commands.push(args.command);

@@ -14,6 +14,7 @@ export interface Telemetry {
   toolCalls: Record<string, number> | null;
   commands: string[] | null;
   finalMessage: string | null;
+  model: string | null;
 }
 
 export const EMPTY_TELEMETRY: Telemetry = {
@@ -23,6 +24,7 @@ export const EMPTY_TELEMETRY: Telemetry = {
   toolCalls: null,
   commands: null,
   finalMessage: null,
+  model: null,
 };
 
 export interface Detection {

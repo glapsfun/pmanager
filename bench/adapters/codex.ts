@@ -21,6 +21,8 @@ export function parseCodexStream(jsonl: string): Telemetry {
       sum.output += Number(u.output_tokens ?? 0);
       sum.cacheRead += Number(u.cached_input_tokens ?? 0);
       sum.cacheWrite += Number(u.cache_write_input_tokens ?? 0);
+    } else if (ev.type === "turn.failed") {
+      t.finalMessage = null;
     } else if (ev.type === "item.completed") {
       const item = ev.item as Json | undefined;
       const kind = String(item?.type ?? "");

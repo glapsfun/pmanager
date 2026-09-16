@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, readFile, readlink } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -7,14 +7,16 @@ import { headSha, linkSkill, lsRemoteRefs } from "../fixture";
 import { SKILL_DIR } from "../skill-paths";
 
 describe("fixture helpers", () => {
-  test("linkSkill creates both skill paths and excludes them from git", async () => {
+  test("linkSkill copies the skill to both paths without node_modules and excludes them", async () => {
     const dir = await makeTempDir("bench-fixture");
     await buildWebshopRepo(dir);
     await linkSkill(dir, SKILL_DIR);
     for (const rel of [".agents/skills/pmanager", ".claude/skills/pmanager"]) {
       const p = join(dir, rel);
-      expect((await lstat(p)).isSymbolicLink()).toBe(true);
-      expect(await readlink(p)).toBe(SKILL_DIR);
+      expect((await stat(p)).isSymbolicLink()).toBe(false);
+      expect((await stat(join(p, "SKILL.md"))).isFile()).toBe(true);
+      expect((await stat(join(p, "scripts", "pm.ts"))).isFile()).toBe(true);
+      await expect(stat(join(p, "node_modules"))).rejects.toThrow();
     }
     const exclude = await readFile(join(dir, ".git", "info", "exclude"), "utf8");
     expect(exclude).toContain(".agents/\n");
