@@ -202,7 +202,20 @@ The table below is rendered by `bun run bench/bench.ts report` from
 and [bench/BENCH.md](bench/BENCH.md).
 
 <!-- bench:start -->
-_no benchmark runs recorded_
+| Harness | Model | Scenario | Score | Duration | Fresh tokens | Cost |
+| :--- | :--- | :--- | ---: | ---: | ---: | ---: |
+| claude-code 2.1.273 | claude-opus-5[1m] | feature-idea-epic | 1.00 | 294s | 52768 | $1.41 |
+| claude-code 2.1.273 | claude-opus-5[1m] | perf-bug-new-epic | 1.00 | 261s | 50226 | $1.20 |
+| claude-code 2.1.273 | claude-opus-5[1m] | tracking-update-memory | 1.00 | 97s | 28694 | $0.54 |
+| claude-code 2.1.273 | claude-opus-5[1m] | two-session-claim-conflict | 1.00 | 40s | 23421 | $0.37 |
+| codex 0.154.0 | — | feature-idea-epic | 1.00 | 174s | 27028 | — |
+| codex 0.154.0 | — | perf-bug-new-epic | 1.00 | 200s | 29465 | — |
+| codex 0.154.0 | — | tracking-update-memory | 1.00 | 72s | 23896 | — |
+| codex 0.154.0 | — | two-session-claim-conflict | 1.00 | 47s | 22431 | — |
+
+Tool microbench: status 102 ms, check 123 ms, render 95 ms (median on 50 epics, 1000 tasks).
+
+_Last run: 2026-09-16 at 2569592._
 <!-- bench:end -->
 
 ## What it will never do

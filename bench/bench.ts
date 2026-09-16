@@ -20,6 +20,11 @@ common: [--history <path>] [--report <path>] [--raw-dir <dir>]
 scenarios: ${SCENARIOS.map((s) => s.name).join(", ")}
 `;
 
+/** The root README is refreshed only from the committed history, never from overridden paths. */
+function readmeFor(a: ParsedArgs): string | undefined {
+  return a.historyPath === undefined && a.reportPath === undefined ? README_PATH : undefined;
+}
+
 async function cmdRun(a: ParsedArgs, io: Io): Promise<number> {
   const adapter = a.harness ? adapterByName(a.harness) : undefined;
   if (!adapter) {
@@ -67,7 +72,7 @@ async function cmdRun(a: ParsedArgs, io: Io): Promise<number> {
       io.out(`  raw log ${r.rawLogPath}\n`);
     }
   }
-  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, README_PATH);
+  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, readmeFor(a));
   return 0;
 }
 
@@ -76,7 +81,7 @@ async function cmdTool(a: ParsedArgs, io: Io): Promise<number> {
   const line = toToolLine(r, { sha: await repoSha(), skillVersion: await readSkillVersion() });
   const historyPath = a.historyPath ?? HISTORY_PATH;
   await appendHistory(historyPath, line);
-  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, README_PATH);
+  await writeReport(historyPath, a.reportPath ?? REPORT_PATH, readmeFor(a));
   io.out(`epics ${r.epics}, tasks ${r.tasks}, iterations ${r.iterations}\n`);
   io.out(
     `status ${r.statusMs.median}/${r.statusMs.max} ms  check ${r.checkMs.median}/${r.checkMs.max} ms  render ${r.renderMs.median}/${r.renderMs.max} ms (median/max)\n`,
@@ -98,7 +103,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     case "tool":
       return cmdTool(a, io);
     case "report":
-      await writeReport(a.historyPath ?? HISTORY_PATH, a.reportPath ?? REPORT_PATH, README_PATH);
+      await writeReport(a.historyPath ?? HISTORY_PATH, a.reportPath ?? REPORT_PATH, readmeFor(a));
       io.out(`wrote ${a.reportPath ?? REPORT_PATH}\n`);
       return 0;
     default:

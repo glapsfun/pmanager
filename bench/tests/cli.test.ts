@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { main } from "../bench";
 import { parseArgs } from "../cli-args";
+import { README_PATH } from "../skill-paths";
 
 function io() {
   const out: string[] = [];
@@ -121,5 +122,31 @@ describe("main", () => {
     const report = join(dir, "BENCH.md");
     expect(await main(["report", "--history", history, "--report", report], i)).toBe(0);
     expect(await Bun.file(report).text()).toContain("_no agent runs recorded_");
+  });
+
+  test("overridden history and report paths never touch the root README", async () => {
+    const { io: i } = io();
+    const before = await Bun.file(README_PATH).text();
+    const dir = await makeTempDir("bench-cli");
+    const history = join(dir, "h.jsonl");
+    const report = join(dir, "BENCH.md");
+    await main(
+      [
+        "tool",
+        "--epics",
+        "1",
+        "--tasks",
+        "1",
+        "--iterations",
+        "1",
+        "--history",
+        history,
+        "--report",
+        report,
+      ],
+      i,
+    );
+    await main(["report", "--history", history, "--report", report], i);
+    expect(await Bun.file(README_PATH).text()).toBe(before);
   });
 });
