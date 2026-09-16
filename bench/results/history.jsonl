@@ -1,0 +1,1 @@
+{"kind":"tool","date":"2026-09-16T08:47:44.312Z","sha":"0364fad","skillVersion":"0.2.0","epics":50,"tasks":1000,"iterations":3,"statusMs":{"median":102,"max":107},"checkMs":{"median":123,"max":134},"renderMs":{"median":95,"max":118}}
