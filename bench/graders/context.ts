@@ -7,7 +7,7 @@ import {
   type PmRepo,
 } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import type { Telemetry } from "../adapters/types";
-import { contentHash, type FixtureInfo, porcelainPaths } from "../fixture";
+import { contentHash, dirtyState, type FixtureInfo, porcelainEntries } from "../fixture";
 import { PM_TODAY } from "../skill-paths";
 import { type CheckContext, COMPLETED_RUN, type RunStatus } from "./types";
 
@@ -21,12 +21,15 @@ export async function changedPathsSince(
   const committed = (await gitOk(["diff", "--name-only", "--no-renames", baseline, "HEAD"], dir))
     .split("\n")
     .filter((l) => l.trim() !== "");
-  const uncommitted = porcelainPaths(
+  const entries = porcelainEntries(
     await gitOk(["status", "--porcelain", "--untracked-files=all"], dir),
   );
+  const uncommitted = entries.map((e) => e.path);
   const unchanged: string[] = [];
-  for (const p of uncommitted) {
-    if (p in initialDirty && (await contentHash(dir, p)) === initialDirty[p]) unchanged.push(p);
+  for (const e of entries) {
+    if (e.path in initialDirty && (await dirtyState(dir, e)) === initialDirty[e.path]) {
+      unchanged.push(e.path);
+    }
   }
   // A file that was dirty at the start, is gone from git's view, and no longer exists was
   // deleted without a commit; an edit or deletion that was committed shows up in `committed`.

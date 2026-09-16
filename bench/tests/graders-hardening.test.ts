@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
-import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import {
+  copyFixture,
+  gitOk,
+  makeTempDir,
+} from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
 import { type FixtureInfo, gitCommitAll, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
@@ -118,6 +122,24 @@ describe("dirty-tree comparison against the starting state", () => {
     expect(ctx.dirty).toBe(false);
     await writeFile(join(dir, "docs", "notes.txt"), "changed\n");
     ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
+    expect(ctx.changedPaths).toEqual(["docs/notes.txt"]);
+    expect(ctx.dirty).toBe(true);
+  });
+
+  test("staging an unchanged pre-existing file is a change", async () => {
+    const dir = await makeTempDir("bench-harden");
+    await buildWebshopRepo(dir);
+    await writeFile(join(dir, "docs", "notes.txt"), "keep me\n");
+    const info: FixtureInfo = {
+      baselineSha: await headSha(dir),
+      originBare: null,
+      originRefs: {},
+      epicSlugsBefore: ["app-performance"],
+      initialDirty: await snapshotDirty(dir),
+    };
+    expect(info.initialDirty["docs/notes.txt"]?.startsWith("??|")).toBe(true);
+    await gitOk(["add", "docs/notes.txt"], dir);
+    const ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
     expect(ctx.changedPaths).toEqual(["docs/notes.txt"]);
     expect(ctx.dirty).toBe(true);
   });

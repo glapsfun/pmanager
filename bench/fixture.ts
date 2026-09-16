@@ -8,7 +8,7 @@ export interface FixtureInfo {
   originBare: string | null;
   originRefs: Record<string, string>;
   epicSlugsBefore: string[];
-  /** path → sha256 of content (or "deleted") for every path dirty when the fixture was built */
+  /** path → "<git status code>|<sha256 of content or deleted>" for every path dirty at build time */
   initialDirty: Record<string, string>;
 }
 
@@ -39,23 +39,40 @@ export async function contentHash(dir: string, rel: string): Promise<string> {
   }
 }
 
-export function porcelainPaths(out: string): string[] {
+export interface PorcelainEntry {
+  /** the two-character status code, e.g. "??", " M", "A ", "M " */
+  code: string;
+  path: string;
+}
+
+export function porcelainEntries(out: string): PorcelainEntry[] {
   return out
     .split("\n")
     .filter((l) => l.trim() !== "")
     .map((l) => {
       const p = l.slice(3).trim();
       const arrow = p.indexOf(" -> ");
-      return arrow === -1 ? p : p.slice(arrow + 4);
+      return { code: l.slice(0, 2), path: arrow === -1 ? p : p.slice(arrow + 4) };
     });
 }
 
+export function porcelainPaths(out: string): string[] {
+  return porcelainEntries(out).map((e) => e.path);
+}
+
+/** Index state and content together, so staging an unchanged file still counts as a change. */
+export async function dirtyState(dir: string, entry: PorcelainEntry): Promise<string> {
+  return `${entry.code}|${await contentHash(dir, entry.path)}`;
+}
+
 export async function snapshotDirty(dir: string): Promise<Record<string, string>> {
-  const paths = porcelainPaths(
+  const entries = porcelainEntries(
     await gitOk(["status", "--porcelain", "--untracked-files=all"], dir),
   );
   const out: Record<string, string> = {};
-  for (const p of paths.sort()) out[p] = await contentHash(dir, p);
+  for (const e of entries.sort((a, b) => a.path.localeCompare(b.path))) {
+    out[e.path] = await dirtyState(dir, e);
+  }
   return out;
 }
 
