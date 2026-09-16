@@ -1,0 +1,13 @@
+{"type":"session","version":1,"id":"s1","timestamp":"2026-09-15T10:00:00Z","cwd":"/tmp/x"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","provider":"anthropic","stopReason":"toolUse","content":[{"type":"text","text":"Running status."},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"bun run .agents/skills/pmanager/scripts/pm.ts status --harness pi"}}],"usage":{"input":2000,"output":150,"cacheRead":1500,"cacheWrite":200,"totalTokens":3850,"cost":{"input":0.01,"output":0.002,"cacheRead":0.001,"cacheWrite":0.001,"total":0.014}}}}
+{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{"command":"bun run .agents/skills/pmanager/scripts/pm.ts status --harness pi"}}
+{"type":"tool_execution_end","toolCallId":"c1","toolName":"bash","result":{"content":[{"type":"text","text":"remote: none"}]},"isError":false}
+{"type":"turn_end"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","provider":"anthropic","stopReason":"toolUse","content":[{"type":"toolCall","id":"c2","name":"read","arguments":{"path":"app/app.py"}}],"usage":{"input":500,"output":40,"cacheRead":0,"cacheWrite":0,"totalTokens":540,"cost":{"input":0.002,"output":0.001,"cacheRead":0,"cacheWrite":0,"total":0.003}}}}
+{"type":"tool_execution_end","toolCallId":"c2","toolName":"read","result":{"content":[{"type":"text","text":"..."}]},"isError":false}
+{"type":"turn_end"}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","provider":"anthropic","stopReason":"stop","content":[{"type":"text","text":"Draft epic committed; awaiting approval."}],"usage":{"input":100,"output":30,"cacheRead":0,"cacheWrite":0,"totalTokens":130,"cost":{"input":0.001,"output":0.001,"cacheRead":0,"cacheWrite":0,"total":0.002}}}}
+{"type":"agent_end","messages":[]}

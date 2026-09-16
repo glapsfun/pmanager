@@ -1,0 +1,97 @@
+name: bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: claude-code | codex | pi
+        default: claude-code
+      model:
+        description: model id (blank = adapter default)
+        default: ""
+      scenarios:
+        description: space-separated scenario names (blank = all)
+        default: ""
+      runs:
+        description: runs per scenario
+        default: "1"
+  schedule:
+    - cron: "0 6 * * 1"
+  pull_request:
+    types: [labeled, synchronize]
+
+jobs:
+  bench:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'bench')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      HARNESS: ${{ github.event.inputs.harness || 'claude-code' }}
+      MODEL: ${{ github.event.inputs.model || '' }}
+      SCENARIOS: ${{ github.event.inputs.scenarios || '' }}
+      RUNS: ${{ github.event.inputs.runs || '1' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLAUDE_CODE_MAX_BUDGET_USD: "10"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: git config --global user.name bench && git config --global user.email bench@example.com
+      - run: cd bench && bun install --frozen-lockfile
+      - name: Install harness
+        run: |
+          case "$HARNESS" in
+            claude-code) npm install -g @anthropic-ai/claude-code ;;
+            codex) npm install -g @openai/codex ;;
+            pi)
+              npm install -g @mariozechner/pi-coding-agent
+              mkdir -p ~/.pi/agent
+              echo '{"defaultProjectTrust":"always"}' > ~/.pi/agent/settings.json
+              ;;
+            *) echo "unknown harness $HARNESS" >&2; exit 2 ;;
+          esac
+      - name: Check credentials
+        id: creds
+        run: |
+          case "$HARNESS" in
+            claude-code|pi) [ -n "$ANTHROPIC_API_KEY" ] && echo ok=true >> "$GITHUB_OUTPUT" || echo ok=false >> "$GITHUB_OUTPUT" ;;
+            codex) [ -n "$OPENAI_API_KEY" ] && echo ok=true >> "$GITHUB_OUTPUT" || echo ok=false >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Skipped (no credentials)
+        if: steps.creds.outputs.ok != 'true'
+        run: echo "::notice::bench skipped for $HARNESS, no credential secret configured"
+      - name: Run bench
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          cd bench
+          args="run --harness $HARNESS --runs $RUNS --timeout-s 900"
+          [ -n "$MODEL" ] && args="$args --model $MODEL"
+          for s in $SCENARIOS; do args="$args --scenario $s"; done
+          bun run bench.ts $args
+      - name: Upload raw logs
+        if: always() && steps.creds.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-raw-${{ env.HARNESS }}-${{ github.run_id }}
+          path: bench/results/raw
+          if-no-files-found: ignore
+      - name: Open PR with results
+        if: steps.creds.outputs.ok == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(bench): record ${{ env.HARNESS }} run ${{ github.run_id }}"
+          base: ${{ github.head_ref || github.ref_name }}
+          branch: bench/results-${{ github.run_id }}
+          title: "bench: ${{ env.HARNESS }} results ${{ github.run_id }}"
+          body: "Appends bench/results/history.jsonl and regenerates bench/BENCH.md."
+          add-paths: |
+            bench/results/history.jsonl
+            bench/BENCH.md
+            README.md
