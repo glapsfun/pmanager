@@ -93,7 +93,7 @@ docs/pm/
         └── T02-<slug>.md
 ```
 
-Later runs read `INDEX.md` and the memo first, so the agent remembers prior
+Later runs get `INDEX.md` and the memo through `pm status` first, so the agent remembers prior
 epics, their outcomes, and what your product cares about. If the repo also
 has `docs/sre-incidents/` (from the sre-agent skill), confirmed incident
 root causes are reused as evidence.
@@ -109,7 +109,7 @@ really slow for customers sometime in july. plan out the work to fix it.
 
 **What the agent does:**
 
-1. **Memory** — reads `docs/pm/INDEX.md` + memo (cold start here: none yet).
+1. **Memory** — `pm status` prints the epic index + memo (cold start here: none yet).
 2. **Research (read-only)** — finds the N+1 query in `app/app.py:11`
    (one item-query per order), the missing index noted in `app/schema.sql`,
    and commit `91eb0bb` (2026-07-02) that removed pagination — the timing

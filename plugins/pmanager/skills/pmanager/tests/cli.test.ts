@@ -98,9 +98,24 @@ describe("status and handoff", () => {
   test("status without remote", async () => {
     const r = await run(["status", "--json"], await localRepo());
     expect(r.code).toBe(0);
-    const parsed = JSON.parse(r.stdout) as { remote: string; rows: Array<{ slug: string }> };
+    const parsed = JSON.parse(r.stdout) as {
+      remote: string;
+      rows: Array<{ slug: string; type: string; primaryMetric: string }>;
+      memo: { path: string; context: string } | null;
+    };
     expect(parsed.remote).toBe("none");
     expect(parsed.rows[0]?.slug).toBe("app-performance");
+    expect(parsed.rows[0]?.type).toBe("bug");
+    expect(parsed.rows[0]?.primaryMetric).toBe("p95 /orders < 500ms");
+    expect(parsed.memo?.path).toBe("docs/pm/pmanager-memo.md");
+    expect(parsed.memo?.context).toContain("## 4. Conventions & constraints");
+    expect(parsed.memo?.context).not.toContain("pm:log:start");
+  });
+  test("status text ends with the memo block", async () => {
+    const r = await run(["status"], await localRepo());
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("\nmemo: docs/pm/pmanager-memo.md\n# PManager memo\n");
+    expect(r.stdout.trimEnd().endsWith("All schema changes need DBA review.")).toBe(true);
   });
   test("handoff prints the brief; unknown task exits 2", async () => {
     const root = await localRepo();

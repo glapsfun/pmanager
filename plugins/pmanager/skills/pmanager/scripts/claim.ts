@@ -1,7 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isStale } from "./check";
-import { getString, parseDoc, type Session, sessionOf, setFrontmatterKey } from "./contract";
+import {
+  getList,
+  getString,
+  parseDoc,
+  type Session,
+  sessionOf,
+  setFrontmatterKey,
+} from "./contract";
 import {
   checkoutBranch,
   commitPaths,
@@ -49,8 +56,11 @@ export interface RemoteEpic {
   session: Session | null;
   updated: string;
   title: string;
+  type: string;
   status: string;
   owner: string;
+  repos: string[];
+  primaryMetric: string;
 }
 
 export async function remoteEpicOf(root: string, slug: string): Promise<RemoteEpic | null> {
@@ -61,8 +71,11 @@ export async function remoteEpicOf(root: string, slug: string): Promise<RemoteEp
     session: sessionOf(fm),
     updated: getString(fm, "updated") ?? "",
     title: getString(fm, "title") ?? slug,
+    type: getString(fm, "type") ?? "",
     status: getString(fm, "status") ?? "unknown",
     owner: getString(fm, "owner") ?? "unassigned",
+    repos: getList(fm, "repos"),
+    primaryMetric: getString(fm, "primary-metric") ?? "",
   };
 }
 

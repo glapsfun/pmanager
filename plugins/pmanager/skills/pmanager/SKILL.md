@@ -63,17 +63,21 @@ Docs written: <paths, or "none yet">
 ### Phase 0 — Bootstrap memory
 
 **Preflight.** Read `references/commands.md` and run its preflight (Bun
-check, then `pm status`). The status output is the memory scan: it lists
-every epic, its owning session, stale claims, and the next ready task.
-Semantic recall of related epics still means opening their `epic.md`.
+check, then `pm status`). The status output is the whole memory read: every
+epic with its type, status, title, owner, session, stale claims, task
+counts, updated date, repos, primary metric and next ready task (every
+INDEX column), followed by the memo's hand-written sections (product
+context, business goals, stakeholders, conventions; only the rendered
+changelog is left out). Do not open `docs/pm/INDEX.md` or
+`docs/pm/pmanager-memo.md` separately; they contain nothing the status
+output does not.
 
-If `docs/pm/pmanager-memo.md` exists, read it: product context, business
-goals, stakeholders, conventions. If `docs/pm/INDEX.md` exists, scan it for
-epics related to this request (same area, service, or symptom — match
-semantically, not by exact string). Related prior epics are leads: open
-them, note validated learnings and outcomes in the ledger's `Memory:` line.
-Neither file existing means a cold start — note it and continue. Read
-`references/memory.md` for the schemas and update rules.
+From the rows, pick epics related to this request (same area, service, or
+symptom — match semantically, not by exact string). Related prior epics are
+leads: open their `epic.md`, note validated learnings and outcomes in the
+ledger's `Memory:` line. `memo: absent` with no rows means a cold start —
+note it and continue. Read `references/memory.md` for the schemas and
+update rules.
 
 **Route the request** into one of three modes:
 

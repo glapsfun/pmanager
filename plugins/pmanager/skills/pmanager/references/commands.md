@@ -19,8 +19,8 @@ stands for that full prefix.
    shell." Offer to run the install yourself. Do not run any other command
    below until Bun works. Continue planning without the tool only if the user
    says so; set the ledger line `Tool: unavailable (bun missing)`.
-2. `pm status --harness <yours>` — read the output; it replaces the manual
-   INDEX scan. `remote: none` or `remote: unreachable` → claims are
+2. `pm status --harness <yours>` — read the output; it replaces reading
+   INDEX.md and the memo. `remote: none` or `remote: unreachable` → claims are
    unavailable this run; say so and set `Tool: ok, no remote`. Otherwise
    `Tool: ok`.
 
@@ -28,7 +28,7 @@ stands for that full prefix.
 
 | Command | When | Good result | On failure |
 | :--- | :--- | :--- | :--- |
-| `status [--json]` | Phase 0; status queries; before suggesting a task | exit 0; rows list epics, sessions, `[remote]`, `[stale]`, blocked tasks, `next:` | exit 2: not a git repo or no `docs/pm` — say so; a cold start is fine |
+| `status [--json]` | Phase 0; status queries; before suggesting a task | exit 0; per epic: `slug type status title`, then `owner: session: tasks: updated:`, `repos: metric:`, blocked tasks, `next:`; sessions carry `[remote]` / `[remote-only]` / `[stale]`; then `memo:` with the memo's hand-written sections (or `memo: absent`) | exit 2: not a git repo or no `docs/pm` — say so; a cold start is fine |
 | `check [--json] [--stale-days N]` | Phase 6 before commit; every update run; after any hand edit | exit 0, `OK: no findings` or warnings only | exit 1: fix each finding at its file, rerun; never commit with errors; never edit rendered regions by hand |
 | `render` | after writing or editing any epic/task/log file; after pulling `main` | exit 0; prints rendered paths or `nothing to render` | never fails on valid input; if it writes something unexpected, run `check` |
 | `render --migrate` | `check` reports `W-LEG-001` or `E-RND-004` on pre-tool documents | prints `migrated <path>` lines, then rendered paths | ask the user before running it on a repo with a hand-maintained INDEX; it rewrites files |

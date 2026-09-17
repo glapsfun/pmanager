@@ -37,8 +37,10 @@ export async function hasRemote(cwd: string, name = "origin"): Promise<boolean> 
   return r.code === 0;
 }
 
+/** Refresh origin/pm/* exactly, whatever the clone's configured refspec (single-branch clones included). */
 export async function fetchOrigin(cwd: string): Promise<boolean> {
-  return (await git(["fetch", "-q", "--prune", "origin"], cwd)).code === 0;
+  const refspec = "+refs/heads/pm/*:refs/remotes/origin/pm/*";
+  return (await git(["fetch", "-q", "--prune", "origin", refspec], cwd)).code === 0;
 }
 
 export async function listRemoteBranches(cwd: string, prefix: string): Promise<string[]> {
@@ -49,6 +51,20 @@ export async function listRemoteBranches(cwd: string, prefix: string): Promise<s
     .map((l) => l.split("\t")[1] ?? "")
     .filter((ref) => ref.startsWith("refs/heads/"))
     .map((ref) => ref.slice("refs/heads/".length))
+    .sort();
+}
+
+/** Branches under origin/<prefix> as known locally; exact right after a pruned fetch, no network. */
+export async function listFetchedBranches(cwd: string, prefix: string): Promise<string[]> {
+  const r = await git(
+    ["for-each-ref", "--format=%(refname)", `refs/remotes/origin/${prefix}`],
+    cwd,
+  );
+  if (r.code !== 0) return [];
+  return r.stdout
+    .split("\n")
+    .filter((ref) => ref.startsWith("refs/remotes/origin/"))
+    .map((ref) => ref.slice("refs/remotes/origin/".length))
     .sort();
 }
 

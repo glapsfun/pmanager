@@ -1,7 +1,8 @@
+import { relative } from "node:path";
 import { isStale } from "./check";
 import type { RemoteEpic } from "./claim";
 import { getList, getString, type Session, sessionOf } from "./contract";
-import { taskCounts } from "./render";
+import { LOG_END, LOG_START, repoShortName, taskCounts } from "./render";
 import type { EpicRecord, PmRepo, TaskDoc } from "./repo";
 
 /** slug -> epic as read from origin/pm/<slug>; null when the branch exists but the epic is unreadable. */
@@ -17,8 +18,13 @@ export interface NextTask {
 export interface EpicStatusRow {
   slug: string;
   title: string;
+  type: string;
   status: string;
   owner: string;
+  /** repo short names as INDEX shows them */
+  repos: string[];
+  primaryMetric: string;
+  updated: string;
   session: Session | null;
   remoteClaim: boolean;
   /** true when the epic exists only on a remote claim branch, not in this checkout */
@@ -30,9 +36,29 @@ export interface EpicStatusRow {
   next: NextTask | null;
 }
 
+export interface MemoContext {
+  /** repo-relative path of the memo */
+  path: string;
+  /** hand-written memo sections; the rendered changelog is cut since it digests docs/pm/log */
+  context: string;
+}
+
 export interface StatusReport {
   remote: RemoteState;
   rows: EpicStatusRow[];
+  memo: MemoContext | null;
+}
+
+/** The memo minus its changelog section: from the heading above LOG_START through LOG_END. */
+export function memoContext(raw: string): string {
+  const start = raw.indexOf(LOG_START);
+  if (start < 0) return raw.trim();
+  const heading = raw.lastIndexOf("\n## ", start);
+  const endMarker = raw.indexOf(LOG_END, start);
+  const end = endMarker < 0 ? raw.length : endMarker + LOG_END.length;
+  const head = raw.slice(0, heading < 0 ? start : heading).trimEnd();
+  const tail = raw.slice(end).trim();
+  return tail ? `${head}\n\n${tail}` : head;
 }
 
 const RANK: Record<string, number> = { must: 0, should: 1, could: 2 };
@@ -72,8 +98,12 @@ export function buildStatus(
     rows.push({
       slug: e.slug,
       title: getString(fm, "title") ?? e.slug,
+      type: getString(fm, "type") ?? "",
       status: getString(fm, "status") ?? "unknown",
       owner: getString(fm, "owner") ?? "unassigned",
+      repos: getList(fm, "repos").map(repoShortName),
+      primaryMetric: getString(fm, "primary-metric") ?? "",
+      updated,
       session,
       remoteClaim,
       remoteOnly: false,
@@ -99,8 +129,12 @@ export function buildStatus(
     rows.push({
       slug,
       title: remote?.title ?? slug,
+      type: remote?.type ?? "",
       status: remote?.status ?? "unknown",
       owner: remote?.owner ?? "unassigned",
+      repos: (remote?.repos ?? []).map(repoShortName),
+      primaryMetric: remote?.primaryMetric ?? "",
+      updated: remote?.updated ?? "",
       session,
       remoteClaim: true,
       remoteOnly: true,
@@ -112,7 +146,10 @@ export function buildStatus(
     });
   }
   rows.sort((a, b) => a.slug.localeCompare(b.slug));
-  return { remote, rows };
+  const memo = repo.memo
+    ? { path: relative(repo.root, repo.memo.path), context: memoContext(repo.memo.raw) }
+    : null;
+  return { remote, rows, memo };
 }
 
 export function formatStatus(report: StatusReport): string {
@@ -121,13 +158,24 @@ export function formatStatus(report: StatusReport): string {
   for (const r of report.rows) {
     const flags = `${r.remoteOnly ? " [remote-only]" : r.remoteClaim ? " [remote]" : ""}${r.stale ? " [stale]" : ""}`;
     const session = r.session ? `${r.session.harness} · ${r.session.claimed}${flags}` : "unowned";
+    const head = [r.slug, r.type, r.status, r.title].filter(Boolean).join("  ");
+    lines.push(head);
     lines.push(
-      `${r.slug}  ${r.status}  owner: ${r.owner}  session: ${session}  tasks: ${r.done}/${r.total}`,
+      `  owner: ${r.owner}  session: ${session}  tasks: ${r.done}/${r.total}  updated: ${r.updated || "unknown"}`,
     );
+    const scope = [
+      r.repos.length > 0 ? `repos: ${r.repos.join(", ")}` : "",
+      r.primaryMetric ? `metric: ${r.primaryMetric}` : "",
+    ].filter(Boolean);
+    if (scope.length > 0) lines.push(`  ${scope.join("  ")}`);
     if (r.blocked.length > 0) lines.push(`  blocked: ${r.blocked.join(", ")}`);
     lines.push(
       r.next ? `  next: ${r.next.id} ${r.next.title} (${r.next.priority})` : "  next: none ready",
     );
   }
+  if (report.memo) {
+    lines.push(`memo: ${report.memo.path}`);
+    lines.push(report.memo.context);
+  } else lines.push("memo: absent");
   return `${lines.join("\n")}\n`;
 }
