@@ -7,7 +7,7 @@ import {
   commitPaths,
   fetchOrigin,
   hasRemote,
-  listRemoteBranches,
+  listFetchedBranches,
   pushSetUpstream,
   repoRoot,
 } from "./git";
@@ -122,11 +122,11 @@ async function remoteClaims(
 ): Promise<{ remote: RemoteState; claims: RemoteClaims | null }> {
   if (!(await hasRemote(root))) return { remote: "none", claims: null };
   if (!(await fetchOrigin(root))) return { remote: "unreachable", claims: null };
-  const claims: RemoteClaims = new Map();
-  for (const b of await listRemoteBranches(root, "pm/")) {
-    const slug = b.slice("pm/".length);
-    claims.set(slug, await remoteEpicOf(root, slug));
-  }
+  // The pruned fetch above made the remote-tracking refs exact, so list them locally
+  // instead of paying a second round trip to origin.
+  const slugs = (await listFetchedBranches(root, "pm/")).map((b) => b.slice("pm/".length));
+  const epics = await Promise.all(slugs.map((slug) => remoteEpicOf(root, slug)));
+  const claims: RemoteClaims = new Map(slugs.map((slug, i) => [slug, epics[i] ?? null]));
   return { remote: "ok", claims };
 }
 

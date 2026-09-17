@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { loadPmRepo } from "../scripts/repo";
 import { buildStatus, formatStatus, nextTask } from "../scripts/status";
@@ -62,6 +62,22 @@ describe("buildStatus", () => {
     expect(row?.total).toBe(4);
     expect(row?.next?.id).toBe("T01");
   });
+  test("rows carry every INDEX column so INDEX adds nothing", async () => {
+    const report = buildStatus(await loadPmRepo(await fixture()), null, "none", OPTS);
+    const row = report.rows[0];
+    expect(row?.type).toBe("bug");
+    expect(row?.primaryMetric).toBe("p95 /orders < 500ms");
+    expect(row?.repos).toEqual(["glapsfun/webshop"]);
+    expect(row?.updated).toBe("2026-09-10");
+    expect(formatStatus(report)).toContain(
+      [
+        "app-performance  bug  in-progress  Fix orders page latency",
+        "  owner: unassigned  session: claude-code · 2026-09-10  tasks: 0/4  updated: 2026-09-10",
+        "  repos: glapsfun/webshop  metric: p95 /orders < 500ms",
+        "  next: T01",
+      ].join("\n"),
+    );
+  });
   test("remote claim overrides local frontmatter and marks stale", async () => {
     const repo = await loadPmRepo(await fixture());
     const remote = new Map([
@@ -71,8 +87,11 @@ describe("buildStatus", () => {
           session: { harness: "pi", claimed: "2026-08-01", branch: "pm/app-performance" },
           updated: "2026-08-01",
           title: "Fix orders page latency",
+          type: "bug",
           status: "in-progress",
           owner: "unassigned",
+          repos: [],
+          primaryMetric: "",
         },
       ],
     ]);
@@ -93,8 +112,11 @@ describe("buildStatus", () => {
           session: { harness: "pi", claimed: "2026-09-29", branch: "pm/app-performance" },
           updated: "2026-09-29",
           title: "t",
+          type: "bug",
           status: "in-progress",
           owner: "x",
+          repos: [],
+          primaryMetric: "",
         },
       ],
     ]);
@@ -109,8 +131,11 @@ describe("buildStatus", () => {
           session: { harness: "pi", claimed: "2026-08-01", branch: "pm/app-performance" },
           updated: "2026-08-01",
           title: "t",
+          type: "bug",
           status: "in-progress",
           owner: "x",
+          repos: [],
+          primaryMetric: "",
         },
       ],
     ]);
@@ -127,8 +152,11 @@ describe("buildStatus", () => {
           session: { harness: "pi", claimed: "2026-09-14", branch: "pm/brand-new" },
           updated: "2026-09-14",
           title: "Brand new epic",
+          type: "feature",
           status: "approved",
           owner: "someone",
+          repos: ["git@github.com:glapsfun/other.git"],
+          primaryMetric: "signups +10%",
         },
       ],
     ]);
@@ -140,8 +168,16 @@ describe("buildStatus", () => {
     expect(row?.title).toBe("Brand new epic");
     expect(row?.session?.harness).toBe("pi");
     expect(row?.total).toBe(0);
+    expect(row?.type).toBe("feature");
+    expect(row?.repos).toEqual(["glapsfun/other"]);
+    expect(row?.primaryMetric).toBe("signups +10%");
+    expect(row?.updated).toBe("2026-09-14");
     expect(formatStatus(report)).toContain(
-      "brand-new  approved  owner: someone  session: pi · 2026-09-14 [remote-only]",
+      [
+        "brand-new  feature  approved  Brand new epic",
+        "  owner: someone  session: pi · 2026-09-14 [remote-only]  tasks: 0/0  updated: 2026-09-14",
+        "  repos: glapsfun/other  metric: signups +10%",
+      ].join("\n"),
     );
   });
   test("lists blocked tasks and formats", async () => {
@@ -154,5 +190,47 @@ describe("buildStatus", () => {
     expect(text).toContain("app-performance");
     expect(text).toContain("blocked: T02");
     expect(text).toContain("next: T01");
+  });
+});
+
+describe("memo in status", () => {
+  test("hand-written memo sections are included, the rendered changelog is not", async () => {
+    const root = await fixture();
+    const report = buildStatus(await loadPmRepo(root), null, "none", OPTS);
+    expect(report.memo?.path).toBe("docs/pm/pmanager-memo.md");
+    expect(report.memo?.context).toContain("## 1. Product context");
+    expect(report.memo?.context).toContain("All schema changes need DBA review.");
+    expect(report.memo?.context).not.toContain("## 5. Changelog");
+    expect(report.memo?.context).not.toContain("pm:log:start");
+    const text = formatStatus(report);
+    expect(text).toContain("memo: docs/pm/pmanager-memo.md\n");
+    expect(text).toContain("All schema changes need DBA review.");
+    expect(text).not.toContain("pm:log:start");
+  });
+  test("a memo without log markers is included whole", async () => {
+    const root = await fixture();
+    const p = join(root, "docs/pm/pmanager-memo.md");
+    await Bun.write(p, "# PManager memo\n\n## 1. Product context\n\nA shop.\n");
+    const report = buildStatus(await loadPmRepo(root), null, "none", OPTS);
+    expect(report.memo?.context).toBe("# PManager memo\n\n## 1. Product context\n\nA shop.");
+  });
+  test("hand-written sections after the rendered changelog survive", async () => {
+    const root = await fixture();
+    const p = join(root, "docs/pm/pmanager-memo.md");
+    await Bun.write(
+      p,
+      "# PManager memo\n\n## 1. Product context\n\nA shop.\n\n## 5. Changelog\n\n<!-- pm:log:start -->\n- 2026-09-10 — x\n<!-- pm:log:end -->\n\n## 6. Notes\n\nKept by migration.\n",
+    );
+    const report = buildStatus(await loadPmRepo(root), null, "none", OPTS);
+    expect(report.memo?.context).toBe(
+      "# PManager memo\n\n## 1. Product context\n\nA shop.\n\n## 6. Notes\n\nKept by migration.",
+    );
+  });
+  test("absent memo is reported as absent", async () => {
+    const root = await fixture();
+    await rm(join(root, "docs/pm/pmanager-memo.md"));
+    const report = buildStatus(await loadPmRepo(root), null, "none", OPTS);
+    expect(report.memo).toBeNull();
+    expect(formatStatus(report)).toContain("memo: absent\n");
   });
 });

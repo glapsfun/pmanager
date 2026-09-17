@@ -3,8 +3,10 @@
 Two stores under `docs/pm/` in the repo the skill is invoked in. Everything
 recorded is metadata and reasoning — never secret values, tokens, or PII.
 
-- `docs/pm/INDEX.md` — one row per epic; scanned every run (Phase 0).
-- `docs/pm/pmanager-memo.md` — product context that outlives any one epic.
+- `docs/pm/INDEX.md` — one row per epic; rendered for humans and the drift
+  check. Runs read it through `pm status`, never directly.
+- `docs/pm/pmanager-memo.md` — product context that outlives any one epic;
+  its hand-written sections are printed by `pm status` every run.
 
 ## INDEX.md — rendered, never hand-edited
 
@@ -17,9 +19,13 @@ edit is overwritten by the next render and reported by `pm check`
 
 ## Recall (Phase 0)
 
-1. Read the `pm status` output for epics related to the current request —
-   same service, area, or symptom, matched **semantically** ("slow app" matches a latency epic;
-   "checkout bug" matches anything touching checkout).
+1. Read the `pm status` output: the rows carry every INDEX column, and the
+   `memo:` block carries the memo's hand-written sections (the rendered
+   changelog is omitted; it digests `docs/pm/log/`). Pick epics related to
+   the current request — same service, area, or symptom, matched
+   **semantically** ("slow app" matches a latency epic; "checkout bug"
+   matches anything touching checkout). Neither INDEX.md nor the memo needs
+   opening.
 2. Open matching epics; read their outcome: did the hypothesis hold? What
    did the validation show? What was ruled out?
 3. Record matches in the ledger `Memory:` line and cite them in the new
