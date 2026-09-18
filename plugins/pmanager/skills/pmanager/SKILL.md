@@ -106,18 +106,21 @@ questions cheaper than an interview does.
 Read `references/research.md` for the playbook. Gather evidence read-only,
 in this order of cost:
 
-1. **This repo**: relevant code paths, configs, existing docs (`docs/`,
-   READMEs, ADRs). Check `docs/sre-incidents/INDEX.md` if present — a
-   performance bug may already have an investigated root cause.
-2. **History**: `git log` around the affected area; recent PRs and issues
-   via `gh` when available.
-3. **Breadth**: for sweeps across many files or unknown code layout,
-   dispatch read-only Explore subagents rather than grepping serially.
+1. **One round trip**: `pm research <keywords> [--path ...] [--repo ...]`
+   from `references/commands.md` — files, history, docs, prior
+   investigations (`docs/sre-incidents/INDEX.md`, `docs/pm/INDEX.md`),
+   tests and gh in one concurrent, read-only sweep. Copy its `[source]
+   fact` lines into the ledger.
+2. **Targeted reads**: open only the files and commits the output names;
+   narrow and rerun instead of grepping by hand.
+3. **Breadth**: hosts with read-only subagents dispatch one per open
+   question (Claude Code's Explore); hosts without run a narrowed
+   `pm research` per open question. Both produce the same evidence form.
 
 The epic's `repos` list names the target repositories by remote URL.
-Resolve each through `docs/pm/.local/repos.json`; research in the local
-checkout when mapped. A repo not checked out on this machine lowers the
-epic's confidence with that reason recorded; never clone.
+Resolve each through `docs/pm/.local/repos.json`; pass the mapped checkout
+as `--repo` and research there. A repo not checked out on this machine
+lowers the epic's confidence with that reason recorded; never clone.
 
 Every finding lands in the ledger as `[source] fact`. Behavioral evidence
 (measurements, logs, repro) outranks stated evidence (what the request
@@ -216,7 +219,7 @@ optimization task.
 | :--- | :--- |
 | `references/commands.md` | Every run — preflight, the pm tool commands, Phase 6 order, checker rules |
 | `references/memory.md` | Phase 0 bootstrap + Phase 6 record — INDEX/memo schemas, recall and update rules |
-| `references/research.md` | Phase 2 — evidence playbook: repo, history, incidents, Explore dispatch |
+| `references/research.md` | Phase 2 — evidence playbook: pm research, targeted reads, breadth per host |
 | `references/elicitation.md` | Phase 3 — question categories and how to batch them |
 | `references/epic.template.md` | Phase 4 — epic structure |
 | `references/plan.template.md` | Phase 5 — plan structure |

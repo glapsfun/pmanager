@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { buildHandoff, loadLocalRepoMap, resolveRepo } from "../scripts/handoff";
+import {
+  buildHandoff,
+  loadLocalRepoMap,
+  parseLocalRepoMap,
+  readLocalRepoMap,
+  resolveRepo,
+} from "../scripts/handoff";
 import { loadPmRepo } from "../scripts/repo";
-import { copyFixture, makeTempDir } from "./helpers";
+import { copyFixture, makeTempDir, writeTree } from "./helpers";
 
 async function fixture() {
   const root = await makeTempDir("handoff");
@@ -63,5 +69,27 @@ describe("buildHandoff", () => {
     expect(() => buildHandoff(repo, "app-performance", "T99", {})).toThrow(
       "unknown task T99 in app-performance",
     );
+  });
+});
+
+describe("repo map, read-only", () => {
+  test("parseLocalRepoMap keeps string values only", () => {
+    expect(parseLocalRepoMap('{"a/b": "/x", "n": 3, "arr": []}')).toEqual({ "a/b": "/x" });
+    expect(parseLocalRepoMap("[]")).toEqual({});
+  });
+  test("readLocalRepoMap returns {} and writes nothing when the map is missing", async () => {
+    const root = await makeTempDir("repomap");
+    const pmDir = join(root, "docs/pm");
+    expect(await readLocalRepoMap(pmDir)).toEqual({});
+    await expect(stat(join(pmDir, ".local"))).rejects.toThrow();
+  });
+  test("readLocalRepoMap reads an existing map", async () => {
+    const root = await makeTempDir("repomap");
+    await writeTree(root, {
+      "docs/pm/.local/repos.json": '{"glapsfun/webshop": "/tmp/webshop"}\n',
+    });
+    expect(await readLocalRepoMap(join(root, "docs/pm"))).toEqual({
+      "glapsfun/webshop": "/tmp/webshop",
+    });
   });
 });

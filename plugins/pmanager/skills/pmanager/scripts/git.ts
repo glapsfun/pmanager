@@ -1,3 +1,5 @@
+import { type RunResult, runTimed } from "./proc";
+
 export interface GitResult {
   code: number;
   stdout: string;
@@ -112,4 +114,8 @@ export async function commitPaths(cwd: string, paths: string[], message: string)
 
 export async function pushSetUpstream(cwd: string, branch: string): Promise<GitResult> {
   return git(["push", "-q", "--set-upstream", "origin", `${branch}:${branch}`], cwd);
+}
+
+export async function gitTimed(args: string[], cwd: string, timeoutMs: number): Promise<RunResult> {
+  return runTimed(["git", ...args], cwd, timeoutMs);
 }

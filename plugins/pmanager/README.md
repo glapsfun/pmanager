@@ -65,7 +65,7 @@ the same orchestration repo:
 
 ### Requirement — Bun
 
-The skill ships a small TypeScript tool (checker, renderer, claim, handoff)
+The skill ships a small TypeScript tool (checker, renderer, claim, handoff, research)
 that runs on [Bun](https://bun.sh). Install it once per machine:
 
 ```bash
