@@ -238,11 +238,14 @@ describe("verify", () => {
     ]);
     expect(j.repos[0].since.reason).toBe("epic created");
   });
-  test("--since REF is honoured", async () => {
+  test("--since REF is honoured; an unresolvable ref is exit 2", async () => {
     const root = await localRepo();
     const r = await run(["verify", "app-performance", "T02", "--since", "HEAD", "--json"], root);
     expect(r.code).toBe(0);
     expect(JSON.parse(r.stdout).repos[0].since.reason).toBe("--since");
+    const bad = await run(["verify", "app-performance", "T02", "--since", "nope"], root);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain("--since nope");
   });
   test("exit 2 on unknown epic, unknown task, missing args, bad --limit, unknown --repo, non-git --repo path", async () => {
     const root = await localRepo();

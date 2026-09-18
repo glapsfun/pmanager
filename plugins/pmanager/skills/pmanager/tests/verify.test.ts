@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { epicBySlug, loadPmRepo, taskById } from "../scripts/repo";
 import {
@@ -323,6 +323,15 @@ describe("probeNamedPaths", () => {
     expect(facts["and/or"]).toBeUndefined();
     expect(p.files.sort()).toEqual([MIGRATION, "docs/profile-results.txt"]);
   });
+  test("a tracked file deleted in the worktree is reported deleted, not present", async () => {
+    const { dir, sha } = await webshopWithMigration();
+    await rm(join(dir, MIGRATION));
+    const l = await listFiles(dir, 30_000);
+    const p = await probeNamedPaths(opts(dir, { tokens: ["app/migrations/"] }), l.tracked);
+    expect(p.lines.map((x) => `[${x.source}] ${x.fact}`)).toEqual([
+      `[${MIGRATION}] deleted in worktree, last changed ${sha} 2026-09-12`,
+    ]);
+  });
 });
 
 describe("parseNameOnlyLog", () => {
@@ -457,7 +466,12 @@ describe("buildVerify", () => {
     expect(r.slug).toBe("app-performance");
     expect(r.task).toBe("T02");
     expect(r.repos).toEqual([
-      { name: ".", path: dir, since: { date: "2026-09-10", sha: null, reason: "task updated" } },
+      {
+        name: ".",
+        path: dir,
+        since: { date: "2026-09-10", sha: null, reason: "task updated" },
+        bounded: true,
+      },
     ]);
     const [first, second] = r.criteria;
     expect(first?.label).toMatch(/^evidence: \d+ lines$/);
@@ -483,11 +497,15 @@ describe("buildVerify", () => {
     expect(un).toContain("[docs/profile-results.txt] +p50 2.9s  p95 3.4s");
     expect(r.scope.uncommitted).toBe(1);
   });
-  test("a bad --since is an error line, not a failure", async () => {
+  test("a bad --since yields no evidence for that repo, not a widened window", async () => {
     const { dir } = await webshopWithMigration();
     const r = await verifyT02(dir, { sinceRef: "nope" });
     expect(r.errors).toEqual([expect.stringContaining("--since nope")]);
+    expect(r.repos[0]?.bounded).toBe(false);
     expect(r.criteria.length).toBe(2);
+    expect(r.criteria.every((c) => c.evidence.length === 0)).toBe(true);
+    expect(r.unattributed).toEqual([]);
+    expect(r.scope).toEqual({ files: 0, commits: 0, uncommitted: 0, testsTouched: 0 });
   });
   test("checked boxes and measured criteria are labelled", async () => {
     const { dir } = await webshopWithMigration();
@@ -526,6 +544,7 @@ function sampleReport(over: Partial<VerifyReport> = {}): VerifyReport {
         name: ".",
         path: "/r",
         since: { date: "2026-09-14", sha: "3f2a1c", reason: "task updated" },
+        bounded: true,
       },
     ],
     criteria: [
@@ -589,11 +608,13 @@ describe("formatVerify", () => {
           name: "webshop",
           path: "/a",
           since: { date: "2026-09-14", sha: "3f2a1c", reason: "task updated" },
+          bounded: true,
         },
         {
           name: "infra",
           path: "/b",
           since: { date: "2026-09-01", sha: null, reason: "epic created" },
+          bounded: true,
         },
       ],
       criteria: [],
@@ -622,13 +643,27 @@ describe("formatVerify", () => {
   });
   test("--since header form and repo start", () => {
     const byRef = sampleReport({
-      repos: [{ name: ".", path: "/r", since: { date: null, sha: "abc123", reason: "--since" } }],
+      repos: [
+        {
+          name: ".",
+          path: "/r",
+          since: { date: null, sha: "abc123", reason: "--since" },
+          bounded: true,
+        },
+      ],
     });
     expect(formatVerify(byRef).split("\n")[0]).toBe(
       "verify: app-performance T03 · repos: . · since abc123 (--since) · 180ms",
     );
     const start = sampleReport({
-      repos: [{ name: ".", path: "/r", since: { date: null, sha: null, reason: "repo start" } }],
+      repos: [
+        {
+          name: ".",
+          path: "/r",
+          since: { date: null, sha: null, reason: "repo start" },
+          bounded: true,
+        },
+      ],
     });
     expect(formatVerify(start).split("\n")[0]).toBe(
       "verify: app-performance T03 · repos: . · since repo start · 180ms",

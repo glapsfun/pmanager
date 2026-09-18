@@ -364,9 +364,13 @@ export async function probeNamedPaths(o: VerifyProbeOptions, listed: string[]): 
         gitTimed(["log", "-1", "--format=%h %as", "--", p], o.cwd, o.timeoutMs),
         readFile(join(o.cwd, p), "utf8").catch(() => null),
       ]);
-      const size = text === null ? "unreadable" : `${lineCount(text)} lines`;
       const last = log.stdout.trim() ? `last changed ${log.stdout.trim()}` : "untracked";
-      return { source: p, fact: `present, ${size}, ${last}`, repo: o.repo, paths: [p] };
+      // ls-files --cached still lists a file removed from the worktree
+      const fact =
+        text === null
+          ? `deleted in worktree, ${last}`
+          : `present, ${lineCount(text)} lines, ${last}`;
+      return { source: p, fact, repo: o.repo, paths: [p] };
     }),
   );
   return { lines: [...present, ...missing], files: [...files] };
@@ -511,6 +515,20 @@ export async function probeHunks(
   return { lines, files, error: per.find((h) => h.error)?.error };
 }
 
+/** Pathspecs that keep the reference grep inside test files; classifyPath filters the rest. */
+const TEST_PATHSPECS = [
+  ":(glob)**/test/**",
+  ":(glob)**/tests/**",
+  ":(glob)**/spec/**",
+  ":(glob)**/specs/**",
+  ":(glob)**/__tests__/**",
+  ":(glob)**/test_*",
+  ":(glob)**/*_test.*",
+  ":(glob)**/*.test.*",
+  ":(glob)**/*.spec.*",
+];
+const MAX_STEMS = 10;
+
 export async function probeTests(o: VerifyProbeOptions, files: string[]): Promise<Probe> {
   const touched = files.filter((f) => classifyPath(f) === "test");
   const lines: EvidenceLine[] = touched.map((t) => ({
@@ -525,25 +543,33 @@ export async function probeTests(o: VerifyProbeOptions, files: string[]): Promis
         .filter((f) => classifyPath(f) !== "test")
         .map((f) => basename(f).replace(/\.[^.]+$/, "")),
     ),
-  ].filter((s) => s.length >= 3);
-  if (stems.length > 0) {
-    const r = await gitTimed(
-      ["grep", "-l", "-i", "-w", "-F", ...stems.flatMap((s) => ["-e", s])],
-      o.cwd,
-      o.timeoutMs,
-    );
-    const error = failure(r, o.timeoutMs, [0, 1]);
-    if (error) return { lines, files: touched, error };
+  ]
+    .filter((s) => s.length >= 3)
+    .slice(0, MAX_STEMS);
+  // One grep per stem over test paths only: no repo-wide scan, no file reads
+  const results = await Promise.all(
+    stems.map((stem) =>
+      gitTimed(
+        ["grep", "-l", "-I", "-i", "-w", "-F", "-e", stem, "--", ...TEST_PATHSPECS],
+        o.cwd,
+        o.timeoutMs,
+      ),
+    ),
+  );
+  const refs = new Map<string, string[]>();
+  let error: string | undefined;
+  results.forEach((r, i) => {
+    const stem = stems[i] ?? "";
+    error ??= failure(r, o.timeoutMs, [0, 1]);
+    if (error) return;
     for (const p of r.stdout.split("\n")) {
       if (!p || classifyPath(p) !== "test" || touched.includes(p)) continue;
-      const lower = (await readFile(join(o.cwd, p), "utf8").catch(() => "")).toLowerCase();
-      const refs = stems.filter((s) =>
-        new RegExp(`\\b${escapeRe(s.toLowerCase())}\\b`).test(lower),
-      );
-      if (refs.length > 0) {
-        lines.push({ source: p, fact: `references ${refs.join(", ")}`, repo: o.repo, paths: [p] });
-      }
+      refs.set(p, [...(refs.get(p) ?? []), stem]);
     }
+  });
+  if (error) return { lines, files: touched, error };
+  for (const [p, stemsHit] of [...refs].sort(([a], [b]) => a.localeCompare(b))) {
+    lines.push({ source: p, fact: `references ${stemsHit.join(", ")}`, repo: o.repo, paths: [p] });
   }
   return { lines: lines.slice(0, o.limit), files: touched };
 }
@@ -569,7 +595,7 @@ export interface CriterionReport {
 export interface VerifyReport {
   slug: string;
   task: string;
-  repos: { name: string; path: string; since: Since }[];
+  repos: { name: string; path: string; since: Since; bounded: boolean }[];
   criteria: CriterionReport[];
   unattributed: EvidenceLine[];
   scope: { files: number; commits: number; uncommitted: number; testsTouched: number };
@@ -580,6 +606,7 @@ export interface VerifyReport {
 
 interface RepoRun {
   since: Since;
+  bounded: boolean;
   lines: EvidenceLine[];
   scope: VerifyReport["scope"];
   errors: string[];
@@ -599,6 +626,9 @@ async function verifyRepo(
   };
   const bound = await sinceSha(target.path, rule, o.timeoutMs);
   tag("since", bound.error);
+  const empty = { files: 0, commits: 0, uncommitted: 0, testsTouched: 0 };
+  // An unresolved bound must not fall back to "all history": that would attach stale evidence.
+  if (bound.error) return { since: bound.since, bounded: false, lines: [], scope: empty, errors };
   const po: VerifyProbeOptions = { ...o, cwd: target.path, repo: target.name, since: bound.since };
   const listed = await listFiles(po.cwd, po.timeoutMs);
   tag("ls-files", listed.error);
@@ -618,6 +648,7 @@ async function verifyRepo(
   tag("tests", tests.error);
   return {
     since: bound.since,
+    bounded: true,
     lines: [...named.lines, ...tagged.lines, ...windowed.lines, ...hunks.lines, ...tests.lines],
     scope: {
       files: files.length,
@@ -654,7 +685,7 @@ export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
   const errors: string[] = [];
   for (const target of opts.targets) {
     const run = await verifyRepo(target, rule, shared);
-    repos.push({ name: target.name, path: target.path, since: run.since });
+    repos.push({ name: target.name, path: target.path, since: run.since, bounded: run.bounded });
     lines.push(...run.lines);
     scope.files += run.scope.files;
     scope.commits += run.scope.commits;

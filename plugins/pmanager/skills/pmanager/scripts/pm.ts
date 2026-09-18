@@ -314,6 +314,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         files: args.files,
         limit: args.limit,
       });
+      if (report.repos.every((r) => !r.bounded)) return fail(report.errors.join("\n"));
       out(args.json ? json(report) : formatVerify(report));
       return 0;
     }
