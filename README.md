@@ -42,7 +42,7 @@ The agent follows an evidence-first loop:
 
 1. **Bootstrap memory**: read the product memo and epic index; recall related prior epics and sre-agent incidents; route the request (new epic / update / status query).
 2. **Understand** the problem as stated.
-3. **Research** read-only: code paths, docs, ADRs, git history, PRs/issues, prior incidents. Every finding is cited `[source] fact`; behavioral evidence outranks stated claims.
+3. **Research** read-only: code paths, docs, ADRs, git history, PRs/issues, prior incidents. One `pm research` call sweeps files, history, docs, prior incidents, tests and GitHub concurrently, the same on every harness. Every finding is cited `[source] fact`; behavioral evidence outranks stated claims.
 4. **Elicit**: one batched round of questions covering only what research couldn't answer (affected users, severity, business impact, constraints, prior attempts, definition of done).
 5. **Frame the epic**: hypothesis, primary and guardrail metrics with targets and windows, scope, non-goals. Then **wait for your approval** (a hard gate).
 6. **Plan and decompose**: milestones with binary exit criteria, risk register, dependencies, MoSCoW with recorded reasoning; INVEST tasks with binary acceptance criteria, each self-contained enough to hand to an agent or engineer cold.
@@ -50,7 +50,7 @@ The agent follows an evidence-first loop:
 
 ## Quick start
 
-The fastest path is gskill below. Whichever route you take, the skill ships a small TypeScript tool (checker, renderer, claim, handoff)
+The fastest path is gskill below. Whichever route you take, the skill ships a small TypeScript tool (checker, renderer, claim, handoff, research)
 that runs on [Bun](https://bun.sh). Install it once per machine:
 
 ```bash
@@ -284,7 +284,7 @@ plugins/pmanager/
 └── skills/pmanager/
     ├── SKILL.md                  # skill definition (7-phase loop)
     ├── README.md                 # usage guide + worked example
-    ├── scripts/pm.ts             # pm tool: check, render, claim, release, status, handoff (Bun)
+    ├── scripts/pm.ts             # pm tool: check, render, claim, release, status, handoff, research (Bun)
     ├── tests/                    # bun test suite + webshop fixture
     ├── package.json              # bun run gate → typecheck, lint, test
     ├── evals/evals.json          # skill evals

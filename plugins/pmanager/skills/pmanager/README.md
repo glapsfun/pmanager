@@ -21,7 +21,7 @@ and a full worked example. The skill's own behavior is defined in
 
 **Requirement:** Bun 1.x on every machine — `curl -fsSL https://bun.sh/install | bash`.
 The skill ships a small tool (`scripts/pm.ts`) for checking, rendering,
-claiming, and handing off; the agent runs it for you.
+claiming, handing off, and researching; the agent runs it for you.
 
 ## How to use it
 

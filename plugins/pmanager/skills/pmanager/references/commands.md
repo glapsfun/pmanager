@@ -36,9 +36,13 @@ stands for that full prefix.
 | `claim <slug> --takeover --harness NAME` | user explicitly asks to take over a stale claim | exit 0; plan changelog records the previous owner | exit 1 `not stale`: refuse; the user must ask the owner to release |
 | `release <slug> --harness NAME` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed | exit 1 `owned by …, not <you>`: refuse — only the owning harness releases; the owner must release, or the user asks for `claim --takeover` (stale) or `release --force` (a deliberate override, recorded in the log and plan changelog). exit 1 `already unclaimed`; exit 2 no remote / no branch |
 | `handoff <slug> <task-id>` | user says "pick up T03", "brief for T02 of …" | exit 0; the brief on stdout — paste it to the executing agent or user, write nothing | exit 2 unknown epic/task: check `status` for the right ids |
+| `research <keyword>... [--path P]... [--repo NAME\|PATH] [--limit N] [--no-gh] [--json]` | Phase 2, first thing; again with narrower keywords or paths per open question | exit 0; header `research: <repo> @ <sha> · keywords: … · paths: …`, then `files`, `history`, `docs`, `memory`, `tests`, `gh` sections of `[source] fact` lines; a probe that failed prints one line (`gh: unavailable (not installed)`) | exit 2: no keywords, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
 
 Always pass `--harness <name>` with your harness (`claude-code`, `pi`,
 `codex`, `gemini-cli`, `copilot`); the default is only a guess.
+
+`research` never writes; it works before `docs/pm` exists (cold start), where
+its `memory` section is simply empty.
 
 ## Phase 6 order (new epic) and every update run
 
