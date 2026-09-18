@@ -683,3 +683,45 @@ export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
     durationMs: Math.round(performance.now() - started),
   };
 }
+
+function sinceText(s: Since): string {
+  if (s.reason === "repo start") return "since repo start";
+  if (s.date) return `since ${s.date} (${s.sha ?? "root"}, ${s.reason})`;
+  return `since ${s.sha ?? "root"} (${s.reason})`;
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+export function formatVerify(r: VerifyReport): string {
+  const multi = r.repos.length > 1;
+  const out: string[] = [];
+  const names = r.repos.map((x) => x.name).join(", ");
+  if (multi) {
+    out.push(`verify: ${r.slug} ${r.task} · repos: ${names} · ${r.durationMs}ms`);
+    for (const x of r.repos) out.push(`  ${x.name}: ${sinceText(x.since)}`);
+  } else {
+    const since = r.repos[0] ? ` · ${sinceText(r.repos[0].since)}` : "";
+    out.push(`verify: ${r.slug} ${r.task} · repos: ${names}${since} · ${r.durationMs}ms`);
+  }
+  out.push("");
+  if (r.criteria.length === 0) out.push("criteria: none");
+  for (const c of r.criteria) {
+    out.push(`${`- [${c.checked ? "x" : " "}] ${c.text}`.padEnd(62)} ${c.label}`);
+    for (const e of c.evidence) out.push(`    ${formatEvidence(e, multi)}`);
+  }
+  out.push("");
+  if (r.unattributed.length === 0) out.push("unattributed: none");
+  else {
+    out.push(`unattributed (${r.unattributed.length}):`);
+    for (const e of r.unattributed) out.push(`    ${formatEvidence(e, multi)}`);
+  }
+  const s = r.scope;
+  out.push(
+    `scope: ${plural(s.files, "file")}, ${plural(s.commits, "commit")}, ${plural(s.uncommitted, "uncommitted change")}, tests touched: ${s.testsTouched}`,
+  );
+  for (const g of r.gaps) out.push(`gaps: ${g}`);
+  for (const e of r.errors) out.push(`errors: ${e}`);
+  return `${out.join("\n")}\n`;
+}

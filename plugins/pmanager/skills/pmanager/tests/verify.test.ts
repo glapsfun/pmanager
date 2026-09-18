@@ -8,6 +8,7 @@ import {
   type EvidenceLine,
   extractPathTokens,
   formatEvidence,
+  formatVerify,
   labelCriterion,
   listFiles,
   matchPaths,
@@ -26,6 +27,7 @@ import {
   tokeniseCriterion,
   type VerifyOptions,
   type VerifyProbeOptions,
+  type VerifyReport,
 } from "../scripts/verify";
 import { buildWebshopRepo } from "./fixtures/build-webshop";
 import { gitOk, initGitRepo, makeTempDir } from "./helpers";
@@ -506,5 +508,130 @@ describe("buildVerify", () => {
       "already checked · no evidence in scope",
       "needs measurement",
     ]);
+  });
+});
+
+function sampleReport(over: Partial<VerifyReport> = {}): VerifyReport {
+  const ev = (source: string, fact: string, repo = "."): EvidenceLine => ({
+    source,
+    fact,
+    repo,
+    paths: [],
+  });
+  return {
+    slug: "app-performance",
+    task: "T03",
+    repos: [
+      {
+        name: ".",
+        path: "/r",
+        since: { date: "2026-09-14", sha: "3f2a1c", reason: "task updated" },
+      },
+    ],
+    criteria: [
+      {
+        text: "order_items has an index on order_id",
+        checked: false,
+        label: "evidence: 2 lines",
+        evidence: [
+          ev("app/schema.sql", "+CREATE INDEX idx ON order_items(order_id)"),
+          ev("git log", "9c1d2e 2026-09-16 add order_items index (T02)"),
+        ],
+      },
+      {
+        text: "GET /orders p95 under 1s on the T01 dataset",
+        checked: false,
+        label: "needs measurement",
+        evidence: [ev("tests/test_orders.py", "touched in scope")],
+      },
+      {
+        text: "Done before",
+        checked: true,
+        label: "already checked · no evidence in scope",
+        evidence: [],
+      },
+    ],
+    unattributed: [],
+    scope: { files: 4, commits: 2, uncommitted: 1, testsTouched: 1 },
+    gaps: [
+      "git@github.com:acme/infra not checked out on this machine; map it in docs/pm/.local/repos.json",
+    ],
+    errors: [],
+    durationMs: 180,
+    ...over,
+  };
+}
+
+describe("formatVerify", () => {
+  test("single repo layout", () => {
+    expect(formatVerify(sampleReport())).toBe(
+      [
+        "verify: app-performance T03 · repos: . · since 2026-09-14 (3f2a1c, task updated) · 180ms",
+        "",
+        `${"- [ ] order_items has an index on order_id".padEnd(62)} evidence: 2 lines`,
+        "    [app/schema.sql] +CREATE INDEX idx ON order_items(order_id)",
+        "    [git log] 9c1d2e 2026-09-16 add order_items index (T02)",
+        `${"- [ ] GET /orders p95 under 1s on the T01 dataset".padEnd(62)} needs measurement`,
+        "    [tests/test_orders.py] touched in scope",
+        `${"- [x] Done before".padEnd(62)} already checked · no evidence in scope`,
+        "",
+        "unattributed: none",
+        "scope: 4 files, 2 commits, 1 uncommitted change, tests touched: 1",
+        "gaps: git@github.com:acme/infra not checked out on this machine; map it in docs/pm/.local/repos.json",
+        "",
+      ].join("\n"),
+    );
+  });
+  test("multi repo header, repo-prefixed evidence, unattributed and errors", () => {
+    const r = sampleReport({
+      repos: [
+        {
+          name: "webshop",
+          path: "/a",
+          since: { date: "2026-09-14", sha: "3f2a1c", reason: "task updated" },
+        },
+        {
+          name: "infra",
+          path: "/b",
+          since: { date: "2026-09-01", sha: null, reason: "epic created" },
+        },
+      ],
+      criteria: [],
+      unattributed: [
+        { source: "deploy/values.yaml", fact: "+replicas: 3", repo: "infra", paths: [] },
+      ],
+      gaps: [],
+      errors: ["infra: tagged commits: timed out after 30s"],
+      scope: { files: 1, commits: 0, uncommitted: 0, testsTouched: 0 },
+    });
+    expect(formatVerify(r)).toBe(
+      [
+        "verify: app-performance T03 · repos: webshop, infra · 180ms",
+        "  webshop: since 2026-09-14 (3f2a1c, task updated)",
+        "  infra: since 2026-09-01 (root, epic created)",
+        "",
+        "criteria: none",
+        "",
+        "unattributed (1):",
+        "    [infra:deploy/values.yaml] +replicas: 3",
+        "scope: 1 file, 0 commits, 0 uncommitted changes, tests touched: 0",
+        "errors: infra: tagged commits: timed out after 30s",
+        "",
+      ].join("\n"),
+    );
+  });
+  test("--since header form and repo start", () => {
+    const byRef = sampleReport({
+      repos: [{ name: ".", path: "/r", since: { date: null, sha: "abc123", reason: "--since" } }],
+    });
+    expect(formatVerify(byRef).split("\n")[0]).toBe(
+      "verify: app-performance T03 · repos: . · since abc123 (--since) · 180ms",
+    );
+    const start = sampleReport({
+      repos: [{ name: ".", path: "/r", since: { date: null, sha: null, reason: "repo start" } }],
+    });
+    expect(formatVerify(start).split("\n")[0]).toBe(
+      "verify: app-performance T03 · repos: . · since repo start · 180ms",
+    );
   });
 });
