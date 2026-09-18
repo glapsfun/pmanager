@@ -1,5 +1,9 @@
+import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { sectionBody } from "./contract";
+import { getList, sectionBody } from "./contract";
+import { gitTimed, repoRoot } from "./git";
+import type { EpicRecord } from "./repo";
+import { failure } from "./research";
 
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 export const SPEC_PREFIX = "docs/pm/";
@@ -167,4 +171,128 @@ export function labelCriterion(
 
 export function formatEvidence(e: EvidenceLine, withRepo: boolean): string {
   return withRepo ? `[${e.repo}:${e.source}] ${e.fact}` : `[${e.source}] ${e.fact}`;
+}
+
+export type SinceReason = "--since" | "task updated" | "epic created" | "repo start";
+
+export interface SinceRule {
+  ref?: string;
+  date?: string;
+  reason: SinceReason;
+}
+
+export interface Since {
+  date: string | null;
+  sha: string | null;
+  reason: SinceReason;
+}
+
+export function resolveSince(i: {
+  sinceRef?: string;
+  taskStatus?: string;
+  taskUpdated?: string;
+  epicCreated?: string;
+}): SinceRule {
+  if (i.sinceRef) return { ref: i.sinceRef, reason: "--since" };
+  if ((i.taskStatus === "in-progress" || i.taskStatus === "blocked") && i.taskUpdated) {
+    return { date: i.taskUpdated, reason: "task updated" };
+  }
+  if (i.epicCreated) return { date: i.epicCreated, reason: "epic created" };
+  return { reason: "repo start" };
+}
+
+export async function sinceSha(
+  cwd: string,
+  rule: SinceRule,
+  timeoutMs: number,
+): Promise<{ since: Since; error?: string }> {
+  if (rule.ref) {
+    const r = await gitTimed(
+      ["rev-parse", "--short", "--verify", `${rule.ref}^{commit}`],
+      cwd,
+      timeoutMs,
+    );
+    const error = failure(r, timeoutMs);
+    if (error) {
+      return {
+        since: { date: null, sha: null, reason: rule.reason },
+        error: `--since ${rule.ref}: ${error}`,
+      };
+    }
+    return { since: { date: null, sha: r.stdout.trim(), reason: rule.reason } };
+  }
+  if (!rule.date) return { since: { date: null, sha: null, reason: rule.reason } };
+  const r = await gitTimed(
+    ["rev-list", "-1", "--abbrev-commit", `--before=${rule.date}`, "HEAD"],
+    cwd,
+    timeoutMs,
+  );
+  const error = failure(r, timeoutMs);
+  if (error) {
+    return { since: { date: rule.date, sha: null, reason: rule.reason }, error: `since: ${error}` };
+  }
+  return { since: { date: rule.date, sha: r.stdout.trim() || null, reason: rule.reason } };
+}
+
+export interface RepoTarget {
+  name: string;
+  path: string;
+}
+
+export function repoName(url: string): string {
+  return basename(url.replace(/\/+$/, "")).replace(/\.git$/, "");
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveTarget(
+  root: string,
+  repoArg: string | undefined,
+  map: Record<string, string>,
+): Promise<{ target: RepoTarget } | { error: string }> {
+  if (repoArg === undefined) return { target: { name: ".", path: root } };
+  const mapped = map[repoArg];
+  const candidate = mapped ?? ((await isDirectory(repoArg)) ? repoArg : null);
+  if (candidate === null) {
+    const known = Object.keys(map).sort().join(", ") || "none";
+    return { error: `unknown repo ${repoArg}; known names in docs/pm/.local/repos.json: ${known}` };
+  }
+  const path = await repoRoot(candidate);
+  if (!path) return { error: `${candidate} is not inside a git repository` };
+  return { target: { name: repoName(repoArg), path } };
+}
+
+export async function resolveRepos(
+  root: string,
+  epic: EpicRecord,
+  repoArg: string | undefined,
+  map: Record<string, string>,
+): Promise<{ targets: RepoTarget[]; gaps: string[] } | { error: string }> {
+  if (repoArg !== undefined) {
+    const r = await resolveTarget(root, repoArg, map);
+    return "error" in r ? r : { targets: [r.target], gaps: [] };
+  }
+  const targets: RepoTarget[] = [];
+  const gaps: string[] = [];
+  for (const url of getList(epic.epic?.frontmatter ?? {}, "repos")) {
+    const mapped = map[url];
+    if (mapped === undefined) {
+      gaps.push(`${url} not checked out on this machine; map it in docs/pm/.local/repos.json`);
+      continue;
+    }
+    const path = await repoRoot(mapped);
+    if (!path) gaps.push(`${url} maps to ${mapped}, which is not a git repository`);
+    else targets.push({ name: repoName(url), path });
+  }
+  if (targets.length === 0) {
+    if (gaps.length > 0) gaps.push("no mapped repos; inspected the orchestration repo");
+    targets.push({ name: ".", path: root });
+  }
+  return { targets, gaps };
 }
