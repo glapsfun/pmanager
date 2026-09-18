@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
@@ -11,9 +12,10 @@ import {
   pushSetUpstream,
   repoRoot,
 } from "./git";
-import { buildHandoff, loadLocalRepoMap } from "./handoff";
+import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
 import { applyRender, migrate } from "./render";
 import { loadPmRepo, PM_DIR, type PmRepo } from "./repo";
+import { buildResearch, formatResearch } from "./research";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
 
 const USAGE = `usage: bun run scripts/pm.ts <command> [args] [flags]
@@ -25,11 +27,17 @@ commands
   release <slug> [--force]      release an epic you own (clears session, pushes); --force overrides another harness's claim
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
+  research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--no-gh]
+                                one concurrent read-only sweep: files, history, docs, memory, tests, gh
 
 flags
   --json                        machine-readable output on stdout
   --stale-days N                claim staleness threshold (default 14)
   --harness NAME                harness name recorded in claims (default: $PM_HARNESS, or claude-code when $CLAUDECODE is set)
+  --path P                      git pathspec to scope research (repeatable)
+  --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo)
+  --limit N                     max entries per research section (default 20)
+  --no-gh                       skip the gh PR/issue probe
 
 exit codes: 0 ok/warnings, 1 errors or claim refused, 2 usage/environment
 `;
@@ -43,6 +51,10 @@ export interface Args {
   force: boolean;
   harness: string;
   migrate: boolean;
+  paths: string[];
+  repo?: string;
+  limit: number;
+  noGh: boolean;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -63,6 +75,9 @@ export function parseArgs(argv: string[]): Args | null {
     force: false,
     harness: defaultHarness(),
     migrate: false,
+    paths: [],
+    limit: 20,
+    noGh: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
@@ -78,6 +93,19 @@ export function parseArgs(argv: string[]): Args | null {
       const h = argv[++i];
       if (!h) return null;
       args.harness = h;
+    } else if (a === "--no-gh") args.noGh = true;
+    else if (a === "--path") {
+      const p = argv[++i];
+      if (!p) return null;
+      args.paths.push(p);
+    } else if (a === "--repo") {
+      const r = argv[++i];
+      if (!r) return null;
+      args.repo = r;
+    } else if (a === "--limit") {
+      const n = Number.parseInt(argv[++i] ?? "", 10);
+      if (!Number.isFinite(n) || n < 1) return null;
+      args.limit = n;
     } else if (a.startsWith("--")) return null;
     else if (args.cmd === "") args.cmd = a;
     else args.positional.push(a);
@@ -130,11 +158,48 @@ async function remoteClaims(
   return { remote: "ok", claims };
 }
 
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function runResearch(root: string, args: Args): Promise<number> {
+  if (args.positional.length === 0) return fail(USAGE);
+  const map = await readLocalRepoMap(join(root, PM_DIR));
+  let target = root;
+  if (args.repo !== undefined) {
+    const mapped = map[args.repo];
+    if (mapped !== undefined) target = mapped;
+    else if (await isDirectory(args.repo)) target = args.repo;
+    else {
+      const known = Object.keys(map).sort().join(", ") || "none";
+      return fail(`unknown repo ${args.repo}; known names in docs/pm/.local/repos.json: ${known}`);
+    }
+  }
+  const cwd = await repoRoot(target);
+  if (!cwd) return fail(`${target} is not inside a git repository`);
+  const report = await buildResearch({
+    root,
+    cwd,
+    keywords: args.positional,
+    paths: args.paths,
+    limit: args.limit,
+    gh: !args.noGh,
+    ghCmd: process.env.PM_GH,
+  });
+  out(args.json ? json(report) : formatResearch(report));
+  return 0;
+}
+
 export async function main(argv: string[], cwd = process.cwd()): Promise<number> {
   const args = parseArgs(argv);
   if (!args) return fail(USAGE);
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
+  if (args.cmd === "research") return runResearch(root, args);
   const opts = { staleDays: args.staleDays, today: today() };
 
   let repo: PmRepo;

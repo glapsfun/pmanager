@@ -346,3 +346,87 @@ else console.log(JSON.stringify([{ number: 300, title: "Orders page slow", state
     expect(r.error).toBe("unavailable (unreadable gh output)");
   });
 });
+
+const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
+
+async function runPm(args: string[], cwd: string, env: Record<string, string> = {}) {
+  const proc = Bun.spawn(["bun", "run", PM, ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, PM_GH: "/nonexistent/gh", ...env },
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, stdout, stderr };
+}
+
+async function orchestrationRepo(): Promise<string> {
+  const root = await makeTempDir("research-cli");
+  await copyFixture(root);
+  await initGitRepo(root);
+  await gitOk(["add", "-A"], root);
+  await gitOk(["commit", "-q", "-m", "seed"], root);
+  return root;
+}
+
+describe("pm research (cli)", () => {
+  test("no keywords → usage, exit 2", async () => {
+    const r = await runPm(["research"], await orchestrationRepo());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("usage");
+  });
+  test("bad --limit → exit 2", async () => {
+    const r = await runPm(["research", "orders", "--limit", "0"], await orchestrationRepo());
+    expect(r.code).toBe(2);
+  });
+  test("text output and gh unavailable line", async () => {
+    const r = await runPm(["research", "orders", "--path", "app"], await orchestrationRepo());
+    expect(r.code).toBe(0);
+    expect(r.stdout.split("\n")[0]).toContain("keywords: orders · paths: app");
+    expect(r.stdout).toContain("[app/app.py:");
+    expect(r.stdout).toContain("gh: unavailable (not installed)");
+  });
+  test("--no-gh and --json", async () => {
+    const r = await runPm(["research", "orders", "--no-gh", "--json"], await orchestrationRepo());
+    expect(r.code).toBe(0);
+    const report = JSON.parse(r.stdout);
+    expect(report.keywords).toEqual(["orders"]);
+    expect(report.probes.gh.error).toBe("skipped (--no-gh)");
+    expect(report.probes.memory.lines[0]).toContain("[docs/pm/INDEX.md]");
+  });
+  test("works on a cold start without docs/pm and writes nothing", async () => {
+    const dir = await seededRepo({ "src/orders.ts": "export const orders = 1;\n" });
+    const r = await runPm(["research", "orders", "--no-gh"], dir);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("[src/orders.ts:1]");
+    expect(r.stdout).toContain("memory: none");
+    expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+  });
+  test("--repo resolves a mapped name, a path, and rejects unknown names", async () => {
+    const root = await orchestrationRepo();
+    const target = await seededRepo({ "svc/orders.go": "package orders\n" });
+    await writeTree(root, {
+      "docs/pm/.local/repos.json": JSON.stringify({ "glapsfun/svc": target }),
+    });
+    const byName = await runPm(["research", "orders", "--no-gh", "--repo", "glapsfun/svc"], root);
+    expect(byName.code).toBe(0);
+    expect(byName.stdout).toContain("[svc/orders.go:1]");
+    expect(byName.stdout).toContain("[docs/pm/INDEX.md]");
+    const byPath = await runPm(["research", "orders", "--no-gh", "--repo", target], root);
+    expect(byPath.stdout).toContain("[svc/orders.go:1]");
+    const unknown = await runPm(["research", "orders", "--no-gh", "--repo", "nope"], root);
+    expect(unknown.code).toBe(2);
+    expect(unknown.stderr).toContain("unknown repo nope");
+    expect(unknown.stderr).toContain("glapsfun/svc");
+    const notGit = await runPm(
+      ["research", "orders", "--no-gh", "--repo", await makeTempDir("plain")],
+      root,
+    );
+    expect(notGit.code).toBe(2);
+    expect(notGit.stderr).toContain("not inside a git repository");
+  });
+});
