@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { gitTimed } from "./git";
-import type { RunResult } from "./proc";
+import { type RunResult, runTimed } from "./proc";
 
 export type PathKind = "memory" | "doc" | "test" | "code";
 
@@ -298,8 +298,86 @@ async function headRef(cwd: string, timeoutMs: number): Promise<string> {
   return r.code === 0 ? r.stdout.trim() : "no-commits";
 }
 
-export async function probeGh(_o: ProbeOptions, _ghCmd: string): Promise<ProbeResult> {
-  return errored("unavailable (not implemented)");
+interface GhPr {
+  number: number;
+  title: string;
+  mergedAt: string;
+}
+
+interface GhIssue {
+  number: number;
+  title: string;
+  state: string;
+  updatedAt: string;
+}
+
+function ghReason(r: RunResult, timeoutMs: number): string | undefined {
+  if (r.timedOut) return `timed out after ${Math.round(timeoutMs / 1000)}s`;
+  if (r.code === 0) return undefined;
+  if (/ENOENT/.test(r.stderr)) return "not installed";
+  return r.stderr.trim().split("\n")[0] || `exit ${r.code}`;
+}
+
+function parseJsonArray<T>(text: string): T[] | null {
+  try {
+    const v = JSON.parse(text) as unknown;
+    return Array.isArray(v) ? (v as T[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function probeGh(o: ProbeOptions, ghCmd: string): Promise<ProbeResult> {
+  const query = o.keywords.join(" ");
+  const [prs, issues] = await Promise.all([
+    runTimed(
+      [
+        ghCmd,
+        "pr",
+        "list",
+        "--state",
+        "merged",
+        "--search",
+        query,
+        "--limit",
+        "10",
+        "--json",
+        "number,title,mergedAt,url",
+      ],
+      o.cwd,
+      o.timeoutMs,
+    ),
+    runTimed(
+      [
+        ghCmd,
+        "issue",
+        "list",
+        "--state",
+        "all",
+        "--search",
+        query,
+        "--limit",
+        "10",
+        "--json",
+        "number,title,state,updatedAt,url",
+      ],
+      o.cwd,
+      o.timeoutMs,
+    ),
+  ]);
+  const reason = ghReason(prs, o.timeoutMs) ?? ghReason(issues, o.timeoutMs);
+  if (reason) return errored(`unavailable (${reason})`);
+  const prList = parseJsonArray<GhPr>(prs.stdout);
+  const issueList = parseJsonArray<GhIssue>(issues.stdout);
+  if (!prList || !issueList) return errored("unavailable (unreadable gh output)");
+  const lines = [
+    ...prList.map((p) => `[gh pr #${p.number}] merged ${p.mergedAt.slice(0, 10)} · ${p.title}`),
+    ...issueList.map(
+      (i) =>
+        `[gh issue #${i.number}] ${i.state.toLowerCase()} ${i.updatedAt.slice(0, 10)} · ${i.title}`,
+    ),
+  ];
+  return capped(lines, o.limit);
 }
 
 export interface ResearchOptions {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 import {
   buildResearch,
@@ -9,6 +10,7 @@ import {
   mergeCommits,
   normalizeKeywords,
   parseLog,
+  probeGh,
   probeHistoryGrep,
   probeMemory,
   probeTests,
@@ -286,5 +288,61 @@ describe("buildResearch + formatResearch", () => {
     });
     expect(report.probes.files.error).toBe("timed out after 0s");
     expect(formatResearch(report)).toContain("\nfiles: timed out after 0s\n");
+  });
+});
+
+async function ghStub(body: string): Promise<string> {
+  const dir = await makeTempDir("ghstub");
+  const file = join(dir, "gh");
+  await Bun.write(file, `#!/usr/bin/env bun\n${body}\n`);
+  await chmod(file, 0o755);
+  return file;
+}
+
+describe("probeGh", () => {
+  const o = {
+    cwd: process.cwd(),
+    keywords: ["orders", "timeout"],
+    paths: [],
+    limit: 20,
+    timeoutMs: 5_000,
+  };
+
+  test("prints merged PRs and issues from JSON", async () => {
+    const stub = await ghStub(`
+const args = process.argv.slice(2);
+const search = args[args.indexOf("--search") + 1];
+if (search !== "orders timeout") { console.error("bad search: " + search); process.exit(3); }
+if (args[0] === "pr") console.log(JSON.stringify([{ number: 212, title: "Batch order item queries", mergedAt: "2026-09-08T10:00:00Z", url: "u" }]));
+else console.log(JSON.stringify([{ number: 300, title: "Orders page slow", state: "OPEN", updatedAt: "2026-09-12T10:00:00Z", url: "u" }]));
+`);
+    const r = await probeGh(o, stub);
+    expect(r.error).toBeUndefined();
+    expect(r.lines).toEqual([
+      "[gh pr #212] merged 2026-09-08 · Batch order item queries",
+      "[gh issue #300] open 2026-09-12 · Orders page slow",
+    ]);
+  });
+  test("not installed", async () => {
+    const r = await probeGh(o, "/nonexistent/gh");
+    expect(r.error).toBe("unavailable (not installed)");
+    expect(r.lines).toEqual([]);
+  });
+  test("timeout", async () => {
+    const stub = await ghStub("await new Promise((r) => setTimeout(r, 10_000));");
+    const r = await probeGh({ ...o, timeoutMs: 100 }, stub);
+    expect(r.error).toBe("unavailable (timed out after 0s)");
+  });
+  test("non-zero exit reports the first stderr line", async () => {
+    const stub = await ghStub(
+      'console.error("not logged in to github.com\\nrun gh auth login"); process.exit(4);',
+    );
+    const r = await probeGh(o, stub);
+    expect(r.error).toBe("unavailable (not logged in to github.com)");
+  });
+  test("malformed JSON is an error line", async () => {
+    const stub = await ghStub('console.log("not json");');
+    const r = await probeGh(o, stub);
+    expect(r.error).toBe("unavailable (unreadable gh output)");
   });
 });
