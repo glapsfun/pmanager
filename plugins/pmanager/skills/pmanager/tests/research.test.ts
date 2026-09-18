@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
+  buildResearch,
   classifyPath,
   collectFileHits,
   collectHits,
+  formatResearch,
+  mergeCommits,
   normalizeKeywords,
   parseLog,
   probeHistoryGrep,
   probeMemory,
+  probeTests,
   rankFiles,
 } from "../scripts/research";
 import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
@@ -157,5 +161,130 @@ describe("probeMemory", () => {
       shown: 0,
       total: 0,
     });
+  });
+});
+
+describe("mergeCommits", () => {
+  test("dedupes by sha, newest first, capped", () => {
+    const r = mergeCommits(
+      [
+        [{ sha: "a", date: "2026-09-01", subject: "old" }],
+        [
+          { sha: "b", date: "2026-09-11", subject: "new" },
+          { sha: "a", date: "2026-09-01", subject: "old" },
+        ],
+      ],
+      1,
+    );
+    expect(r.lines).toEqual(["[git log] b 2026-09-11 new"]);
+    expect(r.shown).toBe(1);
+    expect(r.total).toBe(2);
+  });
+});
+
+describe("probeTests", () => {
+  test("keyword-hit tests and basename references, memory and non-test paths excluded", async () => {
+    const dir = await seededRepo({
+      "app/orders.py": "def orders(): pass\n",
+      "tests/test_orders.py": "from app import orders\n",
+      "tests/test_util.py": "import app.orders\n",
+      "app/consumer.py": "from app import orders\n",
+    });
+    const r = await probeTests(
+      { ...OPTS, cwd: dir, keywords: ["orders"] },
+      [{ path: "tests/test_orders.py", keywords: ["orders"], hits: 2 }],
+      ["app/orders.py"],
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.lines).toEqual([
+      "[tests/test_orders.py] kw: orders; references orders",
+      "[tests/test_util.py] references orders",
+    ]);
+  });
+});
+
+describe("buildResearch + formatResearch", () => {
+  test("sections, header, scoping and exclusions on the webshop fixture", async () => {
+    const root = await makeTempDir("research");
+    await copyFixture(root);
+    await writeTree(root, { "README.md": "# Webshop\n\nOrders are listed at /orders.\n" });
+    await initGitRepo(root);
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "orders: seed webshop"], root);
+    const report = await buildResearch({
+      root,
+      cwd: root,
+      keywords: ["Orders", "sqlite"],
+      paths: [],
+      limit: 20,
+      gh: false,
+    });
+    expect(report.ref).toMatch(/^[0-9a-f]{7,}$/);
+    expect(report.keywords).toEqual(["orders", "sqlite"]);
+    expect(report.probes.files.lines[0]).toBe("[app/app.py:2] import sqlite3  # kw: sqlite");
+    expect(report.probes.files.lines.join("\n")).toContain("[app/schema.sql:");
+    expect(report.probes.files.lines.join("\n")).not.toContain("docs/pm/");
+    expect(report.probes.files.total).toBe(2);
+    expect(report.probes.docs.lines[0]).toBe(
+      "[README.md:3] Orders are listed at /orders.  # kw: orders",
+    );
+    expect(report.probes.history.lines[0]).toMatch(
+      /^\[git log\] [0-9a-f]{7,} \d{4}-\d{2}-\d{2} orders: seed webshop$/,
+    );
+    expect(report.probes.memory.lines[0]).toContain("[docs/pm/INDEX.md]");
+    expect(report.probes.tests).toEqual({ lines: [], shown: 0, total: 0 });
+    expect(report.probes.gh.error).toBe("skipped (--no-gh)");
+
+    const text = formatResearch(report);
+    expect(text.split("\n")[0]).toMatch(
+      /^research: .* @ [0-9a-f]{7,} · keywords: orders, sqlite · paths: \(all\) · \d+ms$/,
+    );
+    expect(text).toContain("\nfiles (2):\n  [app/app.py:");
+    expect(text).toContain("\ntests: none\n");
+    expect(text).toContain("\ngh: skipped (--no-gh)\n");
+
+    const scoped = await buildResearch({
+      root,
+      cwd: root,
+      keywords: ["orders"],
+      paths: ["app/app.py"],
+      limit: 20,
+      gh: false,
+    });
+    expect(scoped.probes.files.lines.join("\n")).not.toContain("schema.sql");
+    expect(scoped.probes.docs.total).toBe(0);
+    expect(formatResearch(scoped).split("\n")[0]).toContain("paths: app/app.py");
+  });
+  test("limit truncation is visible in the section header", async () => {
+    const dir = await seededRepo({
+      "a/x1.py": "orders\n",
+      "a/x2.py": "orders\n",
+      "a/x3.py": "orders\n",
+    });
+    const report = await buildResearch({
+      root: dir,
+      cwd: dir,
+      keywords: ["orders"],
+      paths: [],
+      limit: 2,
+      gh: false,
+    });
+    expect(report.probes.files.shown).toBe(2);
+    expect(report.probes.files.total).toBe(3);
+    expect(formatResearch(report)).toContain("\nfiles (2 of 3):\n");
+  });
+  test("a probe failure is a section line and the report still builds", async () => {
+    const dir = await seededRepo({ "a.py": "orders\n" });
+    const report = await buildResearch({
+      root: dir,
+      cwd: dir,
+      keywords: ["orders"],
+      paths: [],
+      limit: 20,
+      gh: false,
+      timeoutMs: 0,
+    });
+    expect(report.probes.files.error).toBe("timed out after 0s");
+    expect(formatResearch(report)).toContain("\nfiles: timed out after 0s\n");
   });
 });
