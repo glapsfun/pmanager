@@ -1,9 +1,9 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getList, sectionBody } from "./contract";
+import { getList, getString, sectionBody } from "./contract";
 import { gitTimed, repoRoot } from "./git";
-import type { EpicRecord } from "./repo";
-import { failure } from "./research";
+import type { EpicRecord, TaskDoc } from "./repo";
+import { classifyPath, failure } from "./research";
 
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 export const SPEC_PREFIX = "docs/pm/";
@@ -472,4 +472,214 @@ export async function probeWindowedChanges(
     });
   }
   return { lines, files: [...files], uncommitted };
+}
+
+function addedLines(diff: string, limit: number): string[] {
+  const out: string[] = [];
+  for (const l of diff.split("\n")) {
+    if (out.length >= limit) break;
+    if (l.startsWith("@@")) out.push(l.replace(/ @@.*$/, " @@"));
+    else if (l.startsWith("+") && !l.startsWith("+++") && l.trim().length > 1) out.push(l);
+  }
+  return out;
+}
+
+export async function probeHunks(
+  o: VerifyProbeOptions,
+  files: string[],
+  untracked: Set<string>,
+): Promise<Probe> {
+  const base = o.since.sha ?? EMPTY_TREE;
+  const shown = files.slice(0, o.limit);
+  const per = await Promise.all(
+    shown.map(async (p): Promise<{ lines: string[]; error?: string }> => {
+      if (untracked.has(p)) {
+        const text = await readFile(join(o.cwd, p), "utf8").catch(() => "");
+        const kept = text.split("\n").filter((l) => l.trim().length > 0);
+        return { lines: kept.slice(0, o.limit).map((l) => `+${l}`) };
+      }
+      const r = await gitTimed(["diff", base, "--", p], o.cwd, o.timeoutMs);
+      const error = failure(r, o.timeoutMs);
+      return error ? { lines: [], error } : { lines: addedLines(r.stdout, o.limit) };
+    }),
+  );
+  const lines: EvidenceLine[] = [];
+  per.forEach((h, i) => {
+    const p = shown[i] ?? "";
+    for (const l of h.lines) lines.push({ source: p, fact: l, repo: o.repo, paths: [p] });
+  });
+  return { lines, files, error: per.find((h) => h.error)?.error };
+}
+
+export async function probeTests(o: VerifyProbeOptions, files: string[]): Promise<Probe> {
+  const touched = files.filter((f) => classifyPath(f) === "test");
+  const lines: EvidenceLine[] = touched.map((t) => ({
+    source: t,
+    fact: "touched in scope",
+    repo: o.repo,
+    paths: [t],
+  }));
+  const stems = [
+    ...new Set(
+      files
+        .filter((f) => classifyPath(f) !== "test")
+        .map((f) => basename(f).replace(/\.[^.]+$/, "")),
+    ),
+  ].filter((s) => s.length >= 3);
+  if (stems.length > 0) {
+    const r = await gitTimed(
+      ["grep", "-l", "-i", "-w", "-F", ...stems.flatMap((s) => ["-e", s])],
+      o.cwd,
+      o.timeoutMs,
+    );
+    const error = failure(r, o.timeoutMs, [0, 1]);
+    if (error) return { lines, files: touched, error };
+    for (const p of r.stdout.split("\n")) {
+      if (!p || classifyPath(p) !== "test" || touched.includes(p)) continue;
+      const lower = (await readFile(join(o.cwd, p), "utf8").catch(() => "")).toLowerCase();
+      const refs = stems.filter((s) =>
+        new RegExp(`\\b${escapeRe(s.toLowerCase())}\\b`).test(lower),
+      );
+      if (refs.length > 0) {
+        lines.push({ source: p, fact: `references ${refs.join(", ")}`, repo: o.repo, paths: [p] });
+      }
+    }
+  }
+  return { lines: lines.slice(0, o.limit), files: touched };
+}
+
+export interface VerifyOptions {
+  epic: EpicRecord;
+  task: TaskDoc;
+  targets: RepoTarget[];
+  gaps: string[];
+  sinceRef?: string;
+  files: string[];
+  limit: number;
+  timeoutMs?: number;
+}
+
+export interface CriterionReport {
+  text: string;
+  checked: boolean;
+  label: string;
+  evidence: EvidenceLine[];
+}
+
+export interface VerifyReport {
+  slug: string;
+  task: string;
+  repos: { name: string; path: string; since: Since }[];
+  criteria: CriterionReport[];
+  unattributed: EvidenceLine[];
+  scope: { files: number; commits: number; uncommitted: number; testsTouched: number };
+  gaps: string[];
+  errors: string[];
+  durationMs: number;
+}
+
+interface RepoRun {
+  since: Since;
+  lines: EvidenceLine[];
+  scope: VerifyReport["scope"];
+  errors: string[];
+}
+
+type SharedProbeOptions = Omit<VerifyProbeOptions, "cwd" | "repo" | "since">;
+
+async function verifyRepo(
+  target: RepoTarget,
+  rule: SinceRule,
+  o: SharedProbeOptions,
+): Promise<RepoRun> {
+  const errors: string[] = [];
+  const prefix = target.name === "." ? "" : `${target.name}: `;
+  const tag = (probe: string, e?: string) => {
+    if (e) errors.push(`${prefix}${probe}: ${e}`);
+  };
+  const bound = await sinceSha(target.path, rule, o.timeoutMs);
+  tag("since", bound.error);
+  const po: VerifyProbeOptions = { ...o, cwd: target.path, repo: target.name, since: bound.since };
+  const listed = await listFiles(po.cwd, po.timeoutMs);
+  tag("ls-files", listed.error);
+  const [named, tagged, windowed] = await Promise.all([
+    probeNamedPaths(po, [...listed.tracked, ...listed.untracked]),
+    probeTaggedCommits(po),
+    probeWindowedChanges(po),
+  ]);
+  tag("tagged commits", tagged.error);
+  tag("windowed changes", windowed.error);
+  const files = [...new Set([...named.files, ...tagged.files, ...windowed.files])].filter(notSpec);
+  const [hunks, tests] = await Promise.all([
+    probeHunks(po, files, new Set(listed.untracked)),
+    probeTests(po, files),
+  ]);
+  tag("hunks", hunks.error);
+  tag("tests", tests.error);
+  return {
+    since: bound.since,
+    lines: [...named.lines, ...tagged.lines, ...windowed.lines, ...hunks.lines, ...tests.lines],
+    scope: {
+      files: files.length,
+      commits: tagged.commits,
+      uncommitted: windowed.uncommitted,
+      testsTouched: tests.lines.length,
+    },
+    errors,
+  };
+}
+
+/** Repos run one after another, probes inside each concurrently; nothing here throws. */
+export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
+  const started = performance.now();
+  const tfm = opts.task.frontmatter;
+  const rule = resolveSince({
+    sinceRef: opts.sinceRef,
+    taskStatus: getString(tfm, "status"),
+    taskUpdated: getString(tfm, "updated"),
+    epicCreated: getString(opts.epic.epic?.frontmatter ?? {}, "created"),
+  });
+  const criteria = parseCriteria(opts.task.body);
+  const shared: SharedProbeOptions = {
+    taskId: opts.task.id,
+    slug: opts.epic.slug,
+    tokens: extractPathTokens(opts.task.body),
+    extraFiles: opts.files,
+    limit: opts.limit,
+    timeoutMs: opts.timeoutMs ?? 30_000,
+  };
+  const repos: VerifyReport["repos"] = [];
+  const lines: EvidenceLine[] = [];
+  const scope = { files: 0, commits: 0, uncommitted: 0, testsTouched: 0 };
+  const errors: string[] = [];
+  for (const target of opts.targets) {
+    const run = await verifyRepo(target, rule, shared);
+    repos.push({ name: target.name, path: target.path, since: run.since });
+    lines.push(...run.lines);
+    scope.files += run.scope.files;
+    scope.commits += run.scope.commits;
+    scope.uncommitted += run.scope.uncommitted;
+    scope.testsTouched += run.scope.testsTouched;
+    errors.push(...run.errors);
+  }
+  const { attached, unattributed } = attachEvidence(
+    criteria.map((c) => c.tokens),
+    lines,
+  );
+  return {
+    slug: opts.epic.slug,
+    task: opts.task.id,
+    repos,
+    criteria: criteria.map((c, i) => ({
+      text: c.text,
+      checked: c.checked,
+      label: labelCriterion(c, attached[i]?.length ?? 0),
+      evidence: attached[i] ?? [],
+    })),
+    unattributed,
+    scope,
+    gaps: opts.gaps,
+    errors,
+    durationMs: Math.round(performance.now() - started),
+  };
 }

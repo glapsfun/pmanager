@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { epicBySlug, loadPmRepo } from "../scripts/repo";
+import { epicBySlug, loadPmRepo, taskById } from "../scripts/repo";
 import {
   attachEvidence,
+  buildVerify,
   type EvidenceLine,
   extractPathTokens,
   formatEvidence,
@@ -12,8 +13,10 @@ import {
   matchPaths,
   parseCriteria,
   parseNameOnlyLog,
+  probeHunks,
   probeNamedPaths,
   probeTaggedCommits,
+  probeTests,
   probeWindowedChanges,
   resolveRepos,
   resolveSince,
@@ -21,6 +24,7 @@ import {
   type Since,
   sinceSha,
   tokeniseCriterion,
+  type VerifyOptions,
   type VerifyProbeOptions,
 } from "../scripts/verify";
 import { buildWebshopRepo } from "./fixtures/build-webshop";
@@ -374,5 +378,133 @@ describe("probeWindowedChanges", () => {
   test("no prefixes means no lines", async () => {
     const { dir } = await webshopWithMigration();
     expect(await probeWindowedChanges(opts(dir))).toEqual({ lines: [], files: [], uncommitted: 0 });
+  });
+});
+
+async function edit(dir: string, rel: string, from: string, to: string) {
+  const p = join(dir, rel);
+  const raw = await readFile(p, "utf8");
+  if (!raw.includes(from)) throw new Error(`edit: ${from} not in ${rel}`);
+  await writeFile(p, raw.replace(from, to));
+}
+
+const T02 = "docs/pm/app-performance/tasks/T02-add-order-items-index.md";
+
+async function verifyT02(dir: string, over: Partial<VerifyOptions> = {}) {
+  const repo = await loadPmRepo(dir);
+  const epic = epicBySlug(repo, "app-performance");
+  const task = epic && taskById(epic, "T02");
+  if (!epic || !task) throw new Error("fixture T02 missing");
+  return buildVerify({
+    epic,
+    task,
+    targets: [{ name: ".", path: dir }],
+    gaps: [],
+    files: [],
+    limit: 20,
+    ...over,
+  });
+}
+
+describe("probeHunks", () => {
+  test("added lines from tracked diffs and untracked file contents, capped per file", async () => {
+    const { dir } = await webshopWithMigration();
+    await writeFile(join(dir, "docs", "profile-results.txt"), "p50 2.9s\np95 3.4s\nthird\n");
+    const p = await probeHunks(
+      opts(dir, { limit: 2 }),
+      [MIGRATION, "docs/profile-results.txt"],
+      new Set(["docs/profile-results.txt"]),
+    );
+    const facts = p.lines.map((l) => `[${l.source}] ${l.fact}`);
+    expect(facts).toContain(`[${MIGRATION}] +${INDEX_SQL}`);
+    expect(facts).toContain("[docs/profile-results.txt] +p50 2.9s");
+    expect(facts).toContain("[docs/profile-results.txt] +p95 3.4s");
+    expect(facts).not.toContain("[docs/profile-results.txt] +third");
+  });
+});
+
+describe("probeTests", () => {
+  test("touched test files and tests referencing scope basenames", async () => {
+    const { dir } = await webshopWithMigration();
+    await mkdir(join(dir, "tests"), { recursive: true });
+    await writeFile(
+      join(dir, "tests", "test_orders.py"),
+      "from app import app\n\ndef test_orders():\n    assert app\n",
+    );
+    await writeFile(join(dir, "tests", "test_schema.py"), "def test_schema():\n    pass\n");
+    await commitDated(dir, "tests", "2026-09-13T10:00:00");
+    const p = await probeTests(opts(dir), ["app/app.py", "tests/test_schema.py"]);
+    expect(p.lines.map((l) => `[${l.source}] ${l.fact}`)).toEqual([
+      "[tests/test_schema.py] touched in scope",
+      "[tests/test_orders.py] references app",
+    ]);
+  });
+});
+
+describe("buildVerify", () => {
+  test("attaches evidence to criteria, records since from the task, counts scope", async () => {
+    const { dir, sha } = await webshopWithMigration();
+    await edit(dir, T02, "status: todo", "status: in-progress");
+    await edit(
+      dir,
+      T02,
+      "- [ ] Migration file exists and applies cleanly",
+      "- [ ] Migration under app/migrations/ creates an index on order_items(order_id)",
+    );
+    const r = await verifyT02(dir);
+    expect(r.slug).toBe("app-performance");
+    expect(r.task).toBe("T02");
+    expect(r.repos).toEqual([
+      { name: ".", path: dir, since: { date: "2026-09-10", sha: null, reason: "task updated" } },
+    ]);
+    const [first, second] = r.criteria;
+    expect(first?.label).toMatch(/^evidence: \d+ lines$/);
+    const facts = first?.evidence.map((e) => `[${e.source}] ${e.fact}`) ?? [];
+    expect(facts).toContain(
+      `[git log] ${sha} 2026-09-12 add order_items index (T02) · ${MIGRATION}`,
+    );
+    expect(facts).toContain(`[${MIGRATION}] +${INDEX_SQL}`);
+    expect(second?.label).toBe("no evidence in scope");
+    expect(r.scope.commits).toBe(1);
+    expect(r.scope.files).toBeGreaterThanOrEqual(1);
+    expect(r.errors).toEqual([]);
+  });
+  test("todo task falls back to epic created; --files adds untracked evidence to unattributed", async () => {
+    const { dir } = await webshopWithMigration();
+    await writeFile(join(dir, "docs", "profile-results.txt"), "p50 2.9s  p95 3.4s\n");
+    const r = await verifyT02(dir, { files: ["docs/profile-results.txt"] });
+    expect(r.repos[0]?.since.reason).toBe("epic created");
+    expect(r.repos[0]?.since.date).toBe("2026-09-01");
+    const un = r.unattributed.map((e) => `[${e.source}] ${e.fact}`);
+    expect(un).toContain("[docs/profile-results.txt] present, 1 lines, untracked");
+    expect(un).toContain("[worktree] docs/profile-results.txt untracked");
+    expect(un).toContain("[docs/profile-results.txt] +p50 2.9s  p95 3.4s");
+    expect(r.scope.uncommitted).toBe(1);
+  });
+  test("a bad --since is an error line, not a failure", async () => {
+    const { dir } = await webshopWithMigration();
+    const r = await verifyT02(dir, { sinceRef: "nope" });
+    expect(r.errors).toEqual([expect.stringContaining("--since nope")]);
+    expect(r.criteria.length).toBe(2);
+  });
+  test("checked boxes and measured criteria are labelled", async () => {
+    const { dir } = await webshopWithMigration();
+    await edit(
+      dir,
+      T02,
+      "- [ ] Migration file exists and applies cleanly",
+      "- [x] Migration file exists and applies cleanly",
+    );
+    await edit(
+      dir,
+      T02,
+      "- [ ] EXPLAIN on the item query shows the index in use",
+      "- [ ] item query p95 under 50ms",
+    );
+    const r = await verifyT02(dir);
+    expect(r.criteria.map((c) => c.label)).toEqual([
+      "already checked · no evidence in scope",
+      "needs measurement",
+    ]);
   });
 });
