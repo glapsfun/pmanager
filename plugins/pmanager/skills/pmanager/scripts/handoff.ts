@@ -5,19 +5,31 @@ import { epicBySlug, LOCAL_DIR, type PmRepo, taskById } from "./repo";
 
 export const LOCAL_REPOS_FILE = "repos.json";
 
+export function parseLocalRepoMap(text: string): Record<string, string> {
+  const parsed = JSON.parse(text) as unknown;
+  const out: Record<string, string> = {};
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** The map without side effects; research must not create .local on a read. */
+export async function readLocalRepoMap(pmDir: string): Promise<Record<string, string>> {
+  try {
+    return parseLocalRepoMap(await readFile(join(pmDir, LOCAL_DIR, LOCAL_REPOS_FILE), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
 export async function loadLocalRepoMap(pmDir: string): Promise<Record<string, string>> {
   const dir = join(pmDir, LOCAL_DIR);
   const file = join(dir, LOCAL_REPOS_FILE);
   try {
-    const parsed = JSON.parse(await readFile(file, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v === "string") out[k] = v;
-      }
-      return out;
-    }
-    return {};
+    return parseLocalRepoMap(await readFile(file, "utf8"));
   } catch {
     await mkdir(dir, { recursive: true });
     await writeFile(file, "{}\n");
