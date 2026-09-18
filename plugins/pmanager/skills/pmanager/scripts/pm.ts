@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
@@ -14,9 +13,10 @@ import {
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
 import { applyRender, migrate } from "./render";
-import { loadPmRepo, PM_DIR, type PmRepo } from "./repo";
+import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
+import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
 
 const USAGE = `usage: bun run scripts/pm.ts <command> [args] [flags]
 
@@ -29,6 +29,8 @@ commands
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
+  verify <slug> <task-id> [--repo NAME|PATH] [--since REF] [--files P]... [--limit N]
+                                read-only evidence per acceptance criterion from the task's files, commits and diff
 
 flags
   --json                        machine-readable output on stdout
@@ -36,8 +38,10 @@ flags
   --harness NAME                harness name recorded in claims (default: $PM_HARNESS, or claude-code when $CLAUDECODE is set)
   --path P                      git pathspec to scope research (repeatable)
   --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo)
-  --limit N                     max entries per research section (default 20)
+  --limit N                     max entries per research/verify section (default 20)
   --no-gh                       skip the gh PR/issue probe
+  --since REF                   verify: lower bound of the inspected window (default: task updated, else epic created)
+  --files P                     verify: extra path to inspect, relative to each repo root (repeatable)
 
 exit codes: 0 ok/warnings, 1 errors or claim refused, 2 usage/environment
 `;
@@ -55,6 +59,8 @@ export interface Args {
   repo?: string;
   limit: number;
   noGh: boolean;
+  since?: string;
+  files: string[];
 }
 
 export function defaultHarness(env = process.env): string {
@@ -78,6 +84,7 @@ export function parseArgs(argv: string[]): Args | null {
     paths: [],
     limit: 20,
     noGh: false,
+    files: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
@@ -106,6 +113,14 @@ export function parseArgs(argv: string[]): Args | null {
       const n = Number.parseInt(argv[++i] ?? "", 10);
       if (!Number.isFinite(n) || n < 1) return null;
       args.limit = n;
+    } else if (a === "--since") {
+      const s = argv[++i];
+      if (!s) return null;
+      args.since = s;
+    } else if (a === "--files") {
+      const f = argv[++i];
+      if (!f) return null;
+      args.files.push(f);
     } else if (a.startsWith("--")) return null;
     else if (args.cmd === "") args.cmd = a;
     else args.positional.push(a);
@@ -158,33 +173,15 @@ async function remoteClaims(
   return { remote: "ok", claims };
 }
 
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 async function runResearch(root: string, args: Args): Promise<number> {
   const keywords = normalizeKeywords(args.positional);
   if (keywords.length === 0) return fail(USAGE);
   const map = await readLocalRepoMap(join(root, PM_DIR));
-  let target = root;
-  if (args.repo !== undefined) {
-    const mapped = map[args.repo];
-    if (mapped !== undefined) target = mapped;
-    else if (await isDirectory(args.repo)) target = args.repo;
-    else {
-      const known = Object.keys(map).sort().join(", ") || "none";
-      return fail(`unknown repo ${args.repo}; known names in docs/pm/.local/repos.json: ${known}`);
-    }
-  }
-  const cwd = await repoRoot(target);
-  if (!cwd) return fail(`${target} is not inside a git repository`);
+  const resolved = await resolveTarget(root, args.repo, map);
+  if ("error" in resolved) return fail(resolved.error);
   const report = await buildResearch({
     root,
-    cwd,
+    cwd: resolved.target.path,
     keywords,
     paths: args.paths,
     limit: args.limit,
@@ -297,6 +294,28 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
       } catch (e) {
         return fail(e instanceof Error ? e.message : String(e));
       }
+    }
+    case "verify": {
+      const [slug, taskId] = args.positional;
+      if (!slug || !taskId) return fail(USAGE);
+      const epic = epicBySlug(repo, slug);
+      if (!epic?.epic) return fail(`unknown epic ${slug}`);
+      const task = taskById(epic, taskId);
+      if (!task) return fail(`unknown task ${taskId} in ${slug}`);
+      const map = await readLocalRepoMap(repo.pmDir);
+      const resolved = await resolveRepos(root, epic, args.repo, map);
+      if ("error" in resolved) return fail(resolved.error);
+      const report = await buildVerify({
+        epic,
+        task,
+        targets: resolved.targets,
+        gaps: resolved.gaps,
+        sinceRef: args.since,
+        files: args.files,
+        limit: args.limit,
+      });
+      out(args.json ? json(report) : formatVerify(report));
+      return 0;
     }
     default:
       return fail(USAGE);
