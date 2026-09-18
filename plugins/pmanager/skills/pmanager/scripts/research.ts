@@ -219,8 +219,8 @@ export async function grepLines(
     if (!path || !no || text === undefined) continue;
     const list = byPath.get(path) ?? [];
     if (list.length >= LINES_PER_FILE) continue;
-    const body = text.trim().slice(0, LINE_MAX);
-    list.push(`[${path}:${no}] ${body}${kwTag(o.keywords, body)}`);
+    const body = text.trim();
+    list.push(`[${path}:${no}] ${body.slice(0, LINE_MAX)}${kwTag(o.keywords, body)}`);
     byPath.set(path, list);
   }
   return { byPath };
@@ -276,8 +276,9 @@ export async function probeTests(
       notes.set(path, [...(notes.get(path) ?? []), `references ${refs.join(", ")}`]);
     }
   }
+  const hasKw = (p: string) => (notes.get(p)?.[0]?.startsWith("kw:") ? 0 : 1);
   const lines = [...notes]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => hasKw(a) - hasKw(b) || a.localeCompare(b))
     .map(([p, n]) => `[${p}] ${n.join("; ")}`);
   return capped(lines, o.limit);
 }

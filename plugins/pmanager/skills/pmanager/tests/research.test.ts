@@ -7,6 +7,7 @@ import {
   collectFileHits,
   collectHits,
   formatResearch,
+  grepLines,
   mergeCommits,
   normalizeKeywords,
   parseLog,
@@ -191,17 +192,29 @@ describe("probeTests", () => {
       "tests/test_orders.py": "from app import orders\n",
       "tests/test_util.py": "import app.orders\n",
       "app/consumer.py": "from app import orders\n",
+      "tests/test_zeta.py": "orders\n",
     });
     const r = await probeTests(
       { ...OPTS, cwd: dir, keywords: ["orders"] },
-      [{ path: "tests/test_orders.py", keywords: ["orders"], hits: 2 }],
+      [{ path: "tests/test_zeta.py", keywords: ["orders"], hits: 2 }],
       ["app/orders.py"],
     );
     expect(r.error).toBeUndefined();
     expect(r.lines).toEqual([
-      "[tests/test_orders.py] kw: orders; references orders",
+      "[tests/test_zeta.py] kw: orders; references orders",
+      "[tests/test_orders.py] references orders",
       "[tests/test_util.py] references orders",
     ]);
+  });
+});
+
+describe("grepLines", () => {
+  test("keyword tag comes from the full line, not the truncated body", async () => {
+    const dir = await seededRepo({ "a.py": `${"x".repeat(130)} orders\n` });
+    const r = await grepLines({ ...OPTS, cwd: dir, keywords: ["orders"] }, ["a.py"]);
+    const line = r.byPath.get("a.py")?.[0] ?? "";
+    expect(line).toEndWith("  # kw: orders");
+    expect(line.length).toBeLessThan(160);
   });
 });
 
