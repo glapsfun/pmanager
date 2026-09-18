@@ -8,13 +8,20 @@ import {
   extractPathTokens,
   formatEvidence,
   labelCriterion,
+  listFiles,
   matchPaths,
   parseCriteria,
+  parseNameOnlyLog,
+  probeNamedPaths,
+  probeTaggedCommits,
+  probeWindowedChanges,
   resolveRepos,
   resolveSince,
   resolveTarget,
+  type Since,
   sinceSha,
   tokeniseCriterion,
+  type VerifyProbeOptions,
 } from "../scripts/verify";
 import { buildWebshopRepo } from "./fixtures/build-webshop";
 import { gitOk, initGitRepo, makeTempDir } from "./helpers";
@@ -246,5 +253,126 @@ describe("resolveTarget + resolveRepos", () => {
     );
     const notGit = await resolveTarget(dir, plain, map);
     expect("error" in notGit && notGit.error).toContain("not inside a git repository");
+  });
+});
+
+const ROOT_SINCE: Since = { date: null, sha: null, reason: "repo start" };
+
+function opts(cwd: string, over: Partial<VerifyProbeOptions> = {}): VerifyProbeOptions {
+  return {
+    cwd,
+    repo: ".",
+    since: ROOT_SINCE,
+    taskId: "T02",
+    slug: "app-performance",
+    tokens: [],
+    extraFiles: [],
+    limit: 20,
+    timeoutMs: 30_000,
+    ...over,
+  };
+}
+
+const MIGRATION = "app/migrations/001_order_items_index.sql";
+const INDEX_SQL = "CREATE INDEX idx_order_items_order_id ON order_items(order_id);";
+
+/** Webshop fixture plus an index migration committed as T02 work on 2026-09-12. */
+async function webshopWithMigration(): Promise<{ dir: string; sha: string }> {
+  const dir = await makeTempDir("verify");
+  await buildWebshopRepo(dir);
+  await mkdir(join(dir, "app", "migrations"), { recursive: true });
+  await writeFile(join(dir, MIGRATION), `${INDEX_SQL}\n`);
+  await commitDated(dir, "add order_items index (T02)", "2026-09-12T10:00:00");
+  const sha = (await gitOk(["rev-parse", "--short", "HEAD"], dir)).trim();
+  return { dir, sha };
+}
+
+describe("listFiles", () => {
+  test("tracked and untracked, spec docs excluded", async () => {
+    const { dir } = await webshopWithMigration();
+    await writeFile(join(dir, "docs", "profile-results.txt"), "p50 2.9s  p95 3.4s\n");
+    const l = await listFiles(dir, 30_000);
+    expect(l.tracked).toContain("app/app.py");
+    expect(l.tracked.some((p) => p.startsWith("docs/pm/"))).toBe(false);
+    expect(l.untracked).toEqual(["docs/profile-results.txt"]);
+  });
+});
+
+describe("probeNamedPaths", () => {
+  test("present files with last change, untracked files, missing tokens", async () => {
+    const { dir, sha } = await webshopWithMigration();
+    await writeFile(join(dir, "docs", "profile-results.txt"), "p50 2.9s\np95 3.4s\n");
+    const l = await listFiles(dir, 30_000);
+    const p = await probeNamedPaths(
+      opts(dir, {
+        tokens: ["app/migrations/", "app/nothing.py", "and/or"],
+        extraFiles: ["docs/profile-results.txt"],
+      }),
+      [...l.tracked, ...l.untracked],
+    );
+    const facts = Object.fromEntries(p.lines.map((x) => [x.source, x.fact]));
+    expect(facts[MIGRATION]).toBe(`present, 1 lines, last changed ${sha} 2026-09-12`);
+    expect(facts["docs/profile-results.txt"]).toBe("present, 2 lines, untracked");
+    expect(facts["app/nothing.py"]).toBe("missing");
+    expect(facts["and/or"]).toBeUndefined();
+    expect(p.files.sort()).toEqual([MIGRATION, "docs/profile-results.txt"]);
+  });
+});
+
+describe("parseNameOnlyLog", () => {
+  test("splits header lines from file lists", () => {
+    const out = parseNameOnlyLog(
+      "\u0001abc\t2026-09-12\tadd index (T02)\n\napp/schema.sql\ndocs/pm/x/plan.md\n\u0001def\t2026-09-13\tdocs only\n\ndocs/pm/x/epic.md\n",
+    );
+    expect(out).toEqual([
+      {
+        sha: "abc",
+        date: "2026-09-12",
+        subject: "add index (T02)",
+        files: ["app/schema.sql", "docs/pm/x/plan.md"],
+      },
+      { sha: "def", date: "2026-09-13", subject: "docs only", files: ["docs/pm/x/epic.md"] },
+    ]);
+  });
+});
+
+describe("probeTaggedCommits", () => {
+  test("finds commits by task id or slug, drops spec-only commits, honours the bound", async () => {
+    const { dir, sha } = await webshopWithMigration();
+    const all = await probeTaggedCommits(opts(dir));
+    expect(all.lines.map((l) => l.fact)).toEqual([
+      `${sha} 2026-09-12 add order_items index (T02) · ${MIGRATION}`,
+    ]);
+    expect(all.commits).toBe(1);
+    expect(all.files).toEqual([MIGRATION]);
+    const none = await probeTaggedCommits(
+      opts(dir, { since: { date: null, sha, reason: "--since" } }),
+    );
+    expect(none.lines).toEqual([]);
+    expect(none.commits).toBe(0);
+  });
+});
+
+describe("probeWindowedChanges", () => {
+  test("numstat and worktree lines under named prefixes", async () => {
+    const { dir } = await webshopWithMigration();
+    const schema = join(dir, "app", "schema.sql");
+    await writeFile(schema, `${await Bun.file(schema).text()}-- tweak\n`);
+    await writeFile(join(dir, "docs", "profile-results.txt"), "p50 2.9s\n");
+    const p = await probeWindowedChanges(
+      opts(dir, { tokens: ["app/schema.sql"], extraFiles: ["docs/profile-results.txt"] }),
+    );
+    const facts = p.lines.map((l) => `[${l.source}] ${l.fact}`);
+    expect(facts.some((f) => /^\[git diff\] app\/schema\.sql \+\d+ -0 since root$/.test(f))).toBe(
+      true,
+    );
+    expect(facts).toContain("[worktree] app/schema.sql modified, uncommitted");
+    expect(facts).toContain("[worktree] docs/profile-results.txt untracked");
+    expect(p.uncommitted).toBe(2);
+    expect(p.files.sort()).toEqual(["app/schema.sql", "docs/profile-results.txt"]);
+  });
+  test("no prefixes means no lines", async () => {
+    const { dir } = await webshopWithMigration();
+    expect(await probeWindowedChanges(opts(dir))).toEqual({ lines: [], files: [], uncommitted: 0 });
   });
 });

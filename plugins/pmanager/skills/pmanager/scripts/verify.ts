@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { getList, sectionBody } from "./contract";
 import { gitTimed, repoRoot } from "./git";
 import type { EpicRecord } from "./repo";
@@ -295,4 +295,181 @@ export async function resolveRepos(
     targets.push({ name: ".", path: root });
   }
   return { targets, gaps };
+}
+
+export interface VerifyProbeOptions {
+  cwd: string;
+  repo: string;
+  since: Since;
+  taskId: string;
+  slug: string;
+  tokens: string[];
+  extraFiles: string[];
+  limit: number;
+  timeoutMs: number;
+}
+
+export interface Probe {
+  lines: EvidenceLine[];
+  files: string[];
+  error?: string;
+}
+
+const HEADER_MARK = "\u0001";
+export const TAGGED_FORMAT = "--format=%x01%h%x09%as%x09%s";
+
+function notSpec(p: string): boolean {
+  return p.length > 0 && !p.startsWith(SPEC_PREFIX);
+}
+
+function sinceLabel(s: Since): string {
+  return s.date ?? s.sha ?? "root";
+}
+
+export async function listFiles(
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ tracked: string[]; untracked: string[]; error?: string }> {
+  const [t, u] = await Promise.all([
+    gitTimed(["ls-files", "--cached"], cwd, timeoutMs),
+    gitTimed(["ls-files", "--others", "--exclude-standard"], cwd, timeoutMs),
+  ]);
+  const error = failure(t, timeoutMs) ?? failure(u, timeoutMs);
+  if (error) return { tracked: [], untracked: [], error };
+  return {
+    tracked: t.stdout.split("\n").filter(notSpec),
+    untracked: u.stdout.split("\n").filter(notSpec),
+  };
+}
+
+function lineCount(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+}
+
+export async function probeNamedPaths(o: VerifyProbeOptions, listed: string[]): Promise<Probe> {
+  const missing: EvidenceLine[] = [];
+  const files = new Set<string>();
+  for (const token of [...o.tokens, ...o.extraFiles]) {
+    const matched = matchPaths(token, listed).slice(0, o.limit);
+    // "and/or" is a token too; only report absence for things that look like files or dirs
+    const looksLikeFile = /\.[A-Za-z0-9]+$|\/$/.test(token) || o.extraFiles.includes(token);
+    if (matched.length === 0 && looksLikeFile) {
+      missing.push({ source: token, fact: "missing", repo: o.repo, paths: [token] });
+    }
+    for (const p of matched) files.add(p);
+  }
+  const present = await Promise.all(
+    [...files].map(async (p): Promise<EvidenceLine> => {
+      const [log, text] = await Promise.all([
+        gitTimed(["log", "-1", "--format=%h %as", "--", p], o.cwd, o.timeoutMs),
+        readFile(join(o.cwd, p), "utf8").catch(() => null),
+      ]);
+      const size = text === null ? "unreadable" : `${lineCount(text)} lines`;
+      const last = log.stdout.trim() ? `last changed ${log.stdout.trim()}` : "untracked";
+      return { source: p, fact: `present, ${size}, ${last}`, repo: o.repo, paths: [p] };
+    }),
+  );
+  return { lines: [...present, ...missing], files: [...files] };
+}
+
+export interface TaggedCommit {
+  sha: string;
+  date: string;
+  subject: string;
+  files: string[];
+}
+
+export function parseNameOnlyLog(stdout: string): TaggedCommit[] {
+  const out: TaggedCommit[] = [];
+  let cur: TaggedCommit | null = null;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith(HEADER_MARK)) {
+      const [sha, date, ...rest] = line.slice(1).split("\t");
+      cur = { sha: sha ?? "", date: date ?? "", subject: rest.join("\t"), files: [] };
+      out.push(cur);
+    } else if (line.trim() && cur) cur.files.push(line.trim());
+  }
+  return out;
+}
+
+export async function probeTaggedCommits(
+  o: VerifyProbeOptions,
+): Promise<Probe & { commits: number }> {
+  const range = o.since.sha ? [`${o.since.sha}..HEAD`] : [];
+  const r = await gitTimed(
+    ["log", "-i", `--grep=${o.taskId}`, `--grep=${o.slug}`, "--name-only", TAGGED_FORMAT, ...range],
+    o.cwd,
+    o.timeoutMs,
+  );
+  const error = failure(r, o.timeoutMs);
+  if (error) return { lines: [], files: [], commits: 0, error };
+  const commits = parseNameOnlyLog(r.stdout)
+    .map((c) => ({ ...c, files: c.files.filter(notSpec) }))
+    .filter((c) => c.files.length > 0);
+  const files = [...new Set(commits.flatMap((c) => c.files))];
+  const lines = commits.slice(0, o.limit).map((c): EvidenceLine => {
+    const more = c.files.length > 5 ? ` +${c.files.length - 5} more` : "";
+    return {
+      source: "git log",
+      fact: `${c.sha} ${c.date} ${c.subject} · ${c.files.slice(0, 5).join(", ")}${more}`,
+      repo: o.repo,
+      paths: c.files,
+    };
+  });
+  return { lines, files, commits: commits.length };
+}
+
+function worktreeState(xy: string): string {
+  if (xy === "??") return "untracked";
+  if (xy.includes("D")) return "deleted, uncommitted";
+  if (xy.includes("A")) return "added, uncommitted";
+  if (xy.includes("R")) return "renamed, uncommitted";
+  return "modified, uncommitted";
+}
+
+export async function probeWindowedChanges(
+  o: VerifyProbeOptions,
+): Promise<Probe & { uncommitted: number }> {
+  const dirTokens = o.tokens.filter((t) => t.includes("/")).map((t) => t.replace(/\/$/, ""));
+  const prefixes = [...new Set([...dirTokens, ...o.extraFiles])];
+  if (prefixes.length === 0) return { lines: [], files: [], uncommitted: 0 };
+  const base = o.since.sha ?? EMPTY_TREE;
+  const [diff, status] = await Promise.all([
+    gitTimed(["diff", "--numstat", base, "--", ...prefixes], o.cwd, o.timeoutMs),
+    gitTimed(
+      ["status", "--porcelain", "--untracked-files=all", "--", ...prefixes],
+      o.cwd,
+      o.timeoutMs,
+    ),
+  ]);
+  const error = failure(diff, o.timeoutMs) ?? failure(status, o.timeoutMs);
+  if (error) return { lines: [], files: [], uncommitted: 0, error };
+  const lines: EvidenceLine[] = [];
+  const files = new Set<string>();
+  for (const l of diff.stdout.split("\n")) {
+    const [add, del, path] = l.split("\t");
+    if (!path || !notSpec(path)) continue;
+    files.add(path);
+    lines.push({
+      source: "git diff",
+      fact: `${path} +${add} -${del} since ${sinceLabel(o.since)}`,
+      repo: o.repo,
+      paths: [path],
+    });
+  }
+  let uncommitted = 0;
+  for (const l of status.stdout.split("\n")) {
+    if (l.length < 4) continue;
+    const path = l.slice(3).split(" -> ").pop() ?? "";
+    if (!notSpec(path)) continue;
+    uncommitted++;
+    files.add(path);
+    lines.push({
+      source: "worktree",
+      fact: `${path} ${worktreeState(l.slice(0, 2))}`,
+      repo: o.repo,
+      paths: [path],
+    });
+  }
+  return { lines, files: [...files], uncommitted };
 }
