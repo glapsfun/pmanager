@@ -105,6 +105,17 @@ describe("collectFileHits", () => {
     });
     expect(scoped.hits.map((h) => h.path)).toEqual(["lib/util.py"]);
   });
+  test("keywords are literals, not regular expressions", async () => {
+    const dir = await seededRepo({ "a.py": "x[0]\n", "b.py": "x0\n" }, "fix x[0] lookup");
+    const hits = await collectFileHits({ ...OPTS, cwd: dir, keywords: ["x[0]"] });
+    expect(hits.error).toBeUndefined();
+    expect(hits.hits.map((h) => h.path)).toEqual(["a.py"]);
+    const lines = await grepLines({ ...OPTS, cwd: dir, keywords: ["x[0]"] }, ["a.py"]);
+    expect(lines.byPath.get("a.py")).toEqual(["[a.py:1] x[0]  # kw: x[0]"]);
+    const history = await probeHistoryGrep({ ...OPTS, cwd: dir, keywords: ["x[0]"] });
+    expect(history.error).toBeUndefined();
+    expect(history.commits.map((c) => c.subject)).toEqual(["fix x[0] lookup"]);
+  });
   test("no matches is empty, not an error", async () => {
     const dir = await seededRepo({ "a.txt": "nothing here\n" });
     const r = await collectFileHits({ ...OPTS, cwd: dir, keywords: ["zzz"] });
@@ -389,6 +400,11 @@ async function orchestrationRepo(): Promise<string> {
 describe("pm research (cli)", () => {
   test("no keywords → usage, exit 2", async () => {
     const r = await runPm(["research"], await orchestrationRepo());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("usage");
+  });
+  test("keywords that normalize to empty → usage, exit 2", async () => {
+    const r = await runPm(["research", "   ", "--no-gh"], await orchestrationRepo());
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("usage");
   });

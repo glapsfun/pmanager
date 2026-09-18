@@ -15,7 +15,7 @@ import {
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
 import { applyRender, migrate } from "./render";
 import { loadPmRepo, PM_DIR, type PmRepo } from "./repo";
-import { buildResearch, formatResearch } from "./research";
+import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
 
 const USAGE = `usage: bun run scripts/pm.ts <command> [args] [flags]
@@ -167,7 +167,8 @@ async function isDirectory(path: string): Promise<boolean> {
 }
 
 async function runResearch(root: string, args: Args): Promise<number> {
-  if (args.positional.length === 0) return fail(USAGE);
+  const keywords = normalizeKeywords(args.positional);
+  if (keywords.length === 0) return fail(USAGE);
   const map = await readLocalRepoMap(join(root, PM_DIR));
   let target = root;
   if (args.repo !== undefined) {
@@ -184,7 +185,7 @@ async function runResearch(root: string, args: Args): Promise<number> {
   const report = await buildResearch({
     root,
     cwd,
-    keywords: args.positional,
+    keywords,
     paths: args.paths,
     limit: args.limit,
     gh: !args.noGh,

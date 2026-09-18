@@ -12,7 +12,8 @@ Claude Code and Codex run identical commands and get identical evidence.
 ### 1. One round trip — `pm research`
 
 Pick 2–5 keywords from the Phase 1 problem line (the symptom, the
-endpoint, the module, the table) and run once:
+endpoint, the module, the table); they match literally, case-insensitive,
+never as regular expressions. Run once:
 
     pm research <keyword>... [--path <dir>]... [--repo <name|path>]
 

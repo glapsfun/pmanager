@@ -118,7 +118,7 @@ export async function collectFileHits(
   const [tracked, ...counts] = await Promise.all([
     gitTimed(["ls-files", "--", ...o.paths], o.cwd, o.timeoutMs),
     ...o.keywords.map((kw) =>
-      gitTimed(["grep", "-c", "-I", "-i", "-e", kw, "--", ...o.paths], o.cwd, o.timeoutMs),
+      gitTimed(["grep", "-c", "-I", "-i", "-F", "-e", kw, "--", ...o.paths], o.cwd, o.timeoutMs),
     ),
   ]);
   const error =
@@ -141,7 +141,17 @@ export async function probeHistoryGrep(
   const runs = await Promise.all(
     o.keywords.map((kw) =>
       gitTimed(
-        ["log", "-i", `--grep=${kw}`, "-n", String(o.limit), LOG_FORMAT, "--", ...o.paths],
+        [
+          "log",
+          "-i",
+          "--fixed-strings",
+          `--grep=${kw}`,
+          "-n",
+          String(o.limit),
+          LOG_FORMAT,
+          "--",
+          ...o.paths,
+        ],
         o.cwd,
         o.timeoutMs,
       ),
@@ -206,7 +216,7 @@ export async function grepLines(
   const byPath = new Map<string, string[]>();
   if (files.length === 0) return { byPath };
   const r = await gitTimed(
-    ["grep", "-n", "-I", "-i", ...o.keywords.flatMap((kw) => ["-e", kw]), "--", ...files],
+    ["grep", "-n", "-I", "-i", "-F", ...o.keywords.flatMap((kw) => ["-e", kw]), "--", ...files],
     o.cwd,
     o.timeoutMs,
   );
