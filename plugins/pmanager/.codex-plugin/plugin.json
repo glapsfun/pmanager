@@ -1,6 +1,6 @@
 {
   "name": "pmanager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agentic technical project/product manager: evidence-first research, approval-gated epic framing (hypothesis, success metrics, non-goals), plan decomposition (milestones, risks, dependencies, MoSCoW), INVEST tasks with binary acceptance criteria, and cross-run status tracking via a persistent epic index and product memo under docs/pm/.",
   "author": {
     "name": "vladtara",
