@@ -24,6 +24,7 @@ import {
 } from "./git";
 import { writeLogEntry } from "./log";
 import { PM_DIR } from "./repo";
+import { ensureWorktree, movePendingEpic, removeWorktree, worktreeFor } from "./worktree";
 
 export const CLAIM_PREFIX = "pm/";
 
@@ -32,10 +33,10 @@ export function claimBranch(slug: string): string {
 }
 
 export type ClaimOutcome =
-  | { ok: true; branch: string; message: string }
+  | { ok: true; branch: string; worktree: string; message: string }
   | {
       ok: false;
-      reason: "taken" | "not-stale" | "no-remote" | "no-epic" | "push-failed";
+      reason: "taken" | "not-stale" | "no-remote" | "no-epic" | "push-failed" | "worktree";
       message: string;
       owner?: Session;
     };
@@ -45,6 +46,7 @@ export interface ClaimOptions {
   takeover: boolean;
   staleDays: number;
   today: string;
+  noWorktree?: boolean;
 }
 
 function epicRel(slug: string): string {
@@ -168,10 +170,28 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     return { ok: false, reason: "no-epic", message: `no ${epicRel(slug)} on the current branch` };
   }
 
-  const pmDir = join(root, PM_DIR);
   const paths: string[] = [];
   const previousBranch = await currentBranch(root);
   let created = false;
+  let target = root;
+  if (opts.noWorktree) {
+    if (previousBranch !== branch) {
+      if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
+      else {
+        await checkoutBranch(root, branch, true, takenBy ? `origin/${branch}` : undefined);
+        created = true;
+      }
+    }
+  } else {
+    const wt = await ensureWorktree(root, slug, {
+      branch,
+      startPoint: takenBy ? `origin/${branch}` : undefined,
+    });
+    if (!wt.ok) return { ok: false, reason: "worktree", message: wt.message };
+    target = wt.path;
+    created = wt.created;
+  }
+  const pmDir = join(target, PM_DIR);
   if (takenBy) {
     const updated = await remoteUpdatedOf(root, slug);
     if (!isStale(updated, opts.today, opts.staleDays)) {
@@ -182,14 +202,8 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
         message: `${slug} claim by ${takenBy.harness} is not stale (updated ${updated}); takeover refused`,
       };
     }
-    if (await localBranchExists(root, branch)) {
-      await checkoutBranch(root, branch, false);
-      await git(["pull", "-q", "--ff-only", "origin", branch], root);
-    } else {
-      await checkoutBranch(root, branch, true, `origin/${branch}`);
-      created = true;
-    }
-    if (!(await localEpicExists(root, slug))) {
+    await git(["pull", "-q", "--ff-only", "origin", branch], target);
+    if (!(await localEpicExists(target, slug))) {
       return {
         ok: false,
         reason: "no-epic",
@@ -197,7 +211,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       };
     }
     const planPath = await appendPlanChangelog(
-      root,
+      target,
       slug,
       opts.today,
       `taken over from ${takenBy.harness} by ${opts.harness}`,
@@ -214,13 +228,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       }),
     );
   } else {
-    if (previousBranch !== branch) {
-      if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-      else {
-        await checkoutBranch(root, branch, true);
-        created = true;
-      }
-    }
+    await movePendingEpic(root, target, slug);
     paths.push(
       await writeLogEntry(pmDir, {
         date: opts.today,
@@ -233,17 +241,22 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   }
   paths.push(
     await writeSession(
-      root,
+      target,
       slug,
       { harness: opts.harness, claimed: opts.today, branch },
       opts.today,
     ),
   );
-  await commitPaths(root, paths, `docs(pm): ${takenBy ? "take over" : "claim"} ${slug}`);
+  await commitPaths(target, paths, `docs(pm): ${takenBy ? "take over" : "claim"} ${slug}`);
 
-  const push = await pushSetUpstream(root, branch);
+  const push = await pushSetUpstream(target, branch);
   if (push.code === 0) {
-    return { ok: true, branch, message: `${slug} claimed by ${opts.harness} on ${branch}` };
+    return {
+      ok: true,
+      branch,
+      worktree: target,
+      message: `${slug} claimed by ${opts.harness} on ${branch}`,
+    };
   }
 
   // The push failed. Only a branch that now exists on the remote means a
@@ -258,7 +271,8 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       branch,
     };
     if (created) {
-      await checkoutBranch(root, previousBranch, false);
+      if (opts.noWorktree) await checkoutBranch(root, previousBranch, false);
+      else await removeWorktree(root, target, {});
       await deleteLocalBranch(root, branch);
       return {
         ok: false,
@@ -287,26 +301,33 @@ export interface ReleaseOutcome {
   ok: boolean;
   message: string;
   reason?: ReleaseReason;
+  /** the epic's worktree, for the caller to remove after it has finished writing there */
+  worktree?: string | null;
 }
 
 export async function release(
   root: string,
   slug: string,
-  opts: { harness: string; today: string; force?: boolean },
+  opts: { harness: string; today: string; force?: boolean; noWorktree?: boolean },
 ): Promise<ReleaseOutcome> {
   const branch = claimBranch(slug);
   if (!(await hasRemote(root)))
     return { ok: false, reason: "no-remote", message: "no origin remote" };
   await fetchOrigin(root);
-  if ((await currentBranch(root)) !== branch) {
-    if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-    else {
-      return {
-        ok: false,
-        reason: "no-branch",
-        message: `not on ${branch} and no local branch of that name`,
-      };
+  const wt = opts.noWorktree ? null : await worktreeFor(root, branch);
+  let target = wt?.path ?? root;
+  if (!wt) {
+    if ((await currentBranch(root)) !== branch) {
+      if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
+      else {
+        return {
+          ok: false,
+          reason: "no-branch",
+          message: `not on ${branch} and no local branch of that name`,
+        };
+      }
     }
+    target = root;
   }
   // The remote claim record is authoritative; fall back to the local file
   // only when the branch has never been pushed.
@@ -314,9 +335,10 @@ export async function release(
   const owner =
     remote !== null
       ? remote.session
-      : (await localEpicExists(root, slug))
+      : (await localEpicExists(target, slug))
         ? sessionOf(
-            parseDoc(epicRel(slug), await readFile(join(root, epicRel(slug)), "utf8")).frontmatter,
+            parseDoc(epicRel(slug), await readFile(join(target, epicRel(slug)), "utf8"))
+              .frontmatter,
           )
         : null;
   if (owner === null) {
@@ -330,10 +352,10 @@ export async function release(
     };
   }
   const forced = owner.harness !== opts.harness;
-  const paths = [await writeSession(root, slug, undefined, opts.today)];
+  const paths = [await writeSession(target, slug, undefined, opts.today)];
   if (forced) {
     const planPath = await appendPlanChangelog(
-      root,
+      target,
       slug,
       opts.today,
       `force-released by ${opts.harness}`,
@@ -342,7 +364,7 @@ export async function release(
     if (planPath) paths.push(planPath);
   }
   paths.push(
-    await writeLogEntry(join(root, PM_DIR), {
+    await writeLogEntry(join(target, PM_DIR), {
       date: opts.today,
       epic: slug,
       harness: opts.harness,
@@ -352,12 +374,11 @@ export async function release(
         : `released by ${opts.harness}`,
     }),
   );
-  await commitPaths(root, paths, `docs(pm): release ${slug}`);
-  const push = await pushSetUpstream(root, branch);
-  return push.code === 0
-    ? {
-        ok: true,
-        message: `${slug} released; branch ${branch} still exists until its PR is merged`,
-      }
-    : { ok: false, reason: "push-failed", message: `push failed: ${push.stderr.trim()}` };
+  await commitPaths(target, paths, `docs(pm): release ${slug}`);
+  const push = await pushSetUpstream(target, branch);
+  if (push.code !== 0) {
+    return { ok: false, reason: "push-failed", message: `push failed: ${push.stderr.trim()}` };
+  }
+  const base = `${slug} released; branch ${branch} still exists until its PR is merged`;
+  return { ok: true, message: base, worktree: wt?.path ?? null };
 }

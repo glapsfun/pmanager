@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -104,4 +104,13 @@ export async function installPreReceiveHook(bare: string, script: string): Promi
   await mkdir(join(bare, "hooks"), { recursive: true });
   await writeFile(path, `#!/bin/sh\n${script}\n`);
   await chmod(path, 0o755);
+}
+
+export async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
 }

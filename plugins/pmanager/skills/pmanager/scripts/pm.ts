@@ -17,14 +17,16 @@ import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
 import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
+import { removeWorktree, worktreeFor } from "./worktree";
 
 const USAGE = `usage: bun run scripts/pm.ts <command> [args] [flags]
 
 commands
-  check                         validate docs/pm (read-only)
-  render [--migrate]            regenerate INDEX.md, plan task tables, memo log
-  claim <slug> [--takeover]     claim an epic on branch pm/<slug> and push it
-  release <slug> [--force]      release an epic you own (clears session, pushes); --force overrides another harness's claim
+  check [--epic SLUG]           validate docs/pm (read-only)
+  render [--migrate] [--epic SLUG]
+                                regenerate INDEX.md, plan task tables, memo log
+  claim <slug> [--takeover]     claim an epic in the worktree <repo>-pm-<slug> and push it
+  release <slug> [--force]      release an epic you own (clears session, pushes, removes its worktree)
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--no-gh]
@@ -40,6 +42,9 @@ flags
   --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo)
   --limit N                     max entries per research/verify section (default 20)
   --no-gh                       skip the gh PR/issue probe
+  --no-worktree                 claim/release: switch the current checkout instead of using a worktree
+  --keep-worktree               release: leave the epic's worktree in place
+  --epic SLUG                   render/check: act in that epic's worktree
   --since REF                   verify: lower bound of the inspected window (default: task updated, else epic created)
   --files P                     verify: extra path to inspect, relative to each repo root (repeatable)
 
@@ -61,6 +66,9 @@ export interface Args {
   noGh: boolean;
   since?: string;
   files: string[];
+  noWorktree: boolean;
+  keepWorktree: boolean;
+  epic?: string;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -85,6 +93,8 @@ export function parseArgs(argv: string[]): Args | null {
     limit: 20,
     noGh: false,
     files: [],
+    noWorktree: false,
+    keepWorktree: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
@@ -101,7 +111,13 @@ export function parseArgs(argv: string[]): Args | null {
       if (!h) return null;
       args.harness = h;
     } else if (a === "--no-gh") args.noGh = true;
-    else if (a === "--path") {
+    else if (a === "--no-worktree") args.noWorktree = true;
+    else if (a === "--keep-worktree") args.keepWorktree = true;
+    else if (a === "--epic") {
+      const e = argv[++i];
+      if (!e) return null;
+      args.epic = e;
+    } else if (a === "--path") {
       const p = argv[++i];
       if (!p) return null;
       args.paths.push(p);
@@ -147,11 +163,22 @@ interface RenderPush {
   error?: string;
 }
 
+/** Claimed epics live in a worktree; render and commit where the branch actually is. */
+async function epicRoot(root: string, slug: string): Promise<string> {
+  return (await worktreeFor(root, claimBranch(slug)))?.path ?? root;
+}
+
+async function targetRoot(root: string, args: Args): Promise<string> {
+  if (!args.epic || args.noWorktree) return root;
+  return epicRoot(root, args.epic);
+}
+
 async function renderAndCommit(root: string, slug: string, verb: string): Promise<RenderPush> {
-  const written = await applyRender(await loadPmRepo(root));
+  const target = await epicRoot(root, slug);
+  const written = await applyRender(await loadPmRepo(target));
   if (written.length === 0) return { written, pushed: true };
-  await commitPaths(root, written, `docs(pm): render after ${verb} ${slug}`);
-  const push = await pushSetUpstream(root, claimBranch(slug));
+  await commitPaths(target, written, `docs(pm): render after ${verb} ${slug}`);
+  const push = await pushSetUpstream(target, claimBranch(slug));
   if (push.code === 0) return { written, pushed: true };
   return { written, pushed: false, error: push.stderr.trim() };
 }
@@ -209,7 +236,8 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
 
   switch (args.cmd) {
     case "check": {
-      const findings = check(repo, opts);
+      const target = await targetRoot(root, args);
+      const findings = check(target === root ? repo : await loadPmRepo(target), opts);
       const { errors, warnings } = countBySeverity(findings);
       out(
         args.json
@@ -219,8 +247,10 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
       return errors === 0 ? 0 : 1;
     }
     case "render": {
-      const migrated = args.migrate ? await migrate(repo, opts.today) : [];
-      const written = await applyRender(await loadPmRepo(root));
+      const target = await targetRoot(root, args);
+      const base = target === root ? repo : await loadPmRepo(target);
+      const migrated = args.migrate ? await migrate(base, opts.today) : [];
+      const written = await applyRender(await loadPmRepo(target));
       if (args.json) out(json({ migrated, written }));
       else {
         for (const p of migrated) out(`migrated ${p}\n`);
@@ -237,6 +267,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         takeover: args.takeover,
         staleDays: args.staleDays,
         today: opts.today,
+        noWorktree: args.noWorktree,
       });
       const render = result.ok
         ? await renderAndCommit(root, slug, args.takeover ? "takeover of" : "claim")
@@ -249,9 +280,10 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
               rendered: render.written,
               renderPush: { ok: render.pushed, error: render.error },
             })
-          : `${result.message}\n${failure}`,
+          : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}\n${failure}`,
       );
       if (result.ok) return render.pushed ? 0 : 1;
+      if (result.reason === "worktree") return 2;
       return result.reason === "no-epic" || result.reason === "no-remote" ? 2 : 1;
     }
     case "release": {
@@ -261,26 +293,45 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         harness: args.harness,
         today: opts.today,
         force: args.force,
+        noWorktree: args.noWorktree,
       });
       const render = result.ok
         ? await renderAndCommit(root, slug, "release")
         : { written: [], pushed: true };
       const failure = result.ok && !render.pushed ? renderPushFailure(slug, render) : "";
+      // Rendering writes into the worktree, so it can only go once the branch is finished with.
+      const removal =
+        result.ok && result.worktree
+          ? await removeWorktree(root, result.worktree, { keep: args.keepWorktree })
+          : null;
+      const worktreeNote = removal
+        ? removal.ok
+          ? removal.removed
+            ? `worktree removed: ${result.worktree}\n`
+            : ""
+          : `${removal.message}\n`
+        : "";
       out(
         args.json
           ? json({
               ...result,
               rendered: render.written,
               renderPush: { ok: render.pushed, error: render.error },
+              worktreeRemoved: removal?.ok === true && removal.removed,
             })
-          : `${result.message}\n${failure}`,
+          : `${result.message}\n${worktreeNote}${failure}`,
       );
       if (result.ok) return render.pushed ? 0 : 1;
       return result.reason === "no-remote" || result.reason === "no-branch" ? 2 : 1;
     }
     case "status": {
       const { remote, claims } = await remoteClaims(root);
-      const report = buildStatus(repo, claims, remote, opts);
+      const worktrees = new Map<string, string>();
+      for (const slug of new Set([...repo.epics.map((e) => e.slug), ...(claims?.keys() ?? [])])) {
+        const wt = await worktreeFor(root, claimBranch(slug));
+        if (wt) worktrees.set(slug, wt.path);
+      }
+      const report = buildStatus(repo, claims, remote, { ...opts, worktrees });
       out(args.json ? json(report) : formatStatus(report));
       return 0;
     }

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { worktreeFor, worktreePath } from "../scripts/worktree";
 import {
   copyFixture,
+  exists,
   gitOk,
   initGitRepo,
   installPreReceiveHook,
@@ -133,10 +135,11 @@ describe("claim through the CLI", () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
     const first = await run(["claim", "app-performance"], a);
     expect(first.code).toBe(0);
-    expect(await readFile(join(a, "docs/pm/INDEX.md"), "utf8")).toContain(
+    const wt = worktreePath(a, "app-performance");
+    expect(await readFile(join(wt, "docs/pm/INDEX.md"), "utf8")).toContain(
       "test-harness · 2026-09-15",
     );
-    expect((await run(["check"], a)).code).toBe(0);
+    expect((await run(["check", "--epic", "app-performance"], a)).code).toBe(0);
     const second = await run(["claim", "app-performance", "--harness", "pi"], b);
     expect(second.code).toBe(1);
     expect(second.stdout).toContain("owned by test-harness");
@@ -181,7 +184,9 @@ describe("claim through the CLI", () => {
     expect(r.stdout).toContain("claimed by test-harness");
     expect(r.stdout).toContain("push failed");
     expect(r.stdout).toContain("retry with: git push origin pm/app-performance");
-    expect(await gitOk(["log", "-1", "--format=%s"], a)).toContain("render after claim");
+    expect(await gitOk(["log", "-1", "--format=%s"], worktreePath(a, "app-performance"))).toContain(
+      "render after claim",
+    );
     const j = await run(["release", "app-performance", "--json"], a);
     const parsed = JSON.parse(j.stdout) as { ok: boolean; renderPush: { ok: boolean } };
     expect(parsed.ok).toBe(true);
@@ -270,5 +275,82 @@ describe("verify", () => {
     expect(r.stderr).toContain("verify <slug> <task-id>");
     expect(r.stderr).toContain("--since REF");
     expect(r.stderr).toContain("--files P");
+  });
+});
+
+describe("worktrees", () => {
+  test("claim prints the worktree path and leaves the checkout on main", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const r = await run(["claim", "app-performance"], a);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`worktree: ${worktreePath(a, "app-performance")}`);
+    expect((await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], a)).trim()).toBe("main");
+  });
+  test("claim --json carries the worktree field", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const r = await run(["claim", "app-performance", "--json"], a);
+    expect(JSON.parse(r.stdout).worktree).toBe(worktreePath(a, "app-performance"));
+  });
+  test("render --epic writes in the worktree, not the checkout", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const r = await run(["render", "--epic", "app-performance"], a);
+    expect(r.code).toBe(0);
+    const wtIndex = join(worktreePath(a, "app-performance"), "docs", "pm", "INDEX.md");
+    expect(await readFile(wtIndex, "utf8")).toContain("app-performance");
+  });
+  test("check --epic reads the worktree", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    expect((await run(["check", "--epic", "app-performance"], a)).code).toBe(0);
+  });
+  test("status shows the worktree path for a claimed epic", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const r = await run(["status"], a);
+    expect(r.stdout).toContain(`worktree: ${worktreePath(a, "app-performance")}`);
+  });
+  test("release removes the worktree", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const gone = await run(["release", "app-performance"], a);
+    expect(gone.code).toBe(0);
+    expect(gone.stdout).toContain("worktree removed:");
+    expect(await exists(worktreePath(a, "app-performance"))).toBe(false);
+    expect(await worktreeFor(a, "pm/app-performance")).toBeNull();
+  });
+  test("release --keep-worktree leaves it in place", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const kept = await run(["release", "app-performance", "--keep-worktree"], a);
+    expect(kept.code).toBe(0);
+    expect(kept.stdout).not.toContain("worktree removed:");
+    expect(await exists(worktreePath(a, "app-performance"))).toBe(true);
+  });
+  test("release keeps a dirty worktree and says why", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const wt = worktreePath(a, "app-performance");
+    await Bun.write(join(wt, "scratch.md"), "unsaved\n");
+    const r = await run(["release", "app-performance"], a);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("scratch.md");
+    expect(r.stdout).toContain("--keep-worktree");
+    expect(await exists(wt)).toBe(true);
+  });
+  test("--no-worktree switches the checkout like before", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const r = await run(["claim", "app-performance", "--no-worktree"], a);
+    expect(r.code).toBe(0);
+    expect((await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], a)).trim()).toBe(
+      "pm/app-performance",
+    );
+    expect(await worktreeFor(a, "pm/app-performance")).not.toBeNull();
+  });
+  test("usage documents the new flags", async () => {
+    const r = await run([], await localRepo());
+    expect(r.stderr).toContain("--no-worktree");
+    expect(r.stderr).toContain("--keep-worktree");
+    expect(r.stderr).toContain("--epic");
   });
 });

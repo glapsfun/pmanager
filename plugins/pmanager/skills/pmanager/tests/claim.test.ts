@@ -1,16 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { claim, claimBranch, release, remoteSessionOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
+import { fetchOrigin, gitOk, listRemoteBranches, localBranchExists } from "../scripts/git";
+import { worktreeFor, worktreePath } from "../scripts/worktree";
 import {
-  currentBranch,
-  fetchOrigin,
-  gitOk,
-  listRemoteBranches,
-  localBranchExists,
-} from "../scripts/git";
-import {
+  exists,
+  fixtureFiles,
   initGitRepo,
   installPreReceiveHook,
   makeTempDir,
@@ -23,14 +20,24 @@ const SLUG = "app-performance";
 const EPIC = `docs/pm/${SLUG}/epic.md`;
 const OPTS = { harness: "claude-code", takeover: false, staleDays: 14, today: "2026-09-15" };
 
+async function branchOf(dir: string): Promise<string> {
+  return (await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], dir)).trim();
+}
+
+/** The checkout keeps its branch; the epic's worktree holds pm/<slug>. */
+async function expectClaimed(root: string, slug: string, main = "main"): Promise<void> {
+  expect(await branchOf(root)).toBe(main);
+  expect(await branchOf(worktreePath(root, slug))).toBe(claimBranch(slug));
+}
+
 describe("claim", () => {
   test("first claim wins, second is taken", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
     const first = await claim(a, SLUG, OPTS);
     expect(first.ok).toBe(true);
-    expect(await currentBranch(a)).toBe(claimBranch(SLUG));
+    await expectClaimed(a, SLUG);
     expect(await listRemoteBranches(a, "pm/")).toEqual(["pm/app-performance"]);
-    const epic = parseDoc(EPIC, await readFile(join(a, EPIC), "utf8"));
+    const epic = parseDoc(EPIC, await readFile(join(worktreePath(a, SLUG), EPIC), "utf8"));
     expect(sessionOf(epic.frontmatter)).toEqual({
       harness: "claude-code",
       claimed: "2026-09-15",
@@ -42,12 +49,41 @@ describe("claim", () => {
       expect(second.reason).toBe("taken");
       expect(second.owner?.harness).toBe("claude-code");
     }
-    expect(await currentBranch(b)).toBe("main");
+    expect(await branchOf(b)).toBe("main");
+    expect(await worktreeFor(b, claimBranch(SLUG))).toBeNull();
     expect(await remoteSessionOf(b, SLUG)).toEqual({
       harness: "claude-code",
       claimed: "2026-09-15",
       branch: "pm/app-performance",
     });
+  });
+
+  test("a fresh claim carries the pending epic out of the main checkout", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const files = await fixtureFiles();
+    const epicMd = (files[EPIC] ?? "").replaceAll("app-performance", "brand-new");
+    const pending = join(a, "docs", "pm", "brand-new");
+    await mkdir(join(pending, "tasks"), { recursive: true });
+    await writeFile(join(pending, "epic.md"), epicMd);
+    await writeFile(join(a, "app.py"), "print(1)\n");
+    const r = await claim(a, "brand-new", OPTS);
+    expect(r.ok).toBe(true);
+    const wt = worktreePath(a, "brand-new");
+    // claim rewrites the session block and updated date; the body is what travelled
+    const moved = await readFile(join(wt, "docs", "pm", "brand-new", "epic.md"), "utf8");
+    expect(moved).toContain("id: brand-new");
+    expect(moved).toContain("harness: claude-code");
+    expect(await exists(pending)).toBe(false);
+    expect(await readFile(join(a, "app.py"), "utf8")).toBe("print(1)\n");
+    expect(await branchOf(a)).toBe("main");
+  });
+
+  test("--no-worktree keeps the old checkout-switching behaviour", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const r = await claim(a, SLUG, { ...OPTS, noWorktree: true });
+    expect(r.ok).toBe(true);
+    expect(await branchOf(a)).toBe(claimBranch(SLUG));
+    expect(await worktreeFor(a, claimBranch(SLUG))).not.toBeNull();
   });
 
   test("simultaneous claims yield exactly one winner", async () => {
@@ -89,10 +125,11 @@ describe("claim", () => {
       today: "2026-09-15",
     });
     expect(late.ok).toBe(true);
-    expect(await currentBranch(b)).toBe("pm/app-performance");
-    const epic = await readFile(join(b, EPIC), "utf8");
+    await expectClaimed(b, SLUG);
+    const bWt = worktreePath(b, SLUG);
+    const epic = await readFile(join(bWt, EPIC), "utf8");
     expect(epic).toContain("harness: pi");
-    const plan = await readFile(join(b, `docs/pm/${SLUG}/plan.md`), "utf8");
+    const plan = await readFile(join(bWt, `docs/pm/${SLUG}/plan.md`), "utf8");
     expect(plan).toContain("taken over from claude-code");
     await fetchOrigin(a);
     expect(await remoteSessionOf(a, SLUG)).toEqual({
@@ -124,9 +161,11 @@ describe("claim", () => {
       expect(r.reason).toBe("push-failed");
       expect(r.message).toContain("git push origin pm/app-performance");
     }
-    expect(await currentBranch(a)).toBe("pm/app-performance");
+    await expectClaimed(a, SLUG);
     expect(await localBranchExists(a, "pm/app-performance")).toBe(true);
-    expect(await gitOk(["log", "-1", "--format=%s"], a)).toContain("claim app-performance");
+    expect(await gitOk(["log", "-1", "--format=%s"], worktreePath(a, SLUG))).toContain(
+      "claim app-performance",
+    );
     expect(await listRemoteBranches(a, "pm/")).toEqual([]);
   });
 
@@ -158,12 +197,27 @@ describe("claim", () => {
     await writeTree(a, { "docs/pm/brand-new/epic.md": epic });
     expect((await claim(a, "brand-new", { ...OPTS, today: "2026-07-01" })).ok).toBe(true);
     // B is on main and has no docs/pm/brand-new at all.
-    expect(await currentBranch(b)).toBe("main");
+    expect(await branchOf(b)).toBe("main");
     const r = await claim(b, "brand-new", { ...OPTS, harness: "pi", takeover: true });
     expect(r.ok).toBe(true);
-    expect(await currentBranch(b)).toBe("pm/brand-new");
-    const taken = await readFile(join(b, "docs/pm/brand-new/epic.md"), "utf8");
+    await expectClaimed(b, "brand-new");
+    const taken = await readFile(
+      join(worktreePath(b, "brand-new"), "docs/pm/brand-new/epic.md"),
+      "utf8",
+    );
     expect(taken).toContain("harness: pi");
+  });
+
+  test("release writes in the worktree and reports it for the caller to remove", async () => {
+    const { a } = await remoteWithClones(await fixtureFiles());
+    await claim(a, SLUG, OPTS);
+    const wt = worktreePath(a, SLUG);
+    const r = await release(a, SLUG, { harness: OPTS.harness, today: OPTS.today });
+    expect(r.ok).toBe(true);
+    expect(r.worktree).toBe(wt);
+    // the session was cleared on the branch, in the worktree
+    expect(await readFile(join(wt, EPIC), "utf8")).not.toContain("harness: claude-code");
+    expect(await exists(wt)).toBe(true);
   });
 
   test("release refuses another harness's claim unless forced; unclaimed is reported", async () => {
