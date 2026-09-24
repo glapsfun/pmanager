@@ -217,6 +217,35 @@ describe("movePendingEpic", () => {
     expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
   });
 
+  test("a tracked-modified file leaves the caller's index clean", async () => {
+    const root = await repoWithCommit("wt-move-modified");
+    await mkdir(join(root, "docs", "pm", "x"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# committed\n");
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "docs(pm): epic"], root);
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# edited\n");
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await movePendingEpic(root, dest, "x")).toEqual(["docs/pm/x/epic.md"]);
+    expect(await readFile(join(dest, "docs", "pm", "x", "epic.md"), "utf8")).toBe("# edited\n");
+    // the edit travelled; the caller keeps the committed content and a clean index
+    expect(await readFile(join(root, "docs", "pm", "x", "epic.md"), "utf8")).toBe("# committed\n");
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
+  test("a staged-added file is unstaged from the caller's index", async () => {
+    const root = await repoWithCommit("wt-move-staged");
+    await mkdir(join(root, "docs", "pm", "x"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# staged\n");
+    await gitOk(["add", "-A"], root);
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await movePendingEpic(root, dest, "x")).toEqual(["docs/pm/x/epic.md"]);
+    expect(await readFile(join(dest, "docs", "pm", "x", "epic.md"), "utf8")).toBe("# staged\n");
+    expect(await exists(join(root, "docs", "pm", "x"))).toBe(false);
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
   test("no epic dir means nothing to move", async () => {
     const root = await repoWithCommit("wt-move-none");
     const dest = worktreePath(root, "x");

@@ -347,6 +347,43 @@ describe("worktrees", () => {
     );
     expect(await worktreeFor(a, "pm/app-performance")).not.toBeNull();
   });
+  test("handoff and verify read tasks written in the worktree after the claim", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const wt = worktreePath(a, "app-performance");
+    const t01 = await readFile(
+      join(wt, "docs/pm/app-performance/tasks/T01-benchmark-orders.md"),
+      "utf8",
+    );
+    await Bun.write(
+      join(wt, "docs/pm/app-performance/tasks/T09-new-task.md"),
+      t01
+        .replace("id: T01", "id: T09")
+        .replace("title: Benchmark orders endpoint", "title: Added after the claim"),
+    );
+    const h = await run(["handoff", "app-performance", "T09"], a);
+    expect(h.code).toBe(0);
+    expect(h.stdout).toContain("Added after the claim");
+    const v = await run(["verify", "app-performance", "T09", "--json"], a);
+    expect(v.code).toBe(0);
+    expect(JSON.parse(v.stdout).task).toBe("T09");
+  });
+
+  test("status counts tasks from the worktree, not the caller's copy", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const wt = worktreePath(a, "app-performance");
+    const t01Path = join(wt, "docs/pm/app-performance/tasks/T01-benchmark-orders.md");
+    const t01 = await readFile(t01Path, "utf8");
+    await Bun.write(t01Path, t01.replace("status: todo", "status: done"));
+    const r = await run(["status", "--json"], a);
+    const row = JSON.parse(r.stdout).rows.find(
+      (x: { slug: string }) => x.slug === "app-performance",
+    );
+    expect(row.done).toBe(1);
+    expect(row.next?.id).not.toBe("T01");
+  });
+
   test("usage documents the new flags", async () => {
     const r = await run([], await localRepo());
     expect(r.stderr).toContain("--no-worktree");

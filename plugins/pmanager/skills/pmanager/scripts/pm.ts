@@ -173,6 +173,33 @@ async function targetRoot(root: string, args: Args): Promise<string> {
   return epicRoot(root, args.epic);
 }
 
+/** The repo as the epic's own branch sees it; the caller's copy can be stale or absent. */
+async function repoForEpic(root: string, repo: PmRepo, slug: string): Promise<PmRepo> {
+  const target = await epicRoot(root, slug);
+  if (target === root) return repo;
+  try {
+    return await loadPmRepo(target);
+  } catch {
+    return repo;
+  }
+}
+
+/** Claimed epics are authoritative in their worktree; unclaimed ones stay as loaded. */
+async function repoWithWorktreeEpics(root: string, repo: PmRepo, slugs: string[]): Promise<PmRepo> {
+  const epics = [...repo.epics];
+  for (const slug of slugs) {
+    const target = await epicRoot(root, slug);
+    if (target === root) continue;
+    const fresh = epicBySlug(await loadPmRepo(target).catch(() => repo), slug);
+    if (!fresh) continue;
+    const at = epics.findIndex((e) => e.slug === slug);
+    if (at === -1) epics.push(fresh);
+    else epics[at] = fresh;
+  }
+  epics.sort((a, b) => a.slug.localeCompare(b.slug));
+  return { ...repo, epics };
+}
+
 async function renderAndCommit(root: string, slug: string, verb: string): Promise<RenderPush> {
   const target = await epicRoot(root, slug);
   const written = await applyRender(await loadPmRepo(target));
@@ -326,12 +353,14 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
     }
     case "status": {
       const { remote, claims } = await remoteClaims(root);
+      const slugs = [...new Set([...repo.epics.map((e) => e.slug), ...(claims?.keys() ?? [])])];
       const worktrees = new Map<string, string>();
-      for (const slug of new Set([...repo.epics.map((e) => e.slug), ...(claims?.keys() ?? [])])) {
+      for (const slug of slugs) {
         const wt = await worktreeFor(root, claimBranch(slug));
         if (wt) worktrees.set(slug, wt.path);
       }
-      const report = buildStatus(repo, claims, remote, { ...opts, worktrees });
+      const source = await repoWithWorktreeEpics(root, repo, [...worktrees.keys()]);
+      const report = buildStatus(source, claims, remote, { ...opts, worktrees });
       out(args.json ? json(report) : formatStatus(report));
       return 0;
     }
@@ -339,7 +368,9 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
       const [slug, taskId] = args.positional;
       if (!slug || !taskId) return fail(USAGE);
       try {
-        const brief = buildHandoff(repo, slug, taskId, await loadLocalRepoMap(repo.pmDir));
+        const source = await repoForEpic(root, repo, slug);
+        // the repo map is machine-local and gitignored: it lives in this checkout
+        const brief = buildHandoff(source, slug, taskId, await loadLocalRepoMap(repo.pmDir));
         out(args.json ? json({ brief }) : brief);
         return 0;
       } catch (e) {
@@ -349,7 +380,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
     case "verify": {
       const [slug, taskId] = args.positional;
       if (!slug || !taskId) return fail(USAGE);
-      const epic = epicBySlug(repo, slug);
+      const epic = epicBySlug(await repoForEpic(root, repo, slug), slug);
       if (!epic?.epic) return fail(`unknown epic ${slug}`);
       const task = taskById(epic, taskId);
       if (!task) return fail(`unknown task ${taskId} in ${slug}`);

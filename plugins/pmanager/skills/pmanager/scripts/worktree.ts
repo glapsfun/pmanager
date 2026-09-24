@@ -145,17 +145,28 @@ export async function removeWorktree(
   return { ok: true, removed: true };
 }
 
+interface PendingFile {
+  path: string;
+  /** in HEAD: the caller keeps the committed copy; otherwise the path leaves the checkout */
+  tracked: boolean;
+}
+
 /** Porcelain paths under a pathspec: added, modified or untracked — never tracked-and-clean. */
-async function pendingPaths(root: string, rel: string): Promise<string[]> {
+async function pendingPaths(root: string, rel: string): Promise<PendingFile[]> {
   const r = await git(["status", "--porcelain", "-uall", "--", rel], root);
   if (r.code !== 0) return [];
-  const out: string[] = [];
+  const paths: string[] = [];
   for (const line of r.stdout.split("\n")) {
     if (line.length < 4) continue;
     const path = line.slice(3).split(" -> ").pop() ?? "";
-    if (path.startsWith(`${rel}/`)) out.push(path);
+    if (path.startsWith(`${rel}/`)) paths.push(path);
   }
-  return out.sort();
+  const out: PendingFile[] = [];
+  for (const path of paths.sort()) {
+    const inHead = await git(["cat-file", "-e", `HEAD:${path}`], root);
+    out.push({ path, tracked: inHead.code === 0 });
+  }
+  return out;
 }
 
 /**
@@ -168,13 +179,20 @@ export async function movePendingEpic(root: string, dest: string, slug: string):
   const rel = `${PM_DIR}/${slug}`;
   if (!(await pathExists(join(root, rel)))) return [];
   const files = await pendingPaths(root, rel);
-  for (const file of files) {
-    await mkdir(dirname(join(dest, file)), { recursive: true });
-    await cp(join(root, file), join(dest, file), { recursive: true });
-    await rm(join(root, file), { force: true });
+  for (const { path, tracked } of files) {
+    await mkdir(dirname(join(dest, path)), { recursive: true });
+    await cp(join(root, path), join(dest, path), { recursive: true });
+    if (tracked) {
+      // the edit has travelled; hand the caller back its committed copy, index included
+      await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", path], root);
+    } else {
+      // never in HEAD: drop it from the index too, or the caller keeps an AD entry
+      await git(["rm", "-q", "--cached", "--force", "--", path], root);
+      await rm(join(root, path), { force: true });
+    }
   }
   await rmEmptyDirs(join(root, rel));
-  return files;
+  return files.map((f) => f.path);
 }
 
 /** Leave no empty husk behind after the pending files are gone. */

@@ -170,6 +170,17 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     return { ok: false, reason: "no-epic", message: `no ${epicRel(slug)} on the current branch` };
   }
 
+  // Refuse a non-stale takeover before creating anything: a refusal must leave no trace.
+  const remoteUpdated = takenBy ? await remoteUpdatedOf(root, slug) : "";
+  if (takenBy && !isStale(remoteUpdated, opts.today, opts.staleDays)) {
+    return {
+      ok: false,
+      reason: "not-stale",
+      owner: takenBy,
+      message: `${slug} claim by ${takenBy.harness} is not stale (updated ${remoteUpdated}); takeover refused`,
+    };
+  }
+
   const paths: string[] = [];
   const previousBranch = await currentBranch(root);
   let created = false;
@@ -193,15 +204,6 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   }
   const pmDir = join(target, PM_DIR);
   if (takenBy) {
-    const updated = await remoteUpdatedOf(root, slug);
-    if (!isStale(updated, opts.today, opts.staleDays)) {
-      return {
-        ok: false,
-        reason: "not-stale",
-        owner: takenBy,
-        message: `${slug} claim by ${takenBy.harness} is not stale (updated ${updated}); takeover refused`,
-      };
-    }
     await git(["pull", "-q", "--ff-only", "origin", branch], target);
     if (!(await localEpicExists(target, slug))) {
       return {
@@ -215,7 +217,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       slug,
       opts.today,
       `taken over from ${takenBy.harness} by ${opts.harness}`,
-      `claim stale since ${updated}`,
+      `claim stale since ${remoteUpdated}`,
     );
     if (planPath) paths.push(planPath);
     paths.push(

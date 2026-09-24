@@ -118,6 +118,9 @@ describe("claim", () => {
     });
     expect(tooEarly.ok).toBe(false);
     if (!tooEarly.ok) expect(tooEarly.reason).toBe("not-stale");
+    // a refused takeover leaves no worktree or branch registration behind
+    expect(await worktreeFor(b, claimBranch(SLUG))).toBeNull();
+    expect(await exists(worktreePath(b, SLUG))).toBe(false);
     const late = await claim(b, SLUG, {
       ...OPTS,
       harness: "pi",
