@@ -60,12 +60,13 @@ never silently kept.
    `references/commands.md`.
 2. Memo: add newly learned business goals/stakeholders/conventions to the
    hand-written sections; refresh `_Last updated:_`.
-3. `pm render`, then `pm check` until exit 0.
-4. Commit on the epic's `pm/<slug>` branch (this is the **canonical** commit
-   rule — SKILL.md Phase 6 and tracking.md defer here):
-   `git add docs/pm && git commit docs/pm -m "docs(pm): <what changed>"`
+3. `pm render --epic <slug>`, then `pm check --epic <slug>` until exit 0.
+4. Commit on the epic's `pm/<slug>` branch, which is checked out in the
+   worktree `claim` printed (this is the **canonical** commit rule —
+   SKILL.md Phase 6 and tracking.md defer here). With `W` the worktree path:
+   `git -C W add docs/pm && git -C W commit docs/pm -m "docs(pm): <what changed>"`
    (e.g. `docs(pm): spec app-performance`), then
-   `git push origin pm/<slug>`.
+   `git -C W push origin pm/<slug>`.
    The `git add` is required — new epics create untracked files a bare
    path-commit would miss. Never a bare `git commit`; never push `main` or
    any other branch; never a co-author line. No remote → commit and note

@@ -151,8 +151,10 @@ research. **Stop. Do not write plan.md or any task until the epic framing
 is approved.** On "adjust", revise and re-present; on approval, write
 `docs/pm/<slug>/epic.md` (with `contract: 1`, `repos`, `primary-metric`),
 then run `pm claim <slug> --harness <yours>`. `owned by …` means another
-session has this epic: stop and tell the user. Otherwise you are on branch
-`pm/<slug>`; proceed.
+session has this epic: stop and tell the user. Otherwise the epic's documents
+now live in the worktree the command prints (`<repo>-pm-<slug>`) with branch
+`pm/<slug>` checked out there; the user's own checkout keeps its branch, and
+later commands find the worktree themselves. Proceed.
 
 Slug: short kebab-case from the problem, e.g. `app-performance`,
 `checkout-idempotency`. If `docs/pm/<slug>/` already exists for different
@@ -213,6 +215,7 @@ optimization task.
 | Bun not installed | Print the user message and install steps from `references/commands.md`; stop before tool-dependent steps; plan without the tool only if the user says so; ledger `Tool: unavailable` |
 | No origin remote / unreachable | Claims and cross-session visibility are off for this run; say so; ledger `Tool: ok, no remote`; everything else proceeds |
 | Epic already claimed by another session | Stop, name the owner and harness from the claim output; offer takeover only if status shows `[stale]` and the user asks |
+| Worktree cannot be created (read-only parent, path taken, exotic filesystem) | Say so; rerun `claim` with `--no-worktree` and warn the user that this switches their current branch |
 
 ## Reference files — read when the phase goes deeper
 
