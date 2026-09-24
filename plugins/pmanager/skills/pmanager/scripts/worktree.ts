@@ -1,5 +1,6 @@
+import { stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { git } from "./git";
+import { git, localBranchExists, remoteBranchExists } from "./git";
 
 export interface WorktreeEntry {
   path: string;
@@ -39,4 +40,106 @@ export async function listWorktrees(root: string): Promise<WorktreeEntry[]> {
 export async function worktreeFor(root: string, branch: string): Promise<WorktreeEntry | null> {
   const entries = await listWorktrees(root);
   return entries.find((w) => w.branch === branch && !w.bare && !w.prunable) ?? null;
+}
+
+export type EnsureError = "exists-not-worktree" | "add-failed" | "branch-busy";
+
+export type EnsureResult =
+  | { ok: true; path: string; created: boolean }
+  | { ok: false; reason: EnsureError; message: string };
+
+export type RemoveResult =
+  | { ok: true; removed: boolean }
+  | { ok: false; reason: "dirty" | "remove-failed"; message: string };
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function mainCheckout(root: string): Promise<string> {
+  const r = await git(["rev-parse", "--show-toplevel"], root);
+  return r.code === 0 ? r.stdout.trim() : root;
+}
+
+export async function ensureWorktree(
+  root: string,
+  slug: string,
+  opts: { branch: string; startPoint?: string },
+): Promise<EnsureResult> {
+  const existing = await worktreeFor(root, opts.branch);
+  // Covers both a worktree we made earlier and a pre-worktree-era main checkout
+  // that is already sitting on the branch.
+  if (existing && (await pathExists(existing.path))) {
+    return { ok: true, path: existing.path, created: false };
+  }
+  await git(["worktree", "prune"], root);
+  const path = worktreePath(root, slug);
+  if (await pathExists(path)) {
+    return {
+      ok: false,
+      reason: "exists-not-worktree",
+      message: `${path} exists and is not a worktree for ${opts.branch}; move it aside or pass --no-worktree`,
+    };
+  }
+  const known =
+    (await localBranchExists(root, opts.branch)) || (await remoteBranchExists(root, opts.branch));
+  const args = known
+    ? ["worktree", "add", "-q", path, opts.branch]
+    : [
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        opts.branch,
+        path,
+        ...(opts.startPoint ? [opts.startPoint] : []),
+      ];
+  const r = await git(args, root);
+  if (r.code !== 0) {
+    const stderr = r.stderr.trim().split("\n")[0] ?? `exit ${r.code}`;
+    const busy = /already (checked out|used by)/i.test(r.stderr);
+    return {
+      ok: false,
+      reason: busy ? "branch-busy" : "add-failed",
+      message: `git worktree add failed for ${opts.branch}: ${stderr}`,
+    };
+  }
+  return { ok: true, path, created: true };
+}
+
+export async function removeWorktree(
+  root: string,
+  path: string,
+  opts: { keep?: boolean },
+): Promise<RemoveResult> {
+  if (opts.keep) return { ok: true, removed: false };
+  // The main checkout is never ours to remove.
+  if (path === (await mainCheckout(root))) return { ok: true, removed: false };
+  if (!(await pathExists(path))) {
+    await git(["worktree", "prune"], root);
+    return { ok: true, removed: false };
+  }
+  const status = await git(["status", "--porcelain", "-uall"], path);
+  const dirty = status.stdout.trim();
+  if (dirty.length > 0) {
+    return {
+      ok: false,
+      reason: "dirty",
+      message: `${path} has uncommitted work:\n${dirty}\ncommit it there, or rerun with --keep-worktree`,
+    };
+  }
+  const r = await git(["worktree", "remove", path], root);
+  if (r.code !== 0) {
+    return {
+      ok: false,
+      reason: "remove-failed",
+      message: `git worktree remove failed: ${r.stderr.trim().split("\n")[0] ?? `exit ${r.code}`}`,
+    };
+  }
+  return { ok: true, removed: true };
 }

@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { claimBranch } from "../scripts/claim";
-import { listWorktrees, parseWorktreeList, worktreeFor, worktreePath } from "../scripts/worktree";
+import {
+  ensureWorktree,
+  listWorktrees,
+  parseWorktreeList,
+  removeWorktree,
+  worktreeFor,
+  worktreePath,
+} from "../scripts/worktree";
 import { gitOk, initGitRepo, makeTempDir } from "./helpers";
 
 async function realRoot(dir: string): Promise<string> {
@@ -68,5 +76,89 @@ describe("listWorktrees + worktreeFor", () => {
     await gitOk(["checkout", "-q", "-b", "pm/legacy"], root);
     const found = await worktreeFor(root, "pm/legacy");
     expect(found?.path).toBe(await realRoot(root));
+  });
+});
+
+async function repoWithCommit(prefix: string): Promise<string> {
+  const root = await makeTempDir(prefix);
+  await initGitRepo(root);
+  return root;
+}
+
+describe("ensureWorktree", () => {
+  test("creates a new worktree on a new branch", async () => {
+    const root = await repoWithCommit("wt-create");
+    const r = await ensureWorktree(root, "app-performance", { branch: "pm/app-performance" });
+    expect(r).toEqual({ ok: true, path: worktreePath(root, "app-performance"), created: true });
+    expect((await worktreeFor(root, "pm/app-performance"))?.path).toBe(
+      worktreePath(root, "app-performance"),
+    );
+  });
+  test("reuses an existing worktree without recreating it", async () => {
+    const root = await repoWithCommit("wt-reuse");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    const again = await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(again).toEqual({ ok: true, path: worktreePath(root, "x"), created: false });
+  });
+  test("recreates after the directory was deleted behind git's back", async () => {
+    const root = await repoWithCommit("wt-stale");
+    const first = await ensureWorktree(root, "x", { branch: "pm/x" });
+    if (!first.ok) throw new Error(first.message);
+    await rm(first.path, { recursive: true, force: true });
+    const again = await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(again).toEqual({ ok: true, path: worktreePath(root, "x"), created: true });
+  });
+  test("the main checkout already on the branch is a usable target", async () => {
+    const root = await repoWithCommit("wt-legacy");
+    await gitOk(["checkout", "-q", "-b", "pm/legacy"], root);
+    const r = await ensureWorktree(root, "legacy", { branch: "pm/legacy" });
+    expect(r).toEqual({ ok: true, path: await realRoot(root), created: false });
+  });
+  test("an occupied path that is not our worktree is an error", async () => {
+    const root = await repoWithCommit("wt-occupied");
+    const path = worktreePath(root, "x");
+    await mkdir(path, { recursive: true });
+    await writeFile(join(path, "keep.txt"), "mine\n");
+    const r = await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(r).toEqual({
+      ok: false,
+      reason: "exists-not-worktree",
+      message: `${path} exists and is not a worktree for pm/x; move it aside or pass --no-worktree`,
+    });
+  });
+});
+
+describe("removeWorktree", () => {
+  test("removes a clean worktree", async () => {
+    const root = await repoWithCommit("wt-rm");
+    const path = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await removeWorktree(root, path, {})).toEqual({ ok: true, removed: true });
+    expect(await worktreeFor(root, "pm/x")).toBeNull();
+  });
+  test("refuses a dirty worktree and names the files", async () => {
+    const root = await repoWithCommit("wt-dirty");
+    const path = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    await writeFile(join(path, "scratch.md"), "unsaved\n");
+    const r = await removeWorktree(root, path, {});
+    expect(r.ok).toBe(false);
+    expect("message" in r && r.message).toContain("scratch.md");
+    expect(await worktreeFor(root, "pm/x")).not.toBeNull();
+  });
+  test("keep skips removal entirely", async () => {
+    const root = await repoWithCommit("wt-keep");
+    const path = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await removeWorktree(root, path, { keep: true })).toEqual({ ok: true, removed: false });
+    expect(await worktreeFor(root, "pm/x")).not.toBeNull();
+  });
+  test("removing the main checkout is a no-op, not a failure", async () => {
+    const root = await repoWithCommit("wt-main-rm");
+    await gitOk(["checkout", "-q", "-b", "pm/legacy"], root);
+    expect(await removeWorktree(root, await realRoot(root), {})).toEqual({
+      ok: true,
+      removed: false,
+    });
   });
 });
