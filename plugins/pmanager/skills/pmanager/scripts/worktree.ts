@@ -149,6 +149,8 @@ interface PendingFile {
   path: string;
   /** in HEAD: the caller keeps the committed copy; otherwise the path leaves the checkout */
   tracked: boolean;
+  /** gone from the caller's working tree: the branch inherits the deletion, not a copy */
+  deleted: boolean;
 }
 
 /** Porcelain paths under a pathspec: added, modified or untracked — never tracked-and-clean. */
@@ -164,7 +166,11 @@ async function pendingPaths(root: string, rel: string): Promise<PendingFile[]> {
   const out: PendingFile[] = [];
   for (const path of paths.sort()) {
     const inHead = await git(["cat-file", "-e", `HEAD:${path}`], root);
-    out.push({ path, tracked: inHead.code === 0 });
+    out.push({
+      path,
+      tracked: inHead.code === 0,
+      deleted: !(await pathExists(join(root, path))),
+    });
   }
   return out;
 }
@@ -179,7 +185,15 @@ export async function movePendingEpic(root: string, dest: string, slug: string):
   const rel = `${PM_DIR}/${slug}`;
   if (!(await pathExists(join(root, rel)))) return [];
   const files = await pendingPaths(root, rel);
-  for (const { path, tracked } of files) {
+  for (const { path, tracked, deleted } of files) {
+    if (deleted) {
+      // the caller removed it; the branch should record the removal, not a copy
+      await rm(join(dest, path), { force: true });
+      if (tracked) {
+        await git(["restore", "--source=HEAD", "--staged", "--worktree", "--", path], root);
+      }
+      continue;
+    }
     await mkdir(dirname(join(dest, path)), { recursive: true });
     await cp(join(root, path), join(dest, path), { recursive: true });
     if (tracked) {
@@ -192,6 +206,7 @@ export async function movePendingEpic(root: string, dest: string, slug: string):
     }
   }
   await rmEmptyDirs(join(root, rel));
+  await rmEmptyDirs(join(dest, rel));
   return files.map((f) => f.path);
 }
 

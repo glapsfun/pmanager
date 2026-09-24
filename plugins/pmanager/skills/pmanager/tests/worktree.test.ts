@@ -246,6 +246,38 @@ describe("movePendingEpic", () => {
     expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
   });
 
+  test("a pending deletion is carried into the worktree, not copied", async () => {
+    const root = await repoWithCommit("wt-move-deleted");
+    await mkdir(join(root, "docs", "pm", "x", "tasks"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    await writeFile(join(root, "docs", "pm", "x", "tasks", "T01-a.md"), "# T01\n");
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "docs(pm): epic"], root);
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    await rm(join(root, "docs", "pm", "x", "tasks", "T01-a.md"));
+    expect(await movePendingEpic(root, dest, "x")).toEqual(["docs/pm/x/tasks/T01-a.md"]);
+    // the deletion travelled to the branch; the caller keeps its committed copy
+    expect(await exists(join(dest, "docs", "pm", "x", "tasks", "T01-a.md"))).toBe(false);
+    expect(await exists(join(root, "docs", "pm", "x", "tasks", "T01-a.md"))).toBe(true);
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
+  test("a staged deletion is carried too", async () => {
+    const root = await repoWithCommit("wt-move-staged-del");
+    await mkdir(join(root, "docs", "pm", "x"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    await writeFile(join(root, "docs", "pm", "x", "old.md"), "# old\n");
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "docs(pm): epic"], root);
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    await gitOk(["rm", "-q", "--", "docs/pm/x/old.md"], root);
+    expect(await movePendingEpic(root, dest, "x")).toEqual(["docs/pm/x/old.md"]);
+    expect(await exists(join(dest, "docs", "pm", "x", "old.md"))).toBe(false);
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
   test("no epic dir means nothing to move", async () => {
     const root = await repoWithCommit("wt-move-none");
     const dest = worktreePath(root, "x");
