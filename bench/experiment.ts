@@ -6,6 +6,7 @@ import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
 import { installContract, renderContract } from "./contract";
 import { type AttemptStatus, executeScenario } from "./execute";
+import { cleanupFixture } from "./fixture";
 import type { CheckOutcome } from "./graders/types";
 import { hashFixture, hashSkill, hashString } from "./hashes";
 import { type HistoryLine, type StoredTelemetry, stripTelemetry } from "./history";
@@ -149,7 +150,7 @@ async function scenarioEntry(s: Scenario): Promise<ScenarioEntry> {
       graderVersion: s.graderVersion,
     };
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await cleanupFixture(dir);
     if (originBare) await rm(originBare, { recursive: true, force: true });
   }
 }

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
-import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
-import { headSha, linkSkill, lsRemoteRefs } from "../fixture";
+import { exists, gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { cleanupFixture, headSha, linkSkill, lsRemoteRefs } from "../fixture";
 import { SKILL_DIR } from "../skill-paths";
 
 describe("fixture helpers", () => {
@@ -35,5 +35,17 @@ describe("fixture helpers", () => {
     const refs = await lsRemoteRefs(dir, "origin");
     expect(Object.keys(refs)).toEqual(["refs/heads/main"]);
     expect(refs["refs/heads/main"]).toBe(await headSha(dir));
+  });
+});
+
+describe("cleanupFixture", () => {
+  test("removes sibling worktrees and the fixture itself", async () => {
+    const dir = await makeTempDir("bench-cleanup");
+    await buildWebshopRepo(dir);
+    const sibling = `${dir}-pm-app-performance`;
+    await gitOk(["worktree", "add", "-q", "-b", "pm/app-performance", sibling], dir);
+    await cleanupFixture(dir);
+    expect(await exists(sibling)).toBe(false);
+    expect(await exists(dir)).toBe(false);
   });
 });

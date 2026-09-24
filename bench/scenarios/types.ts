@@ -14,7 +14,8 @@ export interface Scenario {
 }
 
 export const SKILL_PREFIX = "Use the pmanager skill. ";
-export const CONTRACT_SENTENCE = "Planning documents follow the format in docs/pm/CONTRACT.md.";
+export const CONTRACT_SENTENCE =
+  "Planning documents follow the format in docs/pm/CONTRACT.md. Pass --no-worktree to every pm claim and pm release so the work stays in this checkout.";
 
 export function composePrompt(scenario: Scenario, condition: Condition): string {
   return condition === "with-skill" ? `${SKILL_PREFIX}${scenario.task}` : scenario.task;
