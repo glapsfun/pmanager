@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { claimBranch } from "../scripts/claim";
 import {
   ensureWorktree,
   listWorktrees,
+  movePendingEpic,
   parseWorktreeList,
   removeWorktree,
   worktreeFor,
@@ -160,5 +161,44 @@ describe("removeWorktree", () => {
       ok: true,
       removed: false,
     });
+  });
+});
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe("movePendingEpic", () => {
+  test("moves the epic dir, leaves other dirty files, reports the paths", async () => {
+    const root = await repoWithCommit("wt-move");
+    await mkdir(join(root, "docs", "pm", "x", "tasks"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    await writeFile(join(root, "docs", "pm", "x", "tasks", "T01-a.md"), "# T01\n");
+    await writeFile(join(root, "app.py"), "print(1)\n");
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    const moved = await movePendingEpic(root, dest, "x");
+    expect(moved).toEqual(["docs/pm/x/epic.md", "docs/pm/x/tasks/T01-a.md"]);
+    expect(await readFile(join(dest, "docs", "pm", "x", "epic.md"), "utf8")).toBe("# epic\n");
+    expect(await exists(join(root, "docs", "pm", "x"))).toBe(false);
+    expect(await readFile(join(root, "app.py"), "utf8")).toBe("print(1)\n");
+  });
+  test("no epic dir means nothing to move", async () => {
+    const root = await repoWithCommit("wt-move-none");
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await movePendingEpic(root, dest, "x")).toEqual([]);
+  });
+  test("a destination equal to the source is a no-op", async () => {
+    const root = await repoWithCommit("wt-move-same");
+    await mkdir(join(root, "docs", "pm", "x"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    expect(await movePendingEpic(root, root, "x")).toEqual([]);
+    expect(await readFile(join(root, "docs", "pm", "x", "epic.md"), "utf8")).toBe("# epic\n");
   });
 });

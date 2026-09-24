@@ -1,6 +1,7 @@
-import { stat } from "node:fs/promises";
+import { cp, readdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { git, localBranchExists, remoteBranchExists } from "./git";
+import { PM_DIR } from "./repo";
 
 export interface WorktreeEntry {
   path: string;
@@ -142,4 +143,27 @@ export async function removeWorktree(
     };
   }
   return { ok: true, removed: true };
+}
+
+async function walkFiles(dir: string, rel: string, out: string[]): Promise<void> {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const child = join(dir, e.name);
+    const childRel = `${rel}/${e.name}`;
+    if (e.isDirectory()) await walkFiles(child, childRel, out);
+    else out.push(childRel);
+  }
+}
+
+/** Carry a Phase 4 epic written in the user's checkout onto the claim branch. */
+export async function movePendingEpic(root: string, dest: string, slug: string): Promise<string[]> {
+  if (dest === root) return [];
+  const rel = `${PM_DIR}/${slug}`;
+  const from = join(root, rel);
+  if (!(await pathExists(from))) return [];
+  const files: string[] = [];
+  await walkFiles(from, rel, files);
+  if (files.length === 0) return [];
+  await cp(from, join(dest, rel), { recursive: true });
+  await rm(from, { recursive: true, force: true });
+  return files.sort();
 }
