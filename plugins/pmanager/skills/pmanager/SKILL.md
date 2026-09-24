@@ -84,7 +84,8 @@ update rules.
 - **New epic** — a problem/idea not covered by an existing epic → Phase 1.
 - **Update** — the request references tracked work ("T02 is done", "add a
   task to app-performance", "we descoped X", "the epic looks good —
-  approved") → read `references/tracking.md` and follow it; skip Phases 1–5.
+  approved") → read `references/tracking.md` and follow it (done claims are
+  verified with `pm verify`, never by repo-wide search); skip Phases 1–5.
 - **Status query** — "where are we on…", "what's next" → answer from
   `pm status` + the epic's plan/tasks; write nothing unless asked.
 - **Claim management** — "release the argocd epic", "take over
@@ -225,5 +226,5 @@ optimization task.
 | `references/plan.template.md` | Phase 5 — plan structure |
 | `references/task.template.md` | Phase 5 — task structure and INVEST checklist |
 | `references/prioritization.md` | Phase 5 (MoSCoW within an epic) and cross-epic calls (RICE / impact-effort) |
-| `references/tracking.md` | Update mode — status transitions, changelog rules, INDEX refresh |
+| `references/tracking.md` | Update mode — status transitions, `pm verify` for done claims, changelog rules, INDEX refresh |
 | `references/memo.template.md` | Phase 6 cold start — memo skeleton |

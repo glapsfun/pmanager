@@ -66,7 +66,25 @@ describe("tracking checks", () => {
       "index-counts": true,
       "next-not-t03": null,
       "verified-evidence": true,
+      "tool-verify-used": null,
     });
+  });
+
+  test("tool-verify-used passes when a pm verify command ran, fails otherwise", async () => {
+    const { dir, info } = await fixture();
+    await goodUpdate(dir);
+    const used = {
+      ...EMPTY_TELEMETRY,
+      commands: [
+        "bun run scripts/pm.ts verify app-performance T01 --files docs/profile-results.txt",
+      ],
+    };
+    expect((await outcomes(dir, info, used))["tool-verify-used"]).toBe(true);
+    const notUsed = {
+      ...EMPTY_TELEMETRY,
+      commands: ["bun run scripts/pm.ts status", "grep -r p95 ."],
+    };
+    expect((await outcomes(dir, info, notUsed))["tool-verify-used"]).toBe(false);
   });
 
   test("final message recommending T03 fails, naming T04 passes", async () => {

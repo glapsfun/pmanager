@@ -30,11 +30,17 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 1. Task frontmatter: `status`, `updated`; blockers also get a Notes line
    naming the blocker.
 2. Run `pm render` (regenerates the plan task table and INDEX).
-3. `done` claims: if acceptance criteria are checkable from the repo (file
-   exists, test present), verify and check them off; if not, ask or mark
-   them explicitly unverified — never silently check boxes. An unverifiable
-   done claim gets the line `**unverified** — <why>` under Acceptance
-   criteria so `pm check` accepts it.
+3. `done` claims: run `pm verify <slug> <id>` (pass any paths the user's
+   message names as `--files`). Check off a criterion only when the
+   evidence printed under it proves it; for `no evidence in scope` and
+   `needs measurement` write `**unverified** — <label>: <why>` under
+   Acceptance criteria so `pm check` accepts it. Read the `unattributed`
+   block before deciding: it holds the evidence the matcher could not tie
+   to a criterion. Never grep the repository or run the full test suite
+   for a done claim; when the report lists tests as `touched in scope` or
+   `references <file>`, run only those and cite the result as
+   `[command] fact`. A `gaps:` line lowers confidence and is named in the
+   write-back summary.
 
 **Scope changes** (add/split/descope tasks, shift a milestone):
 

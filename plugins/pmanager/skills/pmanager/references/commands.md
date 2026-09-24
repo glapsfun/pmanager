@@ -36,6 +36,7 @@ stands for that full prefix.
 | `claim <slug> --takeover --harness NAME` | user explicitly asks to take over a stale claim | exit 0; plan changelog records the previous owner | exit 1 `not stale`: refuse; the user must ask the owner to release |
 | `release <slug> --harness NAME` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed | exit 1 `owned by …, not <you>`: refuse — only the owning harness releases; the owner must release, or the user asks for `claim --takeover` (stale) or `release --force` (a deliberate override, recorded in the log and plan changelog). exit 1 `already unclaimed`; exit 2 no remote / no branch |
 | `handoff <slug> <task-id>` | user says "pick up T03", "brief for T02 of …" | exit 0; the brief on stdout — paste it to the executing agent or user, write nothing | exit 2 unknown epic/task: check `status` for the right ids |
+| `verify <slug> <task-id> [--repo NAME\|PATH] [--since REF] [--files P]... [--limit N] [--json]` | Update mode, on every `done` claim, before checking any box | exit 0; header `verify: <slug> <id> · repos: … · since <date> (<sha>, <rule>)`, then each acceptance criterion with its evidence lines and a label (`evidence: N lines`, `no evidence in scope`, `needs measurement`, `already checked · …`), then `unattributed`, `scope`, `gaps`, `errors` | exit 2: unknown epic or task, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
 | `research <keyword>... [--path P]... [--repo NAME\|PATH] [--limit N] [--no-gh] [--json]` | Phase 2, first thing; again with narrower keywords or paths per open question | exit 0; header `research: <repo> @ <sha> · keywords: … · paths: …`, then `files`, `history`, `docs`, `memory`, `tests`, `gh` sections of `[source] fact` lines; a probe that failed prints one line (`gh: unavailable (not installed)`) | exit 2: no keywords, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
 
 Always pass `--harness <name>` with your harness (`claude-code`, `pi`,
@@ -43,6 +44,13 @@ Always pass `--harness <name>` with your harness (`claude-code`, `pi`,
 
 `research` never writes; it works before `docs/pm` exists (cold start), where
 its `memory` section is simply empty.
+
+`verify` never writes and runs only `git`: it inspects the files the task
+names, commits mentioning the task id or epic slug, and the diff under those
+paths since the task's `updated` date (in-progress or blocked tasks) or the
+epic's `created` date; `--since REF` overrides the bound. Every URL in the
+epic's `repos` list is resolved through `docs/pm/.local/repos.json`;
+unmapped ones print under `gaps`.
 
 ## Phase 6 order (new epic) and every update run
 

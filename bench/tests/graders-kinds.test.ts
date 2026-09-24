@@ -28,6 +28,7 @@ const KINDS: Record<string, string> = {
   "index-counts": "contract",
   "next-not-t03": "diagnostic",
   "verified-evidence": "outcome",
+  "tool-verify-used": "diagnostic",
   "nothing-written": "outcome",
   "remote-untouched": "outcome",
   "no-takeover": "diagnostic",

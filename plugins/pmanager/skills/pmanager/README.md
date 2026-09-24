@@ -21,7 +21,8 @@ and a full worked example. The skill's own behavior is defined in
 
 **Requirement:** Bun 1.x on every machine — `curl -fsSL https://bun.sh/install | bash`.
 The skill ships a small tool (`scripts/pm.ts`) for checking, rendering,
-claiming, handing off, and researching; the agent runs it for you.
+claiming, handing off, researching, and verifying done claims; the agent
+runs it for you.
 
 ## How to use it
 
@@ -51,7 +52,8 @@ and **stops for your approval** before writing any plan or tasks.
 ```
 
 "Done" claims are verified against the repo when the acceptance criteria are
-checkable — the agent doesn't silently trust them.
+checkable — the agent doesn't silently trust them. The agent runs
+`pm verify`, which inspects only the task's files, tagged commits and diff.
 
 **3. Status queries (write nothing):**
 

@@ -185,6 +185,18 @@ export const verifiedEvidence = taskCheck(
   },
 );
 
+export const toolVerifyUsed: Check = {
+  id: "tool-verify-used",
+  kind: "diagnostic",
+  description: "the done claim was checked with pm verify",
+  async run(ctx) {
+    const cmds = ctx.telemetry.commands;
+    if (cmds === null) return skip("harness reported no commands");
+    const hit = cmds.find((c) => /\bpm\.ts\b[^\n]*\bverify\b/.test(c));
+    return hit ? pass(hit) : fail(`${cmds.length} command(s), none ran pm verify`);
+  },
+};
+
 export function trackingChecks(): Check[] {
   return [
     noNewEpic,
@@ -194,5 +206,6 @@ export function trackingChecks(): Check[] {
     indexCounts,
     nextNotT03,
     verifiedEvidence,
+    toolVerifyUsed,
   ];
 }

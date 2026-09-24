@@ -204,3 +204,71 @@ describe("claim through the CLI", () => {
     expect(parsed.rows[0]?.session).toBeNull();
   });
 });
+
+describe("verify", () => {
+  test("prints the per-criterion report, exit 0", async () => {
+    const root = await localRepo();
+    const r = await run(["verify", "app-performance", "T02"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout.split("\n")[0]).toMatch(
+      /^verify: app-performance T02 · repos: \. · since 2026-09-01 \(root, epic created\) · \d+ms$/,
+    );
+    expect(r.stdout).toContain("- [ ] Migration file exists and applies cleanly");
+    expect(r.stdout).toContain(
+      "gaps: git@github.com:glapsfun/webshop.git not checked out on this machine",
+    );
+    expect(r.stdout).toContain("gaps: no mapped repos; inspected the orchestration repo");
+  });
+  test("--json mirrors the report", async () => {
+    const root = await localRepo();
+    const r = await run(
+      ["verify", "app-performance", "T02", "--json", "--files", "app/app.py"],
+      root,
+    );
+    expect(r.code).toBe(0);
+    const j = JSON.parse(r.stdout);
+    expect(j.slug).toBe("app-performance");
+    expect(j.task).toBe("T02");
+    expect(j.criteria).toHaveLength(2);
+    expect(Object.keys(j.scope).sort()).toEqual([
+      "commits",
+      "files",
+      "testsTouched",
+      "uncommitted",
+    ]);
+    expect(j.repos[0].since.reason).toBe("epic created");
+  });
+  test("--since REF is honoured; an unresolvable ref is exit 2", async () => {
+    const root = await localRepo();
+    const r = await run(["verify", "app-performance", "T02", "--since", "HEAD", "--json"], root);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout).repos[0].since.reason).toBe("--since");
+    const bad = await run(["verify", "app-performance", "T02", "--since", "nope"], root);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain("--since nope");
+  });
+  test("exit 2 on unknown epic, unknown task, missing args, bad --limit, unknown --repo, non-git --repo path", async () => {
+    const root = await localRepo();
+    const noEpic = await run(["verify", "nope", "T02"], root);
+    expect(noEpic.code).toBe(2);
+    expect(noEpic.stderr).toContain("unknown epic nope");
+    const noTask = await run(["verify", "app-performance", "T99"], root);
+    expect(noTask.code).toBe(2);
+    expect(noTask.stderr).toContain("unknown task T99 in app-performance");
+    expect((await run(["verify", "app-performance"], root)).code).toBe(2);
+    expect((await run(["verify", "app-performance", "T02", "--limit", "0"], root)).code).toBe(2);
+    const unknown = await run(["verify", "app-performance", "T02", "--repo", "nope"], root);
+    expect(unknown.code).toBe(2);
+    expect(unknown.stderr).toContain("known names in docs/pm/.local/repos.json");
+    const plain = await makeTempDir("plain");
+    const notGit = await run(["verify", "app-performance", "T02", "--repo", plain], root);
+    expect(notGit.code).toBe(2);
+    expect(notGit.stderr).toContain("not inside a git repository");
+  });
+  test("usage lists verify", async () => {
+    const r = await run([], await localRepo());
+    expect(r.stderr).toContain("verify <slug> <task-id>");
+    expect(r.stderr).toContain("--since REF");
+    expect(r.stderr).toContain("--files P");
+  });
+});
