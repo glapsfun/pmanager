@@ -34,6 +34,8 @@ export interface EpicStatusRow {
   total: number;
   blocked: string[];
   next: NextTask | null;
+  /** absolute path of this epic's worktree in this repo, when one exists */
+  worktree: string | null;
 }
 
 export interface MemoContext {
@@ -82,7 +84,7 @@ export function buildStatus(
   repo: PmRepo,
   remoteClaims: RemoteClaims | null,
   remote: RemoteState,
-  opts: { staleDays: number; today: string },
+  opts: { staleDays: number; today: string; worktrees?: Map<string, string> },
 ): StatusReport {
   const rows: EpicStatusRow[] = [];
   for (const e of repo.epics) {
@@ -120,6 +122,7 @@ export function buildStatus(
             priority: getString(next.frontmatter, "priority") ?? "",
           }
         : null,
+      worktree: opts.worktrees?.get(e.slug) ?? null,
     });
   }
   const local = new Set(repo.epics.map((e) => e.slug));
@@ -143,6 +146,7 @@ export function buildStatus(
       total: 0,
       blocked: [],
       next: null,
+      worktree: opts.worktrees?.get(slug) ?? null,
     });
   }
   rows.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -168,6 +172,7 @@ export function formatStatus(report: StatusReport): string {
       r.primaryMetric ? `metric: ${r.primaryMetric}` : "",
     ].filter(Boolean);
     if (scope.length > 0) lines.push(`  ${scope.join("  ")}`);
+    if (r.worktree) lines.push(`  worktree: ${r.worktree}`);
     if (r.blocked.length > 0) lines.push(`  blocked: ${r.blocked.join(", ")}`);
     lines.push(
       r.next ? `  next: ${r.next.id} ${r.next.title} (${r.next.priority})` : "  next: none ready",

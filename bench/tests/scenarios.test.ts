@@ -64,3 +64,7 @@ describe("condition prompts", () => {
     }
   });
 });
+
+test("the contract sentence pins --no-worktree so graders read the fixture tree", () => {
+  expect(CONTRACT_SENTENCE).toContain("--no-worktree");
+});
