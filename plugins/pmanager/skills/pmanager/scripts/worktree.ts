@@ -1,4 +1,4 @@
-import { cp, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { git, localBranchExists, remoteBranchExists } from "./git";
 import { PM_DIR } from "./repo";
@@ -145,25 +145,44 @@ export async function removeWorktree(
   return { ok: true, removed: true };
 }
 
-async function walkFiles(dir: string, rel: string, out: string[]): Promise<void> {
-  for (const e of await readdir(dir, { withFileTypes: true })) {
-    const child = join(dir, e.name);
-    const childRel = `${rel}/${e.name}`;
-    if (e.isDirectory()) await walkFiles(child, childRel, out);
-    else out.push(childRel);
+/** Porcelain paths under a pathspec: added, modified or untracked — never tracked-and-clean. */
+async function pendingPaths(root: string, rel: string): Promise<string[]> {
+  const r = await git(["status", "--porcelain", "-uall", "--", rel], root);
+  if (r.code !== 0) return [];
+  const out: string[] = [];
+  for (const line of r.stdout.split("\n")) {
+    if (line.length < 4) continue;
+    const path = line.slice(3).split(" -> ").pop() ?? "";
+    if (path.startsWith(`${rel}/`)) out.push(path);
   }
+  return out.sort();
 }
 
-/** Carry a Phase 4 epic written in the user's checkout onto the claim branch. */
+/**
+ * Carry a Phase 4 epic written in the user's checkout onto the claim branch.
+ * Only pending files move: anything already committed is reachable from HEAD,
+ * so the new worktree has it and deleting it here would dirty the checkout.
+ */
 export async function movePendingEpic(root: string, dest: string, slug: string): Promise<string[]> {
   if (dest === root) return [];
   const rel = `${PM_DIR}/${slug}`;
-  const from = join(root, rel);
-  if (!(await pathExists(from))) return [];
-  const files: string[] = [];
-  await walkFiles(from, rel, files);
-  if (files.length === 0) return [];
-  await cp(from, join(dest, rel), { recursive: true });
-  await rm(from, { recursive: true, force: true });
-  return files.sort();
+  if (!(await pathExists(join(root, rel)))) return [];
+  const files = await pendingPaths(root, rel);
+  for (const file of files) {
+    await mkdir(dirname(join(dest, file)), { recursive: true });
+    await cp(join(root, file), join(dest, file), { recursive: true });
+    await rm(join(root, file), { force: true });
+  }
+  await rmEmptyDirs(join(root, rel));
+  return files;
+}
+
+/** Leave no empty husk behind after the pending files are gone. */
+async function rmEmptyDirs(dir: string): Promise<void> {
+  if (!(await pathExists(dir))) return;
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) await rmEmptyDirs(join(dir, e.name));
+  }
+  const left = await readdir(dir);
+  if (left.length === 0) await rm(dir, { recursive: true, force: true });
 }

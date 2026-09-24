@@ -188,6 +188,35 @@ describe("movePendingEpic", () => {
     expect(await exists(join(root, "docs", "pm", "x"))).toBe(false);
     expect(await readFile(join(root, "app.py"), "utf8")).toBe("print(1)\n");
   });
+  test("leaves files already committed on the branch in place", async () => {
+    const root = await repoWithCommit("wt-move-tracked");
+    await mkdir(join(root, "docs", "pm", "x"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "docs(pm): epic"], root);
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await movePendingEpic(root, dest, "x")).toEqual([]);
+    // the user's checkout keeps its tracked files, and stays clean
+    expect(await exists(join(root, "docs", "pm", "x", "epic.md"))).toBe(true);
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
+  test("moves only the pending files when some are already committed", async () => {
+    const root = await repoWithCommit("wt-move-mixed");
+    await mkdir(join(root, "docs", "pm", "x", "tasks"), { recursive: true });
+    await writeFile(join(root, "docs", "pm", "x", "epic.md"), "# epic\n");
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "docs(pm): epic"], root);
+    await writeFile(join(root, "docs", "pm", "x", "tasks", "T01-a.md"), "# T01\n");
+    const dest = worktreePath(root, "x");
+    await ensureWorktree(root, "x", { branch: "pm/x" });
+    expect(await movePendingEpic(root, dest, "x")).toEqual(["docs/pm/x/tasks/T01-a.md"]);
+    expect(await exists(join(root, "docs", "pm", "x", "epic.md"))).toBe(true);
+    expect(await exists(join(root, "docs", "pm", "x", "tasks", "T01-a.md"))).toBe(false);
+    expect((await gitOk(["status", "--porcelain"], root)).trim()).toBe("");
+  });
+
   test("no epic dir means nothing to move", async () => {
     const root = await repoWithCommit("wt-move-none");
     const dest = worktreePath(root, "x");
