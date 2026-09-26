@@ -1,5 +1,6 @@
 import type { AttemptRecord, Manifest } from "../../experiment";
 import type { CheckOutcome } from "../../graders/types";
+import type { Condition } from "../../scenarios/types";
 
 export const manifest: Manifest = {
   schemaVersion: 1,
@@ -40,7 +41,7 @@ const passing: CheckOutcome[] = [
 
 export function rec(
   pair: number,
-  condition: "with-skill" | "without-skill",
+  condition: Condition,
   over: Partial<AttemptRecord>,
 ): AttemptRecord {
   return {

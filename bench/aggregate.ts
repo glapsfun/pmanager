@@ -9,6 +9,8 @@ export interface Quartiles {
   n: number;
 }
 
+export type TraceKey = "preFramingContext" | "preFramingToolBytes" | "preResearchCommands";
+
 export interface GroupStats {
   scenario: string;
   condition: Condition;
@@ -29,6 +31,7 @@ export interface GroupStats {
     fresh: Quartiles | null;
   };
   cost: { sumUsd: number | null; n: number };
+  trace: Record<TraceKey, Quartiles | null>;
 }
 
 export interface PairDiff {
@@ -47,6 +50,8 @@ export interface ScenarioPairing {
   scoreDiff: Quartiles | null;
   successDiff: number | null;
   diffs: PairDiff[];
+  /** with-skill minus the other condition, over pairs where both runs have a value */
+  contextDiff: Quartiles | null;
 }
 
 export interface ExperimentSummary {
@@ -86,6 +91,11 @@ function emptyFailed(): Record<AttemptStatus, number> {
 
 type TokenKey = "input" | "output" | "cacheRead" | "cacheWrite";
 
+function traceValue(a: AttemptRecord, k: TraceKey): number | null {
+  const v = a.telemetry.trace?.[k];
+  return typeof v === "number" ? v : null;
+}
+
 function groupStats(
   m: Manifest,
   attempts: AttemptRecord[],
@@ -114,6 +124,13 @@ function groupStats(
   const costs = mine
     .filter((a) => a.telemetry.costUsd !== null)
     .map((a) => a.telemetry.costUsd as number);
+  const traced = (k: TraceKey) =>
+    quartiles(
+      done.flatMap((a) => {
+        const v = traceValue(a, k);
+        return v === null ? [] : [v];
+      }),
+    );
   return {
     scenario,
     condition,
@@ -137,6 +154,11 @@ function groupStats(
       ),
     },
     cost: { sumUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null, n: costs.length },
+    trace: {
+      preFramingContext: traced("preFramingContext"),
+      preFramingToolBytes: traced("preFramingToolBytes"),
+      preResearchCommands: traced("preResearchCommands"),
+    },
   };
 }
 
@@ -148,6 +170,7 @@ function pairing(
   b: Condition,
 ): ScenarioPairing {
   const diffs: PairDiff[] = [];
+  const contextDiffs: number[] = [];
   let excluded = 0;
   for (let pair = 1; pair <= m.pairs; pair++) {
     const find = (c: Condition) =>
@@ -161,6 +184,9 @@ function pairing(
         scoreDiff: x.score - y.score,
         successDiff: Number(x.success) - Number(y.success),
       });
+      const cx = traceValue(x, "preFramingContext");
+      const cy = traceValue(y, "preFramingContext");
+      if (cx !== null && cy !== null) contextDiffs.push(cx - cy);
     } else {
       excluded++;
     }
@@ -174,6 +200,7 @@ function pairing(
     scoreDiff: quartiles(diffs.map((d) => d.scoreDiff)),
     successDiff: diffs.length ? diffs.reduce((s, d) => s + d.successDiff, 0) / diffs.length : null,
     diffs,
+    contextDiff: quartiles(contextDiffs),
   };
 }
 

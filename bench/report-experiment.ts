@@ -24,6 +24,17 @@ export function iqr(q: Quartiles | null, signed = false): string {
   return q ? `${fixed(q.median, signed)} (${fixed(q.q1, signed)}–${fixed(q.q3, signed)})` : DASH;
 }
 
+function whole(n: number, signed: boolean): string {
+  const v = Math.round(n);
+  return signed ? `${v < 0 ? "-" : "+"}${Math.abs(v)}` : String(v);
+}
+
+function wholeIqr(q: Quartiles | null, signed = false): string {
+  return q
+    ? `${whole(q.median, signed)} (${whole(q.q1, signed)}–${whole(q.q3, signed)}; n ${q.n})`
+    : DASH;
+}
+
 function secs(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
@@ -53,7 +64,10 @@ function headline(m: Manifest): string {
   const conditions = `${m.conditions.length} condition${m.conditions.length === 1 ? "" : "s"}`;
   const model = `model ${m.modelRequested}${m.reasoning ? ` (${m.reasoning})` : ""}`;
   const repo = `repo ${m.repoSha} (${m.repoDirty ? "dirty" : "clean"})`;
-  return `${m.harness} ${m.harnessVersion} · ${model} · ${conditions} · ${m.pairs} pairs · timeout ${m.timeoutS}s · skill ${m.skillVersion} (${m.skillHash}) · ${repo} · isolation ${m.isolation ?? "none"}`;
+  const baseline = m.baseline
+    ? ` · baseline ${m.baseline.ref} @ ${m.baseline.sha.slice(0, 7)}`
+    : "";
+  return `${m.harness} ${m.harnessVersion} · ${model} · ${conditions} · ${m.pairs} pairs · timeout ${m.timeoutS}s · skill ${m.skillVersion} (${m.skillHash}) · ${repo} · isolation ${m.isolation ?? "none"}${baseline}`;
 }
 
 function groupRow(g: GroupStats): string {
@@ -98,6 +112,30 @@ export function renderExperimentReport(m: Manifest, s: ExperimentSummary): strin
       ),
       "",
     );
+  }
+  const hasTrace = s.groups.some((g) => Object.values(g.trace).some((q) => q !== null));
+  if (hasTrace) {
+    out.push(
+      "## Pre-framing context",
+      "",
+      "Context: tokens on the call that made the first docs/pm write, minus the first call. Tool output: characters received before that write. Pre-research calls: tool calls on the fixture before the first pm research.",
+      "",
+      "| Scenario | Condition | Context median (IQR; n) | Tool output median (IQR; n) | Pre-research calls median (IQR; n) |",
+      "| :--- | :--- | ---: | ---: | ---: |",
+      ...s.groups.map(
+        (g) =>
+          `| ${g.scenario} | ${g.condition} | ${wholeIqr(g.trace.preFramingContext)} | ${wholeIqr(g.trace.preFramingToolBytes)} | ${wholeIqr(g.trace.preResearchCommands)} |`,
+      ),
+      "",
+    );
+    if (first) {
+      out.push(
+        `| Scenario | Context diff, ${first.a} minus ${first.b} (IQR; n) |`,
+        "| :--- | ---: |",
+        ...s.pairings.map((p) => `| ${p.scenario} | ${wholeIqr(p.contextDiff, true)} |`),
+        "",
+      );
+    }
   }
   const checkIds = [...new Set(s.groups.flatMap((g) => Object.keys(g.checkFailureRate)))];
   if (checkIds.length) {
