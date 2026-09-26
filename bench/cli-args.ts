@@ -23,6 +23,7 @@ export interface ParsedArgs {
   reasoning: string | undefined;
   yes: boolean;
   experimentsDir: string | undefined;
+  baseline: string | undefined;
 }
 
 const COMMANDS = new Set<string>(["run", "tool", "report", "experiment"]);
@@ -56,6 +57,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     reasoning: undefined,
     yes: false,
     experimentsDir: undefined,
+    baseline: undefined,
   };
   const first = argv[0];
   if (first && COMMANDS.has(first)) a.command = first as Command;
@@ -67,6 +69,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     a.sub = sub as ExperimentSub;
     start = 2;
   }
+  let sawCondition = false;
   for (let i = start; i < argv.length; i++) {
     const flag = argv[i] ?? "";
     const next = () => argv[++i];
@@ -118,8 +121,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
           throw new Error("--condition must be with-skill, without-skill or both");
         }
         a.condition = c;
+        sawCondition = true;
         break;
       }
+      case "--baseline":
+        a.baseline = next();
+        if (!a.baseline) throw new Error("--baseline needs a git ref");
+        break;
       case "--pairs":
         a.pairs = int(flag, next());
         break;
@@ -135,6 +143,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       default:
         throw new Error(`unknown flag: ${flag}`);
     }
+  }
+  if (a.baseline && sawCondition) {
+    throw new Error("--baseline and --condition are mutually exclusive");
   }
   return a;
 }

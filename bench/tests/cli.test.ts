@@ -52,6 +52,7 @@ describe("cli-args", () => {
       reasoning: undefined,
       yes: false,
       experimentsDir: undefined,
+      baseline: undefined,
     });
   });
 
@@ -198,6 +199,13 @@ describe("experiment commands", () => {
     });
     expect(() => parseArgs(["experiment", "--id", "e1"])).toThrow(/experiment needs/);
     expect(() => parseArgs(["experiment", "new", "--condition", "maybe"])).toThrow(/condition/);
+    expect(parseArgs(["experiment", "new", "--id", "e2", "--baseline", "main"]).baseline).toBe(
+      "main",
+    );
+    expect(() =>
+      parseArgs(["experiment", "new", "--baseline", "main", "--condition", "both"]),
+    ).toThrow(/mutually exclusive/);
+    expect(() => parseArgs(["experiment", "new", "--baseline"])).toThrow(/git ref/);
   });
 
   test("new requires --model and an available harness; run and report need an experiment", async () => {

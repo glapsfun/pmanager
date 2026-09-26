@@ -18,7 +18,7 @@ import { writeReport } from "./report";
 import { writeExperimentReport } from "./report-experiment";
 import { buildEnv, repoSha, runScenario } from "./runner";
 import { SCENARIOS, scenarioByName } from "./scenarios/registry";
-import { CONDITIONS } from "./scenarios/types";
+import { BASELINE_CONDITIONS, CONDITIONS } from "./scenarios/types";
 import {
   EXPERIMENTS_DIR,
   HISTORY_PATH,
@@ -37,7 +37,7 @@ const USAGE = `usage:
   bun run bench/bench.ts run --harness <${HARNESS_NAMES.join("|")}> [--model <id>] [--scenario <name>]... [--runs N] [--timeout-s N] [--keep]
   bun run bench/bench.ts tool [--epics N] [--tasks N] [--iterations N]
   bun run bench/bench.ts report
-  bun run bench/bench.ts experiment new --id <id> --harness <name> --model <id> [--reasoning <effort>] [--condition with-skill|without-skill|both] [--pairs N] [--scenario <name>]... [--timeout-s N]
+  bun run bench/bench.ts experiment new --id <id> --harness <name> --model <id> [--reasoning <effort>] [--condition with-skill|without-skill|both | --baseline <git-ref>] [--pairs N] [--scenario <name>]... [--timeout-s N]
   bun run bench/bench.ts experiment run --id <id> [--yes]      (without --yes: dry run, exit 3)
   bun run bench/bench.ts experiment report --id <id>
 common: [--history <path>] [--report <path>] [--raw-dir <dir>] [--experiments-dir <dir>]
@@ -70,7 +70,11 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
       io.err("experiment new needs --model (recorded and passed explicitly)\n");
       return 2;
     }
-    const conditions = a.condition === "both" ? CONDITIONS : [a.condition];
+    const conditions = a.baseline
+      ? BASELINE_CONDITIONS
+      : a.condition === "both"
+        ? CONDITIONS
+        : [a.condition];
     try {
       const m = await createExperiment(
         {
@@ -82,6 +86,7 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
           pairs: a.pairs,
           scenarios: a.scenarios.length ? a.scenarios : SCENARIOS.map((s) => s.name),
           timeoutS: a.timeoutS,
+          baseline: a.baseline,
         },
         { adapter, experimentsDir, repoSha, repoDirty },
       );
