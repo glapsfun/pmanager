@@ -189,14 +189,15 @@ export function renderExperimentsSection(items: ExperimentItem[]): string[] {
         g?.tokens.fresh ? String(Math.round(g.tokens.fresh.median)) : DASH;
       const tokens = b ? `${fresh(a)} / ${fresh(b)}` : fresh(a);
       const model = `${m.modelRequested}${m.reasoning ? ` (${m.reasoning})` : ""}`;
-      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${pairs} | ${success} | ${diff} | ${tokens} | ${money(s.spendUsd)} |`;
+      const conditions = m.conditions.join(" / ");
+      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${conditions} | ${pairs} | ${success} | ${diff} | ${tokens} | ${money(s.spendUsd)} |`;
     });
   });
   return [
     "## Experiments",
     "",
-    "| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |",
-    "| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |",
+    "| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Cost |",
+    "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     "",
   ];

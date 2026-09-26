@@ -23,10 +23,10 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 
 ## Experiments
 
-| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |
-| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — |
-| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | $2.71 |
+| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Cost |
+| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | with-skill / without-skill | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — |
+| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | $2.71 |
 
 ## History (last 20 agent runs)
 

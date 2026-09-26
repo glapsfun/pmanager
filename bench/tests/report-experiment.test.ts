@@ -60,6 +60,22 @@ describe("experiment report", () => {
     );
   });
 
+  test("the summary names each experiment's conditions instead of assuming with / without", () => {
+    const conditions: Condition[] = ["with-skill", "baseline-skill"];
+    const m = {
+      ...manifest,
+      id: "b",
+      conditions,
+      planned: planAttempts("b", ["s"], conditions, 3),
+    };
+    const section = renderExperimentsSection([{ m, s: aggregate(m, []) }]).join("\n");
+    expect(section).toContain("| Conditions (A / B) |");
+    expect(section).toContain(
+      "| b (preliminary) | claude-code 9 | m | s | with-skill / baseline-skill |",
+    );
+    expect(section).not.toContain("with / without");
+  });
+
   test("no experiments leaves the existing renderings byte-identical", () => {
     expect(renderReport([])).toBe(renderReport([], []));
     expect(renderReadmeSection([])).toBe(renderReadmeSection([], []));
