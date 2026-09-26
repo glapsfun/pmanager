@@ -1,8 +1,13 @@
 import type { FixtureInfo } from "../fixture";
 import type { Check } from "../graders/types";
 
-export type Condition = "with-skill" | "without-skill";
+export type Condition = "with-skill" | "without-skill" | "baseline-skill";
 export const CONDITIONS: Condition[] = ["with-skill", "without-skill"];
+export const BASELINE_CONDITIONS: Condition[] = ["with-skill", "baseline-skill"];
+
+export function hasSkill(condition: Condition): boolean {
+  return condition !== "without-skill";
+}
 
 export interface Scenario {
   name: string;
@@ -18,5 +23,5 @@ export const CONTRACT_SENTENCE =
   "Planning documents follow the format in docs/pm/CONTRACT.md. Pass --no-worktree to every pm claim and pm release so the work stays in this checkout.";
 
 export function composePrompt(scenario: Scenario, condition: Condition): string {
-  return condition === "with-skill" ? `${SKILL_PREFIX}${scenario.task}` : scenario.task;
+  return hasSkill(condition) ? `${SKILL_PREFIX}${scenario.task}` : scenario.task;
 }

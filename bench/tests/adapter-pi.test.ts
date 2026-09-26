@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parsePiStream, pi } from "../adapters/pi";
+import { isolatePi, parsePiStream, pi } from "../adapters/pi";
 
 describe("pi adapter", () => {
   test("sums assistant usage and cost, counts tool executions, keeps bash commands and last text", async () => {
@@ -49,6 +49,14 @@ describe("pi adapter", () => {
       preFramingToolBytes: 30,
       preResearchCommands: 1,
     });
+  });
+
+  test("isolation loads the fixture's skill copy for both skill conditions", async () => {
+    const iso = await isolatePi();
+    for (const c of ["with-skill", "baseline-skill"] as const) {
+      expect(iso.args(c, "/f")).toContain("/f/.agents/skills/pmanager");
+    }
+    expect(iso.args("without-skill", "/f")).not.toContain("--skill");
   });
 
   test("adapter metadata", () => {

@@ -90,6 +90,29 @@ describe("executeScenario", () => {
     }
   });
 
+  test("baseline-skill installs the skill from the given directory", async () => {
+    const scenario = scenarioByName("perf-bug-new-epic") as Scenario;
+    const skillDir = await makeTempDir("bench-baseline-skill");
+    await writeFile(join(skillDir, "SKILL.md"), "baseline marker\n");
+    let installed = "";
+    let seen = "";
+    const a = adapter(async (o) => {
+      seen = o.prompt;
+      installed = await readFile(join(o.cwd, ".agents/skills/pmanager/SKILL.md"), "utf8");
+      return {};
+    });
+    const dir = await makeTempDir("bench-exec");
+    await executeScenario(
+      req(scenario, a, {
+        condition: "baseline-skill",
+        skillDir,
+        rawLogPath: join(dir, "raw.jsonl"),
+      }),
+    );
+    expect(installed).toBe("baseline marker\n");
+    expect(seen.startsWith("Use the pmanager skill.")).toBe(true);
+  });
+
   test("statuses: timeout, harness-error, setup-error on fixture hash mismatch", async () => {
     const scenario = scenarioByName("two-session-claim-conflict") as Scenario;
     const dir = await makeTempDir("bench-exec");

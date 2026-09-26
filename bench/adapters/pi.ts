@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { hasSkill } from "../scenarios/types";
 import { type TraceEvent, traceMetrics } from "../trace";
 import { detectCli, parseLines, textBytes } from "./claude-code";
 import { spawnWithTimeout } from "./spawn";
@@ -75,7 +76,7 @@ export async function isolatePi(): Promise<Isolation> {
     mode: "flags",
     env: {},
     args: (condition, fixtureDir) =>
-      condition === "with-skill"
+      hasSkill(condition)
         ? [...PI_ISOLATION_FLAGS, "--skill", join(fixtureDir, ".agents/skills/pmanager")]
         : [...PI_ISOLATION_FLAGS],
     cleanup: async () => undefined,
