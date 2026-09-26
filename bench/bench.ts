@@ -5,6 +5,7 @@ import { type ParsedArgs, parseArgs } from "./cli-args";
 import {
   createExperiment,
   estimateCost,
+  experimentDir,
   readAttempts,
   readManifest,
   remaining,
@@ -59,7 +60,13 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
     io.err("experiment needs --id\n");
     return 2;
   }
-  const dir = join(experimentsDir, a.id);
+  let dir: string;
+  try {
+    dir = experimentDir(experimentsDir, a.id);
+  } catch (e) {
+    io.err(`${(e as Error).message}\n`);
+    return 2;
+  }
   if (a.sub === "new") {
     const adapter = a.harness ? adapterByName(a.harness) : undefined;
     if (!adapter) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -13,6 +13,7 @@ import {
   remaining,
   runExperiment,
 } from "../experiment";
+import type { Condition } from "../scenarios/types";
 import { REPO_ROOT } from "../skill-paths";
 
 const OK: Telemetry = {
@@ -314,6 +315,35 @@ describe("baseline experiments", () => {
     await rm(copy, { recursive: true, force: true });
     const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
     expect(r).toEqual({ ran: 2, remaining: 0 });
+  });
+
+  test("an id outside the experiments root is refused; an existing copy is never replaced", async () => {
+    const root = await makeTempDir("bench-exp");
+    const experiments = join(root, "experiments");
+    const victim = join(root, "victim", "baseline-skill");
+    await mkdir(victim, { recursive: true });
+    await writeFile(join(victim, "keep.txt"), "keep\n");
+    const a = adapter(async () => ({}));
+    const opts = {
+      harness: "claude-code" as const,
+      model: "m",
+      conditions: ["with-skill", "baseline-skill"] as Condition[],
+      baseline: "HEAD",
+      pairs: 1,
+      scenarios: [CLAIM],
+      timeoutS: 10,
+    };
+    await expect(
+      createExperiment({ ...opts, id: "../victim" }, deps(a, experiments)),
+    ).rejects.toThrow(/experiment id/);
+    const leftover = join(experiments, "b6", "baseline-skill");
+    await mkdir(leftover, { recursive: true });
+    await writeFile(join(leftover, "keep.txt"), "keep\n");
+    await expect(createExperiment({ ...opts, id: "b6" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
+    expect(await readFile(join(victim, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await readFile(join(leftover, "keep.txt"), "utf8")).toBe("keep\n");
   });
 
   test("baseline-skill needs --baseline, --baseline needs baseline-skill, and the ref must exist", async () => {

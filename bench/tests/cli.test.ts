@@ -222,6 +222,8 @@ describe("experiment commands", () => {
     expect(
       await main(["experiment", "report", "--id", "missing", "--experiments-dir", dir], i),
     ).toBe(1);
+    expect(await main(["experiment", "run", "--id", "../e", "--experiments-dir", dir], i)).toBe(2);
+    expect(err.join("")).toContain("experiment id");
     expect(out.join("")).toBe("");
   });
 

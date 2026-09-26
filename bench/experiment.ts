@@ -111,6 +111,18 @@ export interface RunDeps {
   onAttempt?: (rec: AttemptRecord) => void;
 }
 
+const EXPERIMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** An id names exactly one directory directly under the experiments root. */
+export function experimentDir(experimentsDir: string, id: string): string {
+  if (!EXPERIMENT_ID.test(id)) {
+    throw new Error(
+      `experiment id ${JSON.stringify(id)} must start with a letter or digit and use only letters, digits, ".", "_" or "-"`,
+    );
+  }
+  return join(experimentsDir, id);
+}
+
 export function attemptId(
   id: string,
   pair: number,
@@ -174,7 +186,7 @@ export async function createExperiment(
   opts: NewExperimentOptions,
   deps: CreateDeps,
 ): Promise<Manifest> {
-  const dir = join(deps.experimentsDir, opts.id);
+  const dir = experimentDir(deps.experimentsDir, opts.id);
   if (await exists(join(dir, "manifest.json"))) {
     throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
   }

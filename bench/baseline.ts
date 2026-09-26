@@ -21,8 +21,12 @@ export async function resolveCommit(ref: string, root = REPO_ROOT): Promise<stri
   return r.stdout.trim();
 }
 
-/** The skill directory exactly as committed at `sha`, extracted into `dest`; returns its hash. */
+/**
+ * The skill directory exactly as committed at `sha`, extracted into `dest`; returns its hash.
+ * Never replaces anything: an existing `dest` is refused, so nothing is deleted.
+ */
 export async function extractSkill(sha: string, dest: string, root = REPO_ROOT): Promise<string> {
+  if (await exists(dest)) throw new Error(`${dest} already exists; move it aside first`);
   const tmp = await mkdtemp(join(tmpdir(), "pm-bench-baseline-"));
   const tar = join(tmp, "skill.tar");
   try {
@@ -33,7 +37,6 @@ export async function extractSkill(sha: string, dest: string, root = REPO_ROOT):
     if (r.code !== 0) {
       throw new Error(`git archive ${sha}:${SKILL_REL} failed: ${r.stderr.trim()}`);
     }
-    await rm(dest, { recursive: true, force: true });
     await mkdir(dest, { recursive: true });
     const x = Bun.spawn(["tar", "-xf", tar, "-C", dest], { stdout: "ignore", stderr: "pipe" });
     const [err, code] = await Promise.all([new Response(x.stderr).text(), x.exited]);
