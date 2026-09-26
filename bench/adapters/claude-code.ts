@@ -1,5 +1,7 @@
 import { copyFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { ToolCall } from "../boundary";
+import { type TraceEvent, traceMetrics } from "../trace";
 import { spawnWithTimeout } from "./spawn";
 import {
   type Adapter,
@@ -50,22 +52,77 @@ export async function detectCliLastToken(bin: string, args: string[]): Promise<D
   return { available: true, version: out.split(/\s+/).pop() ?? out };
 }
 
+function blocks(msg: Json | undefined): Json[] {
+  const c = msg?.content;
+  return Array.isArray(c) ? (c as Json[]) : [];
+}
+
+function str(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+function claudeCall(name: string, input: Json | undefined): ToolCall {
+  const searchesCwd = name === "Grep" || name === "Glob" ? "." : undefined;
+  return {
+    tool: name,
+    path: str(input?.file_path) ?? str(input?.notebook_path) ?? str(input?.path) ?? searchesCwd,
+    command: str(input?.command),
+  };
+}
+
+/** Characters of a tool result: a plain string, or the text blocks of a content array. */
+export function textBytes(content: unknown): number {
+  if (typeof content === "string") return content.length;
+  if (!Array.isArray(content)) return 0;
+  let n = 0;
+  for (const b of content) {
+    const text = b?.text;
+    if (typeof text === "string") n += text.length;
+  }
+  return n;
+}
+
+function contextOf(u: Json): number {
+  return (
+    Number(u.input_tokens ?? 0) +
+    Number(u.cache_read_input_tokens ?? 0) +
+    Number(u.cache_creation_input_tokens ?? 0)
+  );
+}
+
 export function parseClaudeStream(jsonl: string): Telemetry {
   const toolCalls: Record<string, number> = {};
   const commands: string[] = [];
   const t: Telemetry = { ...EMPTY_TELEMETRY, toolCalls, commands };
+  const events: TraceEvent[] = [];
+  const calls = new Set<string>();
   for (const ev of parseLines(jsonl)) {
+    // subagent traffic names its parent tool call and never enters the main window
+    const main = typeof ev.parent_tool_use_id !== "string";
     if (ev.type === "system" && ev.subtype === "init" && typeof ev.model === "string") {
       t.model = ev.model;
     } else if (ev.type === "assistant") {
       const msg = ev.message as Json | undefined;
-      const content = (msg?.content as Json[] | undefined) ?? [];
-      for (const block of content) {
+      const usage = msg?.usage as Json | undefined;
+      const id = str(msg?.id);
+      // one API call streams one event per content block, all with the same id and usage
+      if (main && usage && !(id && calls.has(id))) {
+        if (id) calls.add(id);
+        events.push({ kind: "call", context: contextOf(usage) });
+      }
+      for (const block of blocks(msg)) {
         if (block.type !== "tool_use") continue;
         const name = String(block.name ?? "unknown");
         addCount(toolCalls, name);
         const input = block.input as Json | undefined;
         if (name === "Bash" && typeof input?.command === "string") commands.push(input.command);
+        if (main) events.push({ kind: "tool", ...claudeCall(name, input) });
+      }
+    } else if (ev.type === "user" && main) {
+      for (const block of blocks(ev.message as Json | undefined)) {
+        if (block.type === "tool_result") {
+          events.push({ kind: "result", bytes: textBytes(block.content) });
+        }
       }
     } else if (ev.type === "result") {
       const u = ev.usage as Json | undefined;
@@ -82,6 +139,7 @@ export function parseClaudeStream(jsonl: string): Telemetry {
       if (typeof ev.result === "string") t.finalMessage = ev.result;
     }
   }
+  t.trace = traceMetrics(events);
   return t;
 }
 

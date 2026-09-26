@@ -17,6 +17,16 @@ describe("claude-code adapter", () => {
       ],
       finalMessage: "Epic written as draft; awaiting approval.",
       model: "claude-sonnet-5",
+      trace: { preFramingContext: null, preFramingToolBytes: null, preResearchCommands: null },
+    });
+  });
+
+  test("trace: one call per message id, subagent traffic ignored, boundary at the docs/pm write", async () => {
+    const raw = await readFile(join(import.meta.dir, "samples", "claude-code-trace.jsonl"), "utf8");
+    expect(parseClaudeStream(raw).trace).toEqual({
+      preFramingContext: 1000,
+      preFramingToolBytes: 69,
+      preResearchCommands: 1,
     });
   });
 

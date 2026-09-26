@@ -1,0 +1,8 @@
+{"type":"session","version":1,"id":"s2","timestamp":"2026-09-25T10:00:00Z","cwd":"/tmp/x"}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","stopReason":"toolUse","content":[{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"find . -name '*.py'"}}],"usage":{"input":100,"output":5,"cacheRead":0,"cacheWrite":4900,"cost":{"total":0.01}}}}
+{"type":"tool_execution_end","toolCallId":"c1","toolName":"bash","result":{"content":[{"type":"text","text":"0123456789"}]},"isError":false}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","stopReason":"toolUse","content":[{"type":"toolCall","id":"c2","name":"bash","arguments":{"command":"bun run .agents/skills/pmanager/scripts/pm.ts research orders"}}],"usage":{"input":10,"output":5,"cacheRead":4900,"cacheWrite":190,"cost":{"total":0.01}}}}
+{"type":"tool_execution_end","toolCallId":"c2","toolName":"bash","result":{"content":[{"type":"text","text":"abcdefghijabcdefghij"}]},"isError":false}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","stopReason":"toolUse","content":[{"type":"toolCall","id":"c3","name":"write","arguments":{"path":"docs/pm/orders/epic.md","content":"---"}}],"usage":{"input":10,"output":40,"cacheRead":5090,"cacheWrite":400,"cost":{"total":0.01}}}}
+{"type":"tool_execution_end","toolCallId":"c3","toolName":"write","result":{"content":[{"type":"text","text":"ok"}]},"isError":false}
+{"type":"message_end","message":{"role":"assistant","model":"claude-sonnet-5","stopReason":"stop","content":[{"type":"text","text":"Draft epic written."}],"usage":{"input":10,"output":10,"cacheRead":5490,"cacheWrite":0,"cost":{"total":0.01}}}}

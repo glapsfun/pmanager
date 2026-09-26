@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"th2"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"cat app/app.py","aggregated_output":"0123456789","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i2","type":"command_execution","command":"bun run .agents/skills/pmanager/scripts/pm.ts research orders --no-gh","aggregated_output":"abcdefghijabcdefghij","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i3","type":"file_change","changes":[{"path":"docs/pm/orders/epic.md","kind":"add"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"i4","type":"command_execution","command":"cat app/schema.sql","aggregated_output":"after the boundary","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i5","type":"agent_message","text":"Draft epic written."}}
+{"type":"turn.completed","usage":{"input_tokens":4000,"cached_input_tokens":3000,"cache_write_input_tokens":0,"output_tokens":500}}

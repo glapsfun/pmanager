@@ -44,7 +44,13 @@ export interface ToolBenchLine {
 export type HistoryLine = AgentRunLine | ToolBenchLine;
 
 export function stripTelemetry(t: Telemetry): StoredTelemetry {
-  return { tokens: t.tokens, costUsd: t.costUsd, turns: t.turns, toolCalls: t.toolCalls };
+  return {
+    tokens: t.tokens,
+    costUsd: t.costUsd,
+    turns: t.turns,
+    toolCalls: t.toolCalls,
+    ...(t.trace ? { trace: t.trace } : {}),
+  };
 }
 
 export async function readHistory(path: string): Promise<HistoryLine[]> {

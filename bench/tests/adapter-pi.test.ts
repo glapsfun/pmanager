@@ -42,6 +42,15 @@ describe("pi adapter", () => {
     expect(t.turns).toBeNull();
   });
 
+  test("trace: per-message context, tool output and pre-research calls", async () => {
+    const raw = await readFile(join(import.meta.dir, "samples", "pi-trace.jsonl"), "utf8");
+    expect(parsePiStream(raw).trace).toEqual({
+      preFramingContext: 500,
+      preFramingToolBytes: 30,
+      preResearchCommands: 1,
+    });
+  });
+
   test("adapter metadata", () => {
     expect(pi.name).toBe("pi");
     expect(pi.envPassthrough).toEqual(

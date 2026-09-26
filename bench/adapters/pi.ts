@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { detectCli, parseLines } from "./claude-code";
+import { type TraceEvent, traceMetrics } from "../trace";
+import { detectCli, parseLines, textBytes } from "./claude-code";
 import { spawnWithTimeout } from "./spawn";
 import { type Adapter, addCount, EMPTY_TELEMETRY, type Isolation, type Telemetry } from "./types";
 
@@ -12,6 +13,7 @@ export function parsePiStream(jsonl: string): Telemetry {
   const commands: string[] = [];
   const t: Telemetry = { ...EMPTY_TELEMETRY, toolCalls, commands };
   const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const events: TraceEvent[] = [];
   let cost = 0;
   let turns = 0;
   for (const ev of parseLines(jsonl)) {
@@ -28,19 +30,27 @@ export function parsePiStream(jsonl: string): Telemetry {
         sum.cacheWrite += Number(u.cacheWrite ?? 0);
         const c = u.cost as Json | undefined;
         cost += Number(c?.total ?? 0);
+        events.push({
+          kind: "call",
+          context: Number(u.input ?? 0) + Number(u.cacheRead ?? 0) + Number(u.cacheWrite ?? 0),
+        });
       }
-      for (const block of (msg.content as Json[] | undefined) ?? []) {
+      const content = (msg.content as Json[] | undefined) ?? [];
+      for (const block of content) {
         if (block.type === "text" && typeof block.text === "string") t.finalMessage = block.text;
       }
       if (FAILED_STOPS.has(String(msg.stopReason))) t.finalMessage = null;
-      for (const block of (msg.content as Json[] | undefined) ?? []) {
-        if (block.type === "toolCall" && block.name === "bash") {
-          const args = block.arguments as Json | undefined;
-          if (typeof args?.command === "string") commands.push(args.command);
-        }
+      for (const block of content) {
+        if (block.type !== "toolCall") continue;
+        const args = block.arguments as Json | undefined;
+        const command = typeof args?.command === "string" ? args.command : undefined;
+        if (block.name === "bash" && command !== undefined) commands.push(command);
+        const path = typeof args?.path === "string" ? args.path : undefined;
+        events.push({ kind: "tool", tool: String(block.name ?? "unknown"), command, path });
       }
     } else if (ev.type === "tool_execution_end") {
       addCount(toolCalls, String(ev.toolName ?? "unknown"));
+      events.push({ kind: "result", bytes: textBytes((ev.result as Json | undefined)?.content) });
     }
   }
   if (turns > 0) {
@@ -48,6 +58,7 @@ export function parsePiStream(jsonl: string): Telemetry {
     t.costUsd = cost;
     t.turns = turns;
   }
+  t.trace = traceMetrics(events);
   return t;
 }
 
