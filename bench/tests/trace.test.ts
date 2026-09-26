@@ -26,12 +26,17 @@ describe("isFramingWrite", () => {
       "printf x | tee docs/pm/orders/plan.md",
       "cp /tmp/epic.md docs/pm/orders/epic.md",
       "bun run .claude/skills/pmanager/scripts/pm.ts claim orders --harness claude-code --no-worktree",
+      "bun run .claude/skills/pmanager/scripts/pm.ts render --epic orders",
+      "bun run .claude/skills/pmanager/scripts/pm.ts render --migrate",
+      "bun run .claude/skills/pmanager/scripts/pm.ts release orders --harness claude-code",
     ];
     for (const command of writes) expect(isFramingWrite({ tool: "Bash", command })).toBe(true);
     const reads = [
       "cat docs/pm/INDEX.md",
       "ls docs/pm/ 2>/dev/null",
       "bun run .claude/skills/pmanager/scripts/pm.ts status --harness claude-code",
+      "bun run .claude/skills/pmanager/scripts/pm.ts check --epic orders",
+      "bun run .claude/skills/pmanager/scripts/pm.ts verify orders T01",
       "grep -rn orders docs/pm/ > /tmp/hits.txt",
       "mkdir -p /tmp/scratch",
     ];
