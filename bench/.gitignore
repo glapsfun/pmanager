@@ -3,3 +3,4 @@ results/raw/
 results/*.tmp
 experiments/*/artifacts/
 experiments/*/review-key.json
+experiments/*/baseline-skill/

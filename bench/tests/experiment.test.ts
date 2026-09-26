@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { stat, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
 import {
@@ -12,6 +13,7 @@ import {
   remaining,
   runExperiment,
 } from "../experiment";
+import { REPO_ROOT } from "../skill-paths";
 
 const OK: Telemetry = {
   tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
@@ -247,5 +249,105 @@ describe("experiment lifecycle", () => {
       }),
     ).rejects.toThrow(/was removed while the experiment was running/);
     expect(calls).toBe(1);
+  });
+});
+
+describe("baseline experiments", () => {
+  test("create extracts the committed skill and pins ref, sha and hash; run installs it", async () => {
+    const root = await makeTempDir("bench-exp");
+    const seenArgs: string[][] = [];
+    const a = adapter(async (o) => {
+      seenArgs.push(o.extraArgs ?? []);
+      return {};
+    });
+    const m = await createExperiment(
+      {
+        id: "b1",
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill", "baseline-skill"],
+        baseline: "HEAD",
+        pairs: 1,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    const head = (await gitOk(["rev-parse", "HEAD"], REPO_ROOT)).trim();
+    expect(m.baseline?.ref).toBe("HEAD");
+    expect(m.baseline?.sha).toBe(head);
+    expect(m.baseline?.skillHash.startsWith("sha256:")).toBe(true);
+    const dir = join(root, "b1");
+    const committed = await gitOk(
+      ["show", `${head}:plugins/pmanager/skills/pmanager/SKILL.md`],
+      REPO_ROOT,
+    );
+    expect(await readFile(join(dir, "baseline-skill", "SKILL.md"), "utf8")).toBe(committed);
+
+    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
+    expect(r).toEqual({ ran: 2, remaining: 0 });
+    expect(seenArgs.flat()).toContain("--cond=baseline-skill");
+  });
+
+  test("a tampered copy is refused, a missing copy is re-extracted", async () => {
+    const root = await makeTempDir("bench-exp");
+    const a = adapter(async () => ({}));
+    await createExperiment(
+      {
+        id: "b2",
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill", "baseline-skill"],
+        baseline: "HEAD",
+        pairs: 1,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    const dir = join(root, "b2");
+    const copy = join(dir, "baseline-skill");
+    await writeFile(join(copy, "SKILL.md"), "tampered\n");
+    await expect(
+      runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root }),
+    ).rejects.toThrow(/baseline skill hash/);
+    await rm(copy, { recursive: true, force: true });
+    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
+    expect(r).toEqual({ ran: 2, remaining: 0 });
+  });
+
+  test("baseline-skill needs --baseline, --baseline needs baseline-skill, and the ref must exist", async () => {
+    const root = await makeTempDir("bench-exp");
+    const a = adapter(async () => ({}));
+    const base = {
+      harness: "claude-code" as const,
+      model: "m",
+      pairs: 1,
+      scenarios: [CLAIM],
+      timeoutS: 10,
+    };
+    await expect(
+      createExperiment(
+        { ...base, id: "b3", conditions: ["with-skill", "baseline-skill"] },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/needs --baseline/);
+    await expect(
+      createExperiment(
+        { ...base, id: "b4", conditions: ["with-skill", "without-skill"], baseline: "HEAD" },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/needs --baseline/);
+    await expect(
+      createExperiment(
+        {
+          ...base,
+          id: "b5",
+          conditions: ["with-skill", "baseline-skill"],
+          baseline: "no-such-ref-xyz",
+        },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/is not a commit/);
   });
 });

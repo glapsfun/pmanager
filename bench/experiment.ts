@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
+import {
+  BASELINE_DIR,
+  type BaselineInfo,
+  baselineProblem,
+  extractSkill,
+  resolveCommit,
+} from "./baseline";
 import { installContract, renderContract } from "./contract";
 import { type AttemptStatus, executeScenario } from "./execute";
 import { cleanupFixture } from "./fixture";
@@ -49,6 +56,7 @@ export interface Manifest {
   isolation: string | null;
   scenarios: ScenarioEntry[];
   planned: PlannedAttempt[];
+  baseline?: BaselineInfo;
 }
 
 export interface AttemptRecord {
@@ -84,6 +92,8 @@ export interface NewExperimentOptions {
   pairs: number;
   scenarios: string[];
   timeoutS: number;
+  /** git ref whose committed skill the baseline-skill condition runs */
+  baseline?: string;
 }
 
 export interface CreateDeps {
@@ -168,6 +178,11 @@ export async function createExperiment(
   if (await exists(join(dir, "manifest.json"))) {
     throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
   }
+  if (opts.conditions.includes("baseline-skill") !== Boolean(opts.baseline)) {
+    throw new Error(
+      "the baseline-skill condition needs --baseline <git-ref>, and --baseline needs it",
+    );
+  }
   const scenarios = opts.scenarios.map((n) => {
     const s = scenarioByName(n);
     if (!s) throw new Error(`unknown scenario: ${n}`);
@@ -186,6 +201,12 @@ export async function createExperiment(
   }
   const entries: ScenarioEntry[] = [];
   for (const s of scenarios) entries.push(await scenarioEntry(s));
+  let baseline: BaselineInfo | undefined;
+  if (opts.baseline) {
+    const sha = await resolveCommit(opts.baseline);
+    const skillHash = await extractSkill(sha, join(dir, BASELINE_DIR));
+    baseline = { ref: opts.baseline, sha, skillHash };
+  }
   const manifest: Manifest = {
     schemaVersion: 1,
     id: opts.id,
@@ -205,6 +226,7 @@ export async function createExperiment(
     isolation: iso?.mode ?? null,
     scenarios: entries,
     planned: planAttempts(opts.id, opts.scenarios, opts.conditions, opts.pairs),
+    ...(baseline ? { baseline } : {}),
   };
   await mkdir(dir, { recursive: true });
   // "wx" fails if the file appeared meanwhile, so two concurrent creations cannot both win.
@@ -237,7 +259,11 @@ export async function readAttempts(dir: string): Promise<AttemptRecord[]> {
 }
 
 /** Everything the manifest pinned must still hold before more attempts join the same experiment. */
-export async function validateManifest(m: Manifest, adapter: Adapter): Promise<string[]> {
+export async function validateManifest(
+  m: Manifest,
+  adapter: Adapter,
+  dir?: string,
+): Promise<string[]> {
   const problems: string[] = [];
   const d = await adapter.detect();
   const version = d.version ?? "unknown";
@@ -264,6 +290,10 @@ export async function validateManifest(m: Manifest, adapter: Adapter): Promise<s
         `grader version of ${entry.name} is ${s.graderVersion}, manifest has ${entry.graderVersion}`,
       );
     }
+  }
+  if (m.baseline && dir) {
+    const problem = await baselineProblem(dir, m.baseline);
+    if (problem) problems.push(problem);
   }
   return problems;
 }
@@ -300,7 +330,7 @@ export async function runExperiment(
   deps: RunDeps,
 ): Promise<{ ran: number; remaining: number }> {
   const m = await readManifest(dir);
-  const problems = await validateManifest(m, deps.adapter);
+  const problems = await validateManifest(m, deps.adapter, dir);
   if (problems.length) {
     throw new Error(
       `experiment ${m.id} inputs changed since it was created:\n  ${problems.join("\n  ")}`,
@@ -344,6 +374,7 @@ export async function runExperiment(
         keep: false,
         expectedFixtureHash: entry.fixtureHash,
         artifactsDir,
+        skillDir: p.condition === "baseline-skill" ? join(dir, BASELINE_DIR) : undefined,
       });
       const resolved = r.outcome?.telemetry.model ?? null;
       const mismatch = resolved !== null && resolved !== m.modelRequested;

@@ -122,7 +122,7 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
     io.err(`${adapter.name} unavailable: ${d.reason ?? "unknown"}\n`);
     return 1;
   }
-  const problems = await validateManifest(manifest, adapter);
+  const problems = await validateManifest(manifest, adapter, dir);
   if (problems.length) {
     const list = problems.join("\n  ");
     io.err(
