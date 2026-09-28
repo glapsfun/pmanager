@@ -26,12 +26,15 @@ const SHELL_WRITES = [
 /** pm commands that write under docs/pm/; the others only read. */
 const PM_WRITES = /pm\.ts\s+(claim|release|render)\b/;
 
+/** Phase 1 reservations write a stub in their own worktree; framing starts later. */
+const PM_RESERVATIONS = /pm\.ts\s+(claim\b[^|;&]*\s--draft\b|release\b[^|;&]*\s--abandon\b)/;
+
 /** The end of pre-framing: the first write under docs/pm/, by a tool, a shell or the pm CLI. */
 export function isFramingWrite(c: ToolCall): boolean {
   if (WRITE_TOOLS.has(c.tool) && c.path?.includes("docs/pm/")) return true;
   const cmd = c.command;
   if (!cmd) return false;
-  if (PM_WRITES.test(cmd)) return true;
+  if (PM_WRITES.test(cmd) && !PM_RESERVATIONS.test(cmd)) return true;
   return cmd.includes("docs/pm/") && SHELL_WRITES.some((re) => re.test(cmd));
 }
 
