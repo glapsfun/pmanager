@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
-import { type AgentRunLine, appendHistory, readHistory, type ToolBenchLine } from "../history";
+import { EMPTY_TELEMETRY } from "../adapters/types";
+import {
+  type AgentRunLine,
+  appendHistory,
+  readHistory,
+  stripTelemetry,
+  type ToolBenchLine,
+} from "../history";
 
 const agent: AgentRunLine = {
   kind: "agent",
@@ -50,4 +57,10 @@ describe("history", () => {
     const path = join(await makeTempDir("bench-history"), "none.jsonl");
     expect(await readHistory(path)).toEqual([]);
   });
+});
+
+test("stripTelemetry keeps trace when the run had it and omits the key otherwise", () => {
+  const trace = { preFramingContext: 5, preFramingToolBytes: 6, preResearchCommands: 0 };
+  expect(stripTelemetry({ ...EMPTY_TELEMETRY, trace }).trace).toEqual(trace);
+  expect("trace" in stripTelemetry(EMPTY_TELEMETRY)).toBe(false);
 });

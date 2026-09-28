@@ -23,6 +23,10 @@ An experiment pairs attempts on one harness and one model, optionally with and w
 
 Both conditions get the same fixture plus a generated `docs/pm/CONTRACT.md` describing the document format; only the with-skill condition gets the activation sentence and the skill copy. Codex experiments must pass `--model` and `--reasoning` explicitly; both are recorded in the manifest and passed on the command line so the run never follows the local config. Manifest, attempts, and `REPORT.md` are committed under `experiments/<id>/`; `artifacts/` is kept locally. An experiment id is never reused, and `run` refuses to resume when the skill, contract, prompts, grader versions, or harness version differ from the manifest: start a new experiment instead so results are never mixed across inputs.
 
+`experiment new --baseline <git-ref>` pairs `with-skill` against `baseline-skill`: the skill directory as committed at that ref, extracted with `git archive` into a temporary directory outside the repository for each run and checked against the hash in the manifest (a mismatch refuses the run). Both conditions get the activation sentence. Use it to measure a skill change against the commit before it, e.g. `--baseline main`.
+
+REPORT.md adds a pre-framing section when transcripts allow it. Context: tokens on the model call that made the first `docs/pm/` write, minus the first call (Claude Code and pi; Codex reports usage per run only). Tool output: characters of tool results received before that write (all harnesses). Pre-research calls: tool calls on the fixture, outside the skill's own files, before the first `pm research`.
+
 Gemini CLI and Copilot CLI have stub adapters that report why they are unavailable.
 
 Design: `.docs/specs/2026-09-15-pmanager-benchmark-design.md` (local, not in git).

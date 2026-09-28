@@ -1,5 +1,5 @@
 ## Experiments
 
-| Experiment | Harness | Model | Scenario | Pairs (excluded) | Success with / without | Score diff median | Fresh tokens with / without | Cost |
-| :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| t (preliminary) | claude-code 9 | m | s | 1 (2) | 67% / 0% | +0.50 | 10 / 10 | $5.00 |
+| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost |
+| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| t (preliminary) | claude-code 9 | m | s | with-skill / without-skill | 1 (2) | 67% / 0% | +0.50 | 10 / 10 | — / — | $5.00 |

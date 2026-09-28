@@ -1,9 +1,17 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
+import {
+  type BaselineCopy,
+  type BaselineInfo,
+  baselineProblem,
+  extractBaseline,
+  hashProblem,
+  resolveCommit,
+} from "./baseline";
 import { installContract, renderContract } from "./contract";
 import { type AttemptStatus, executeScenario } from "./execute";
 import { cleanupFixture } from "./fixture";
@@ -49,6 +57,7 @@ export interface Manifest {
   isolation: string | null;
   scenarios: ScenarioEntry[];
   planned: PlannedAttempt[];
+  baseline?: BaselineInfo;
 }
 
 export interface AttemptRecord {
@@ -84,6 +93,8 @@ export interface NewExperimentOptions {
   pairs: number;
   scenarios: string[];
   timeoutS: number;
+  /** git ref whose committed skill the baseline-skill condition runs */
+  baseline?: string;
 }
 
 export interface CreateDeps {
@@ -99,6 +110,28 @@ export interface RunDeps {
   home: string;
   tmp: string;
   onAttempt?: (rec: AttemptRecord) => void;
+}
+
+const EXPERIMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** An id names exactly one directory directly under the experiments root. */
+export function experimentDir(experimentsDir: string, id: string): string {
+  if (!EXPERIMENT_ID.test(id)) {
+    throw new Error(
+      `experiment id ${JSON.stringify(id)} must start with a letter or digit and use only letters, digits, ".", "_" or "-"`,
+    );
+  }
+  const root = resolve(experimentsDir);
+  const destination = resolve(root, id);
+  const relativeDestination = relative(root, destination);
+  if (
+    relativeDestination === ".." ||
+    relativeDestination.startsWith(`..${sep}`) ||
+    isAbsolute(relativeDestination)
+  ) {
+    throw new Error(`experiment id ${JSON.stringify(id)} must stay under ${root}`);
+  }
+  return destination;
 }
 
 export function attemptId(
@@ -164,9 +197,18 @@ export async function createExperiment(
   opts: NewExperimentOptions,
   deps: CreateDeps,
 ): Promise<Manifest> {
-  const dir = join(deps.experimentsDir, opts.id);
-  if (await exists(join(dir, "manifest.json"))) {
+  const dir = experimentDir(deps.experimentsDir, opts.id);
+  const destination = await lstat(dir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (destination) {
     throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
+  }
+  if (opts.conditions.includes("baseline-skill") !== Boolean(opts.baseline)) {
+    throw new Error(
+      "the baseline-skill condition needs --baseline <git-ref>, and --baseline needs it",
+    );
   }
   const scenarios = opts.scenarios.map((n) => {
     const s = scenarioByName(n);
@@ -186,6 +228,13 @@ export async function createExperiment(
   }
   const entries: ScenarioEntry[] = [];
   for (const s of scenarios) entries.push(await scenarioEntry(s));
+  let baseline: BaselineInfo | undefined;
+  if (opts.baseline) {
+    const sha = await resolveCommit(opts.baseline);
+    const copy = await extractBaseline(sha);
+    await copy.remove();
+    baseline = { ref: opts.baseline, sha, skillHash: copy.hash };
+  }
   const manifest: Manifest = {
     schemaVersion: 1,
     id: opts.id,
@@ -205,6 +254,7 @@ export async function createExperiment(
     isolation: iso?.mode ?? null,
     scenarios: entries,
     planned: planAttempts(opts.id, opts.scenarios, opts.conditions, opts.pairs),
+    ...(baseline ? { baseline } : {}),
   };
   await mkdir(dir, { recursive: true });
   // "wx" fails if the file appeared meanwhile, so two concurrent creations cannot both win.
@@ -265,6 +315,10 @@ export async function validateManifest(m: Manifest, adapter: Adapter): Promise<s
       );
     }
   }
+  if (m.baseline) {
+    const problem = await baselineProblem(m.baseline);
+    if (problem) problems.push(problem);
+  }
   return problems;
 }
 
@@ -313,10 +367,16 @@ export async function runExperiment(
     await rm(isoTmp, { recursive: true, force: true });
     throw new Error("isolation unavailable; refusing a two-condition experiment");
   }
+  let baseline: BaselineCopy | null = null;
   const reasoningArgs =
     m.reasoning && m.harness === "codex" ? ["-c", `model_reasoning_effort=${m.reasoning}`] : [];
   let ran = 0;
   try {
+    if (m.baseline) {
+      baseline = await extractBaseline(m.baseline.sha, deps.tmp);
+      const problem = hashProblem(m.baseline, baseline.hash);
+      if (problem) throw new Error(problem);
+    }
     for (const p of todo) {
       const scenario = scenarioByName(p.scenario);
       const entry = m.scenarios.find((s) => s.name === p.scenario);
@@ -344,6 +404,7 @@ export async function runExperiment(
         keep: false,
         expectedFixtureHash: entry.fixtureHash,
         artifactsDir,
+        skillDir: p.condition === "baseline-skill" ? baseline?.dir : undefined,
       });
       const resolved = r.outcome?.telemetry.model ?? null;
       const mismatch = resolved !== null && resolved !== m.modelRequested;
@@ -373,6 +434,7 @@ export async function runExperiment(
       ran++;
     }
   } finally {
+    await baseline?.remove();
     await iso?.cleanup();
     await rm(isoTmp, { recursive: true, force: true });
   }

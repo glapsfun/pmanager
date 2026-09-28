@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { SCENARIOS, scenarioByName } from "../scenarios/registry";
-import { CONTRACT_SENTENCE, composePrompt, SKILL_PREFIX } from "../scenarios/types";
+import { CONTRACT_SENTENCE, composePrompt, hasSkill, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
   test("registry has the four scenarios with skill-naming prompts", () => {
@@ -67,4 +67,14 @@ describe("condition prompts", () => {
 
 test("the contract sentence pins --no-worktree so graders read the fixture tree", () => {
   expect(CONTRACT_SENTENCE).toContain("--no-worktree");
+});
+
+test("baseline-skill is a skill condition: same activation sentence as with-skill", () => {
+  const s = scenarioByName("perf-bug-new-epic");
+  if (!s) throw new Error("scenario missing");
+  expect(hasSkill("with-skill")).toBe(true);
+  expect(hasSkill("baseline-skill")).toBe(true);
+  expect(hasSkill("without-skill")).toBe(false);
+  expect(composePrompt(s, "baseline-skill")).toBe(composePrompt(s, "with-skill"));
+  expect(composePrompt(s, "baseline-skill").startsWith(SKILL_PREFIX)).toBe(true);
 });

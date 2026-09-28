@@ -9,7 +9,7 @@ import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
 import { type CheckOutcome, isSuccess, runChecks, scoreByKind, scoreChecks } from "./graders/types";
 import { hashFixture, hashString } from "./hashes";
-import { type Condition, composePrompt, type Scenario } from "./scenarios/types";
+import { type Condition, composePrompt, hasSkill, type Scenario } from "./scenarios/types";
 import { SKILL_DIR } from "./skill-paths";
 
 export type AttemptStatus = "completed" | "timeout" | "harness-error" | "setup-error";
@@ -26,6 +26,8 @@ export interface ExecuteRequest {
   keep: boolean;
   expectedFixtureHash?: string;
   artifactsDir?: string;
+  /** skill copy installed for a skill condition; defaults to the working tree */
+  skillDir?: string;
 }
 
 export interface ExecuteResult {
@@ -96,7 +98,7 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
         { fixtureDir, fixtureHash, promptHash },
       );
     }
-    if (req.condition === "with-skill") await linkSkill(fixtureDir, SKILL_DIR);
+    if (hasSkill(req.condition)) await linkSkill(fixtureDir, req.skillDir ?? SKILL_DIR);
     await mkdir(dirname(req.rawLogPath), { recursive: true });
     const extraArgs =
       typeof req.extraArgs === "function" ? req.extraArgs(fixtureDir) : req.extraArgs;

@@ -14,6 +14,16 @@ describe("codex adapter", () => {
       commands: ["git log --oneline -5", "bun run .agents/skills/pmanager/scripts/pm.ts check"],
       finalMessage: "Committed on pm/x; awaiting approval.",
       model: null,
+      trace: { preFramingContext: null, preFramingToolBytes: 18, preResearchCommands: null },
+    });
+  });
+
+  test("trace: tool output and pre-research calls; no per-call context on codex", async () => {
+    const raw = await readFile(join(import.meta.dir, "samples", "codex-trace.jsonl"), "utf8");
+    expect(parseCodexStream(raw).trace).toEqual({
+      preFramingContext: null,
+      preFramingToolBytes: 30,
+      preResearchCommands: 1,
     });
   });
 

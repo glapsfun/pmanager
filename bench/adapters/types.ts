@@ -1,4 +1,5 @@
 import type { Condition } from "../scenarios/types";
+import type { TraceMetrics } from "../trace";
 
 export type HarnessName = "claude-code" | "codex" | "pi" | "gemini-cli" | "copilot";
 
@@ -18,6 +19,7 @@ export interface Telemetry {
   commands: string[] | null;
   finalMessage: string | null;
   model: string | null;
+  trace?: TraceMetrics;
 }
 
 export const EMPTY_TELEMETRY: Telemetry = {

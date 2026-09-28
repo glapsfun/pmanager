@@ -1,5 +1,6 @@
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { type TraceEvent, traceMetrics } from "../trace";
 import { detectCliLastToken, exists, parseLines } from "./claude-code";
 import { spawnWithTimeout } from "./spawn";
 import {
@@ -19,6 +20,7 @@ export function parseCodexStream(jsonl: string): Telemetry {
   const toolCalls: Record<string, number> = {};
   const commands: string[] = [];
   const t: Telemetry = { ...EMPTY_TELEMETRY, toolCalls, commands };
+  const events: TraceEvent[] = [];
   let sawUsage = false;
   const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   for (const ev of parseLines(jsonl)) {
@@ -44,10 +46,18 @@ export function parseCodexStream(jsonl: string): Telemetry {
       addCount(toolCalls, kind);
       if (kind === "command_execution" && typeof item.command === "string") {
         commands.push(item.command);
+        events.push({ kind: "tool", tool: kind, command: item.command });
+        const output = item.aggregated_output;
+        events.push({ kind: "result", bytes: typeof output === "string" ? output.length : 0 });
+      } else if (kind === "file_change") {
+        for (const c of (item.changes as Json[] | undefined) ?? []) {
+          events.push({ kind: "tool", tool: kind, path: String(c.path ?? "") });
+        }
       }
     }
   }
   if (sawUsage) t.tokens = sum;
+  t.trace = traceMetrics(events);
   return t;
 }
 

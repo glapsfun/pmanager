@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
+import type { BaselineInfo } from "../baseline";
 import {
   createExperiment,
   planAttempts,
@@ -12,6 +14,8 @@ import {
   remaining,
   runExperiment,
 } from "../experiment";
+import type { Condition } from "../scenarios/types";
+import { REPO_ROOT } from "../skill-paths";
 
 const OK: Telemetry = {
   tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
@@ -247,5 +251,152 @@ describe("experiment lifecycle", () => {
       }),
     ).rejects.toThrow(/was removed while the experiment was running/);
     expect(calls).toBe(1);
+  });
+});
+
+describe("baseline experiments", () => {
+  test("create pins ref, sha and hash; run installs the committed skill from a temp copy", async () => {
+    const root = await makeTempDir("bench-exp");
+    const installed: Record<string, string> = {};
+    const a = adapter(async (o) => {
+      const cond = (o.extraArgs ?? []).find((x) => x.startsWith("--cond=")) ?? "";
+      installed[cond] = await readFile(join(o.cwd, ".agents/skills/pmanager/SKILL.md"), "utf8");
+      return {};
+    });
+    const m = await createExperiment(
+      {
+        id: "b1",
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill", "baseline-skill"],
+        baseline: "HEAD",
+        pairs: 1,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    const head = (await gitOk(["rev-parse", "HEAD"], REPO_ROOT)).trim();
+    expect(m.baseline?.ref).toBe("HEAD");
+    expect(m.baseline?.sha).toBe(head);
+    expect(m.baseline?.skillHash.startsWith("sha256:")).toBe(true);
+    const dir = join(root, "b1");
+    // no copy lives next to the manifest, where the bench's own lint, typecheck and tests would find it
+    expect(await stat(join(dir, "baseline-skill")).catch(() => null)).toBeNull();
+
+    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
+    expect(r).toEqual({ ran: 2, remaining: 0 });
+    const committed = await gitOk(
+      ["show", `${head}:plugins/pmanager/skills/pmanager/SKILL.md`],
+      REPO_ROOT,
+    );
+    expect(installed["--cond=baseline-skill"]).toBe(committed);
+    expect((await readdir(root)).filter((n) => n.startsWith("pm-bench-baseline-"))).toEqual([]);
+  });
+
+  test("a manifest whose baseline hash no longer matches is refused", async () => {
+    const root = await makeTempDir("bench-exp");
+    const a = adapter(async () => ({}));
+    const m = await createExperiment(
+      {
+        id: "b2",
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill", "baseline-skill"],
+        baseline: "HEAD",
+        pairs: 1,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    const dir = join(root, "b2");
+    const stale = {
+      ...m,
+      baseline: { ...(m.baseline as BaselineInfo), skillHash: "sha256:stale" },
+    };
+    await writeFile(join(dir, "manifest.json"), JSON.stringify(stale));
+    await expect(
+      runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root }),
+    ).rejects.toThrow(/baseline skill hash/);
+    expect(await readAttempts(dir)).toEqual([]);
+  });
+
+  test("an id outside the experiments root is refused; an existing copy is never replaced", async () => {
+    const root = await makeTempDir("bench-exp");
+    const experiments = join(root, "experiments");
+    await mkdir(experiments, { recursive: true });
+    const victim = join(root, "victim", "baseline-skill");
+    await mkdir(victim, { recursive: true });
+    await writeFile(join(victim, "keep.txt"), "keep\n");
+    const escaped = join(root, "escaped");
+    await mkdir(escaped);
+    await writeFile(join(escaped, "keep.txt"), "keep\n");
+    await symlink(escaped, join(experiments, "linked"), "dir");
+    const a = adapter(async () => ({}));
+    const opts = {
+      harness: "claude-code" as const,
+      model: "m",
+      conditions: ["with-skill", "baseline-skill"] as Condition[],
+      baseline: "HEAD",
+      pairs: 1,
+      scenarios: [CLAIM],
+      timeoutS: 10,
+    };
+    await expect(
+      createExperiment({ ...opts, id: "../victim" }, deps(a, experiments)),
+    ).rejects.toThrow(/experiment id/);
+    await expect(createExperiment({ ...opts, id: "linked" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
+    await mkdir(join(experiments, "stale"), { recursive: true });
+    await writeFile(join(experiments, "stale", "keep.txt"), "keep\n");
+    await expect(createExperiment({ ...opts, id: "stale" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
+    const leftover = join(experiments, "b6", "baseline-skill");
+    await mkdir(leftover, { recursive: true });
+    await writeFile(join(leftover, "keep.txt"), "keep\n");
+    await expect(createExperiment({ ...opts, id: "b6" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
+    expect(await readFile(join(victim, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await readFile(join(escaped, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await readFile(join(leftover, "keep.txt"), "utf8")).toBe("keep\n");
+  });
+
+  test("baseline-skill needs --baseline, --baseline needs baseline-skill, and the ref must exist", async () => {
+    const root = await makeTempDir("bench-exp");
+    const a = adapter(async () => ({}));
+    const base = {
+      harness: "claude-code" as const,
+      model: "m",
+      pairs: 1,
+      scenarios: [CLAIM],
+      timeoutS: 10,
+    };
+    await expect(
+      createExperiment(
+        { ...base, id: "b3", conditions: ["with-skill", "baseline-skill"] },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/needs --baseline/);
+    await expect(
+      createExperiment(
+        { ...base, id: "b4", conditions: ["with-skill", "without-skill"], baseline: "HEAD" },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/needs --baseline/);
+    await expect(
+      createExperiment(
+        {
+          ...base,
+          id: "b5",
+          conditions: ["with-skill", "baseline-skill"],
+          baseline: "no-such-ref-xyz",
+        },
+        deps(a, root),
+      ),
+    ).rejects.toThrow(/is not a commit/);
   });
 });
