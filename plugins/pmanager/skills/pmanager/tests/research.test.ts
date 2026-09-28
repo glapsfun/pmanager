@@ -15,6 +15,8 @@ import {
   probeHistoryGrep,
   probeMemory,
   probeTests,
+  prunedLine,
+  type ResearchReport,
   rankFiles,
 } from "../scripts/research";
 import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
@@ -280,6 +282,28 @@ describe("buildResearch + formatResearch", () => {
     expect(scoped.probes.files.lines.join("\n")).not.toContain("schema.sql");
     expect(scoped.probes.docs.total).toBe(0);
     expect(formatResearch(scoped).split("\n")[0]).toContain("paths: app/app.py");
+  });
+  test("a pruned line follows the header only when something was pruned", () => {
+    const empty = { lines: [], shown: 0, total: 0 };
+    const r: ResearchReport = {
+      repo: "/r",
+      ref: "abc1234",
+      keywords: ["orders"],
+      paths: [],
+      durationMs: 5,
+      probes: { files: empty, history: empty, docs: empty, memory: empty, tests: empty, gh: empty },
+    };
+    const plain = formatResearch(r);
+    expect(formatResearch({ ...r, pruned: null })).toBe(plain);
+    const zero = { import: 0, data: 0, budget: 0, budgetTokens: 1500 };
+    expect(formatResearch({ ...r, pruned: zero })).toBe(plain);
+    const counts = { import: 31, data: 12, budget: 21, budgetTokens: 1500 };
+    const line = "pruned: 64 lines (import 31, data 12, budget 21) · --full shows all";
+    expect(prunedLine(counts)).toBe(line);
+    const lines = formatResearch({ ...r, pruned: counts }).split("\n");
+    expect(lines[0]).toBe(plain.split("\n")[0] as string);
+    expect(lines[1]).toBe(line);
+    expect(prunedLine(null)).toBeNull();
   });
   test("limit truncation is visible in the section header", async () => {
     const dir = await seededRepo({
