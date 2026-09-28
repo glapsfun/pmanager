@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { release, remoteEpicOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
@@ -262,6 +262,38 @@ describe("draftClaim", () => {
       expect(r.message).toContain("git push origin pm/csv-export");
     }
     expect(await holds(a)).toEqual({ worktree: true, branch: true });
+  });
+
+  test("a draft released without --abandon can still be abandoned, once", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const opts = { harness: "claude-code", today: "2026-09-29" };
+    const plain = await release(a, "csv-export", opts);
+    expect(plain.ok).toBe(true);
+    expect(plain.message).toBe(
+      "csv-export released; its draft stays on pm/csv-export (release --abandon drops it)",
+    );
+    const dropped = await release(a, "csv-export", { ...opts, abandon: true });
+    expect(dropped.ok).toBe(true);
+    await fetchOrigin(b);
+    expect((await remoteEpicOf(b, "csv-export"))?.status).toBe("abandoned");
+    const again = await release(a, "csv-export", { ...opts, abandon: true });
+    expect(again.ok).toBe(false);
+    expect(again.reason).toBe("unclaimed");
+    expect(again.message).toBe("csv-export is already abandoned");
+  });
+
+  test("a forced abandon records whose claim it overrode", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const opts = { harness: "pi", today: "2026-09-29", abandon: true };
+    expect((await release(a, "csv-export", opts)).reason).toBe("not-owner");
+    expect((await release(a, "csv-export", { ...opts, force: true })).ok).toBe(true);
+    const logDir = join(worktreePath(a, "csv-export"), "docs/pm/log");
+    const logs = await Promise.all(
+      (await readdir(logDir)).map((n) => readFile(join(logDir, n), "utf8")),
+    );
+    expect(logs.join("\n")).toContain("abandoned by pi (forced, was claude-code)");
   });
 
   test("release --abandon marks the draft abandoned, keeps the branch, frees the idea", async () => {

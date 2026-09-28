@@ -342,26 +342,28 @@ export async function release(
   // The remote claim record is authoritative; fall back to the local file
   // only when the branch has never been pushed.
   const remote = await remoteEpicOf(root, slug);
-  const owner =
-    remote !== null
-      ? remote.session
-      : (await localEpicExists(target, slug))
-        ? sessionOf(
-            parseDoc(epicRel(slug), await readFile(join(target, epicRel(slug)), "utf8"))
-              .frontmatter,
-          )
-        : null;
-  if (owner === null) {
+  const local =
+    remote === null && (await localEpicExists(target, slug))
+      ? parseDoc(epicRel(slug), await readFile(join(target, epicRel(slug)), "utf8")).frontmatter
+      : null;
+  const owner = remote !== null ? remote.session : local ? sessionOf(local) : null;
+  const status = remote?.status ?? (local ? getString(local, "status") : undefined);
+  if (opts.abandon && status === "abandoned") {
+    return { ok: false, reason: "unclaimed", message: `${slug} is already abandoned` };
+  }
+  // an unowned epic can still be abandoned: there is no owner to override
+  if (owner === null && !(opts.abandon && (remote !== null || local !== null))) {
     return { ok: false, reason: "unclaimed", message: `${slug} is already unclaimed` };
   }
-  if (owner.harness !== opts.harness && !opts.force) {
+  if (owner !== null && owner.harness !== opts.harness && !opts.force) {
     return {
       ok: false,
       reason: "not-owner",
       message: `${slug} is owned by ${owner.harness} (claimed ${owner.claimed || "unknown"}), not ${opts.harness}; ask that session to release it, use claim --takeover if status shows [stale], or release --force as a deliberate override`,
     };
   }
-  const forced = owner.harness !== opts.harness;
+  const overridden = owner !== null && owner.harness !== opts.harness ? owner.harness : null;
+  const forced = overridden !== null;
   const paths = [
     await writeSession(target, slug, undefined, opts.today, opts.abandon ? "abandoned" : undefined),
   ];
@@ -371,7 +373,7 @@ export async function release(
       slug,
       opts.today,
       `force-released by ${opts.harness}`,
-      `claim by ${owner.harness} overridden`,
+      `claim by ${overridden} overridden`,
     );
     if (planPath) paths.push(planPath);
   }
@@ -382,9 +384,11 @@ export async function release(
       harness: opts.harness,
       kind: "release",
       message: opts.abandon
-        ? `abandoned by ${opts.harness}`
+        ? forced
+          ? `abandoned by ${opts.harness} (forced, was ${overridden})`
+          : `abandoned by ${opts.harness}`
         : forced
-          ? `force-released by ${opts.harness} (was ${owner.harness})`
+          ? `force-released by ${opts.harness} (was ${overridden})`
           : `released by ${opts.harness}`,
     }),
   );
@@ -395,6 +399,8 @@ export async function release(
   }
   const base = opts.abandon
     ? `${slug} abandoned; branch ${branch} stays so the slug is not reused`
-    : `${slug} released; branch ${branch} still exists until its PR is merged`;
+    : status === "draft"
+      ? `${slug} released; its draft stays on ${branch} (release --abandon drops it)`
+      : `${slug} released; branch ${branch} still exists until its PR is merged`;
   return { ok: true, message: base, worktree: wt?.path ?? null };
 }
