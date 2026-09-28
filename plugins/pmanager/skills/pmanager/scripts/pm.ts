@@ -333,7 +333,16 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
   try {
     repo = await loadPmRepo(root);
   } catch {
-    return fail(`no docs/pm directory under ${root} (expected ${join(root, PM_DIR)})`);
+    // a draft lives only in its worktree, so a cold-start checkout still has no docs/pm
+    const perEpic = ["status", "release", "handoff", "verify", "claim"].includes(args.cmd);
+    const inWorktree =
+      (args.cmd === "render" || args.cmd === "check") &&
+      Boolean(args.epic) &&
+      (await targetRoot(root, args)) !== root;
+    if (!perEpic && !inWorktree) {
+      return fail(`no docs/pm directory under ${root} (expected ${join(root, PM_DIR)})`);
+    }
+    repo = { root, pmDir: join(root, PM_DIR), epics: [], index: null, memo: null, logs: [] };
   }
 
   switch (args.cmd) {

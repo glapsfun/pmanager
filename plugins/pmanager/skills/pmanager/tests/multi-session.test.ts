@@ -131,6 +131,25 @@ describe("two sessions on one repository", () => {
     expect(none.stdout).toContain("no origin remote");
   });
 
+  test("cold start: follow-up commands work from the checkout after a draft", async () => {
+    const { a } = await remoteWithClones({ "README.md": "# app\n" });
+    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
+    const status = await pm(a, "claude-code", "status");
+    expect(status.code).toBe(0);
+    expect(status.stdout).toContain("csv-export  feature  draft  CSV export for reports");
+    expect((await pm(a, "claude-code", "render", "--epic", "csv-export")).code).toBe(0);
+    const check = await pm(a, "claude-code", "check", "--epic", "csv-export");
+    expect(check.code).toBe(1);
+    expect(check.stdout).toContain("E-STR-002");
+    const released = await pm(a, "claude-code", "release", "csv-export", "--abandon");
+    expect(released.code).toBe(0);
+    expect(released.stdout).toContain("csv-export abandoned");
+    const plain = await pm(a, "claude-code", "render");
+    expect(plain.code).toBe(2);
+    expect(plain.stderr).toContain("no docs/pm directory");
+    expect((await pm(a, "claude-code", "check")).code).toBe(2);
+  });
+
   test("release --abandon through the CLI", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
