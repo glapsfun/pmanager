@@ -28,6 +28,12 @@ export interface Timing {
   max: number;
 }
 
+export interface ResearchSize {
+  fixture: string;
+  fullBytes: number;
+  prunedBytes: number;
+}
+
 export interface ToolBenchLine {
   kind: "tool";
   date: string;
@@ -39,6 +45,7 @@ export interface ToolBenchLine {
   statusMs: Timing;
   checkMs: Timing;
   renderMs: Timing;
+  research?: ResearchSize[];
 }
 
 export type HistoryLine = AgentRunLine | ToolBenchLine;

@@ -24,6 +24,11 @@ never as regular expressions. Run once:
   `docs/pm/.local/repos.json`; a name that is not mapped lowers the epic's
   confidence with that reason recorded. Never clone.
 - `--no-gh` when the ledger already says gh is unavailable.
+- The output is pruned to about 1500 tokens: import lines and data files
+  (lockfiles, `*.jsonl`, `dist/`, minified bundles) go first, then each
+  section keeps its strongest lines. The `pruned:` line says how much was
+  cut. When that could hide what an open question needs, rerun with a
+  narrower `--path`; use `--full` only when narrowing cannot help.
 
 The output is six sections, every line already in `[source] fact` form:
 `files` (top hits with matching lines), `history` (commits touching those

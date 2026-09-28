@@ -116,3 +116,19 @@ describe("README section", () => {
     expect(await readFile(plain, "utf8")).toBe("# no markers\n");
   });
 });
+
+test("the tool section lists research sizes when the line has them", () => {
+  const withSizes: ToolBenchLine = {
+    ...tool,
+    research: [
+      { fixture: "webshop", fullBytes: 676, prunedBytes: 676 },
+      { fixture: "noisy", fullBytes: 7704, prunedBytes: 5716 },
+    ],
+  };
+  const out = renderReport([withSizes]);
+  expect(out).toContain(
+    "| Research fixture | Full bytes | Full ~tokens | Pruned bytes | Pruned ~tokens |",
+  );
+  expect(out).toContain("| noisy | 7704 | 1926 | 5716 | 1429 |");
+  expect(renderReport([tool])).not.toContain("Research fixture");
+});

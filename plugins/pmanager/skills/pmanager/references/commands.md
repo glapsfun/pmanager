@@ -37,13 +37,18 @@ stands for that full prefix.
 | `release <slug> --harness NAME [--keep-worktree]` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed, then the worktree is removed (`worktree removed: <path>`) — a worktree holding uncommitted work is kept and named instead, as is one released with `--keep-worktree` | exit 1 `owned by …, not <you>`: refuse — only the owning harness releases; the owner must release, or the user asks for `claim --takeover` (stale) or `release --force` (a deliberate override, recorded in the log and plan changelog). exit 1 `already unclaimed`; exit 2 no remote / no branch |
 | `handoff <slug> <task-id>` | user says "pick up T03", "brief for T02 of …" | exit 0; the brief on stdout — paste it to the executing agent or user, write nothing | exit 2 unknown epic/task: check `status` for the right ids |
 | `verify <slug> <task-id> [--repo NAME\|PATH] [--since REF] [--files P]... [--limit N] [--json]` | Update mode, on every `done` claim, before checking any box | exit 0; header `verify: <slug> <id> · repos: … · since <date> (<sha>, <rule>)`, then each acceptance criterion with its evidence lines and a label (`evidence: N lines`, `no evidence in scope`, `needs measurement`, `already checked · …`), then `unattributed`, `scope`, `gaps`, `errors` | exit 2: unknown epic or task, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
-| `research <keyword>... [--path P]... [--repo NAME\|PATH] [--limit N] [--no-gh] [--json]` | Phase 2, first thing; again with narrower keywords or paths per open question | exit 0; header `research: <repo> @ <sha> · keywords: … · paths: …`, then `files`, `history`, `docs`, `memory`, `tests`, `gh` sections of `[source] fact` lines; a probe that failed prints one line (`gh: unavailable (not installed)`) | exit 2: no keywords, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
+| `research <keyword>... [--path P]... [--repo NAME\|PATH] [--limit N] [--budget N] [--full] [--no-gh] [--json]` | Phase 2, first thing; again with narrower keywords or paths per open question | exit 0; header `research: <repo> @ <sha> · keywords: … · paths: …`, then `pruned: N lines (import …, data …, budget …)` when anything was cut, then `files`, `history`, `docs`, `memory`, `tests`, `gh` sections of `[source] fact` lines; a probe that failed prints one line (`gh: unavailable (not installed)`) | exit 2: no keywords, bad `--limit`, `--budget` below 300, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
 
 Always pass `--harness <name>` with your harness (`claude-code`, `pi`,
 `codex`, `gemini-cli`, `copilot`); the default is only a guess.
 
 `research` never writes; it works before `docs/pm` exists (cold start), where
 its `memory` section is simply empty.
+
+`research` prints about `--budget` estimated tokens (default 1500). It drops
+import lines and data files (lockfiles, `*.jsonl`, `*.csv`, `dist/`,
+`vendor/`, minified bundles) first, then keeps up to three lines per section
+and fills the rest by rank. `--full` prints every probe line.
 
 A claimed epic's documents live in a git worktree at `<repo>-pm-<slug>`, a
 sibling of the orchestration repo: `claim` creates it, `release` removes it,

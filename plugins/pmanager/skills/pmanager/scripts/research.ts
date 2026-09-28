@@ -403,6 +403,13 @@ export interface ResearchOptions {
   ghTimeoutMs?: number;
 }
 
+export interface PruneCounts {
+  import: number;
+  data: number;
+  budget: number;
+  budgetTokens: number;
+}
+
 export interface ResearchReport {
   repo: string;
   ref: string;
@@ -417,6 +424,8 @@ export interface ResearchReport {
     tests: ProbeResult;
     gh: ProbeResult;
   };
+  /** set by the CLI: prune() counts, or null under --full */
+  pruned?: PruneCounts | null;
 }
 
 /** Two concurrent stages; every probe reports its own failure, so nothing here throws. */
@@ -472,11 +481,22 @@ export async function buildResearch(opts: ResearchOptions): Promise<ResearchRepo
   };
 }
 
-export function formatResearch(r: ResearchReport): string {
+export function researchHeader(r: ResearchReport): string {
   const paths = r.paths.length > 0 ? r.paths.join(", ") : "(all)";
-  const out = [
-    `research: ${r.repo} @ ${r.ref} · keywords: ${r.keywords.join(", ")} · paths: ${paths} · ${r.durationMs}ms`,
-  ];
+  return `research: ${r.repo} @ ${r.ref} · keywords: ${r.keywords.join(", ")} · paths: ${paths} · ${r.durationMs}ms`;
+}
+
+export function prunedLine(p: PruneCounts | null | undefined): string | null {
+  if (!p) return null;
+  const n = p.import + p.data + p.budget;
+  if (n === 0) return null;
+  return `pruned: ${n} lines (import ${p.import}, data ${p.data}, budget ${p.budget}) · --full shows all`;
+}
+
+export function formatResearch(r: ResearchReport): string {
+  const out = [researchHeader(r)];
+  const pruned = prunedLine(r.pruned);
+  if (pruned) out.push(pruned);
   for (const [name, p] of Object.entries(r.probes)) {
     if (p.error) out.push(`${name}: ${p.error}`);
     else if (p.total === 0) out.push(`${name}: none`);

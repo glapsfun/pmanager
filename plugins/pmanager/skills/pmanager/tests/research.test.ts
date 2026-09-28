@@ -15,8 +15,11 @@ import {
   probeHistoryGrep,
   probeMemory,
   probeTests,
+  prunedLine,
+  type ResearchReport,
   rankFiles,
 } from "../scripts/research";
+import { buildNoisyRepo } from "./fixtures/build-noisy";
 import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 async function seededRepo(files: Record<string, string>, message = "seed"): Promise<string> {
@@ -281,6 +284,28 @@ describe("buildResearch + formatResearch", () => {
     expect(scoped.probes.docs.total).toBe(0);
     expect(formatResearch(scoped).split("\n")[0]).toContain("paths: app/app.py");
   });
+  test("a pruned line follows the header only when something was pruned", () => {
+    const empty = { lines: [], shown: 0, total: 0 };
+    const r: ResearchReport = {
+      repo: "/r",
+      ref: "abc1234",
+      keywords: ["orders"],
+      paths: [],
+      durationMs: 5,
+      probes: { files: empty, history: empty, docs: empty, memory: empty, tests: empty, gh: empty },
+    };
+    const plain = formatResearch(r);
+    expect(formatResearch({ ...r, pruned: null })).toBe(plain);
+    const zero = { import: 0, data: 0, budget: 0, budgetTokens: 1500 };
+    expect(formatResearch({ ...r, pruned: zero })).toBe(plain);
+    const counts = { import: 31, data: 12, budget: 21, budgetTokens: 1500 };
+    const line = "pruned: 64 lines (import 31, data 12, budget 21) · --full shows all";
+    expect(prunedLine(counts)).toBe(line);
+    const lines = formatResearch({ ...r, pruned: counts }).split("\n");
+    expect(lines[0]).toBe(plain.split("\n")[0] as string);
+    expect(lines[1]).toBe(line);
+    expect(prunedLine(null)).toBeNull();
+  });
   test("limit truncation is visible in the section header", async () => {
     const dir = await seededRepo({
       "a/x1.py": "orders\n",
@@ -434,6 +459,29 @@ describe("pm research (cli)", () => {
     expect(r.stdout).toContain("[src/orders.ts:1]");
     expect(r.stdout).toContain("memory: none");
     expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+  });
+  test("output is pruned by default; --full prints everything; --budget below 300 is usage", async () => {
+    const dir = await makeTempDir("research-cli-noisy");
+    await buildNoisyRepo(dir);
+    const kw = ["research", "invoice", "retry", "--no-gh"];
+    const pruned = await runPm(kw, dir);
+    expect(pruned.code).toBe(0);
+    expect(pruned.stdout.split("\n")[1]).toMatch(
+      /^pruned: \d+ lines \(import 4, data 6, budget \d+\) · --full shows all$/,
+    );
+    expect(pruned.stdout).not.toContain("data/invoices.jsonl");
+    const full = await runPm([...kw, "--full"], dir);
+    expect(full.stdout).toContain("[data/invoices.jsonl:1]");
+    expect(full.stdout).not.toContain("pruned:");
+    expect(JSON.parse((await runPm([...kw, "--full", "--json"], dir)).stdout).pruned).toBeNull();
+    expect(JSON.parse((await runPm([...kw, "--json"], dir)).stdout).pruned).toMatchObject({
+      import: 4,
+      data: 6,
+      budgetTokens: 1500,
+    });
+    const tight = await runPm([...kw, "--budget", "300"], dir);
+    expect(tight.stdout.length).toBeLessThan(pruned.stdout.length);
+    expect((await runPm(["research", "invoice", "--budget", "299"], dir)).code).toBe(2);
   });
   test("--repo resolves a mapped name, a path, and rejects unknown names", async () => {
     const root = await orchestrationRepo();
