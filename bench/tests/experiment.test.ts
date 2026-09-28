@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
+import type { BaselineInfo } from "../baseline";
 import {
   createExperiment,
   planAttempts,
@@ -254,11 +255,12 @@ describe("experiment lifecycle", () => {
 });
 
 describe("baseline experiments", () => {
-  test("create extracts the committed skill and pins ref, sha and hash; run installs it", async () => {
+  test("create pins ref, sha and hash; run installs the committed skill from a temp copy", async () => {
     const root = await makeTempDir("bench-exp");
-    const seenArgs: string[][] = [];
+    const installed: Record<string, string> = {};
     const a = adapter(async (o) => {
-      seenArgs.push(o.extraArgs ?? []);
+      const cond = (o.extraArgs ?? []).find((x) => x.startsWith("--cond=")) ?? "";
+      installed[cond] = await readFile(join(o.cwd, ".agents/skills/pmanager/SKILL.md"), "utf8");
       return {};
     });
     const m = await createExperiment(
@@ -279,21 +281,23 @@ describe("baseline experiments", () => {
     expect(m.baseline?.sha).toBe(head);
     expect(m.baseline?.skillHash.startsWith("sha256:")).toBe(true);
     const dir = join(root, "b1");
+    // no copy lives next to the manifest, where the bench's own lint, typecheck and tests would find it
+    expect(await stat(join(dir, "baseline-skill")).catch(() => null)).toBeNull();
+
+    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
+    expect(r).toEqual({ ran: 2, remaining: 0 });
     const committed = await gitOk(
       ["show", `${head}:plugins/pmanager/skills/pmanager/SKILL.md`],
       REPO_ROOT,
     );
-    expect(await readFile(join(dir, "baseline-skill", "SKILL.md"), "utf8")).toBe(committed);
-
-    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
-    expect(r).toEqual({ ran: 2, remaining: 0 });
-    expect(seenArgs.flat()).toContain("--cond=baseline-skill");
+    expect(installed["--cond=baseline-skill"]).toBe(committed);
+    expect((await readdir(root)).filter((n) => n.startsWith("pm-bench-baseline-"))).toEqual([]);
   });
 
-  test("a tampered copy is refused, a missing copy is re-extracted", async () => {
+  test("a manifest whose baseline hash no longer matches is refused", async () => {
     const root = await makeTempDir("bench-exp");
     const a = adapter(async () => ({}));
-    await createExperiment(
+    const m = await createExperiment(
       {
         id: "b2",
         harness: "claude-code",
@@ -307,14 +311,15 @@ describe("baseline experiments", () => {
       deps(a, root),
     );
     const dir = join(root, "b2");
-    const copy = join(dir, "baseline-skill");
-    await writeFile(join(copy, "SKILL.md"), "tampered\n");
+    const stale = {
+      ...m,
+      baseline: { ...(m.baseline as BaselineInfo), skillHash: "sha256:stale" },
+    };
+    await writeFile(join(dir, "manifest.json"), JSON.stringify(stale));
     await expect(
       runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root }),
     ).rejects.toThrow(/baseline skill hash/);
-    await rm(copy, { recursive: true, force: true });
-    const r = await runExperiment(dir, { adapter: a, env: { PATH: "" }, home: root, tmp: root });
-    expect(r).toEqual({ ran: 2, remaining: 0 });
+    expect(await readAttempts(dir)).toEqual([]);
   });
 
   test("an id outside the experiments root is refused; an existing copy is never replaced", async () => {

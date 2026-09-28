@@ -5,10 +5,11 @@ import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
 import {
-  BASELINE_DIR,
+  type BaselineCopy,
   type BaselineInfo,
   baselineProblem,
-  extractSkill,
+  extractBaseline,
+  hashProblem,
   resolveCommit,
 } from "./baseline";
 import { installContract, renderContract } from "./contract";
@@ -230,8 +231,9 @@ export async function createExperiment(
   let baseline: BaselineInfo | undefined;
   if (opts.baseline) {
     const sha = await resolveCommit(opts.baseline);
-    const skillHash = await extractSkill(sha, join(dir, BASELINE_DIR));
-    baseline = { ref: opts.baseline, sha, skillHash };
+    const copy = await extractBaseline(sha);
+    await copy.remove();
+    baseline = { ref: opts.baseline, sha, skillHash: copy.hash };
   }
   const manifest: Manifest = {
     schemaVersion: 1,
@@ -285,11 +287,7 @@ export async function readAttempts(dir: string): Promise<AttemptRecord[]> {
 }
 
 /** Everything the manifest pinned must still hold before more attempts join the same experiment. */
-export async function validateManifest(
-  m: Manifest,
-  adapter: Adapter,
-  dir?: string,
-): Promise<string[]> {
+export async function validateManifest(m: Manifest, adapter: Adapter): Promise<string[]> {
   const problems: string[] = [];
   const d = await adapter.detect();
   const version = d.version ?? "unknown";
@@ -317,8 +315,8 @@ export async function validateManifest(
       );
     }
   }
-  if (m.baseline && dir) {
-    const problem = await baselineProblem(dir, m.baseline);
+  if (m.baseline) {
+    const problem = await baselineProblem(m.baseline);
     if (problem) problems.push(problem);
   }
   return problems;
@@ -356,7 +354,7 @@ export async function runExperiment(
   deps: RunDeps,
 ): Promise<{ ran: number; remaining: number }> {
   const m = await readManifest(dir);
-  const problems = await validateManifest(m, deps.adapter, dir);
+  const problems = await validateManifest(m, deps.adapter);
   if (problems.length) {
     throw new Error(
       `experiment ${m.id} inputs changed since it was created:\n  ${problems.join("\n  ")}`,
@@ -369,10 +367,16 @@ export async function runExperiment(
     await rm(isoTmp, { recursive: true, force: true });
     throw new Error("isolation unavailable; refusing a two-condition experiment");
   }
+  let baseline: BaselineCopy | null = null;
   const reasoningArgs =
     m.reasoning && m.harness === "codex" ? ["-c", `model_reasoning_effort=${m.reasoning}`] : [];
   let ran = 0;
   try {
+    if (m.baseline) {
+      baseline = await extractBaseline(m.baseline.sha, deps.tmp);
+      const problem = hashProblem(m.baseline, baseline.hash);
+      if (problem) throw new Error(problem);
+    }
     for (const p of todo) {
       const scenario = scenarioByName(p.scenario);
       const entry = m.scenarios.find((s) => s.name === p.scenario);
@@ -400,7 +404,7 @@ export async function runExperiment(
         keep: false,
         expectedFixtureHash: entry.fixtureHash,
         artifactsDir,
-        skillDir: p.condition === "baseline-skill" ? join(dir, BASELINE_DIR) : undefined,
+        skillDir: p.condition === "baseline-skill" ? baseline?.dir : undefined,
       });
       const resolved = r.outcome?.telemetry.model ?? null;
       const mismatch = resolved !== null && resolved !== m.modelRequested;
@@ -430,6 +434,7 @@ export async function runExperiment(
       ran++;
     }
   } finally {
+    await baseline?.remove();
     await iso?.cleanup();
     await rm(isoTmp, { recursive: true, force: true });
   }

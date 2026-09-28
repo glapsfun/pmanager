@@ -13,7 +13,13 @@ export interface BaselineInfo {
 }
 
 export const SKILL_REL = "plugins/pmanager/skills/pmanager";
-export const BASELINE_DIR = "baseline-skill";
+
+/** A fresh extraction outside the repository; `remove()` deletes only what it created. */
+export interface BaselineCopy {
+  dir: string;
+  hash: string;
+  remove(): Promise<void>;
+}
 
 export async function resolveCommit(ref: string, root = REPO_ROOT): Promise<string> {
   const r = await git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], root);
@@ -47,21 +53,36 @@ export async function extractSkill(sha: string, dest: string, root = REPO_ROOT):
   }
 }
 
-/** The copy is gitignored, so a missing one is re-extracted before it is compared. */
-export async function baselineProblem(
-  experimentDir: string,
-  b: BaselineInfo,
-): Promise<string | null> {
-  const dest = join(experimentDir, BASELINE_DIR);
-  let hash: string;
+/**
+ * Extracts the skill at `sha` into a new temp directory. Kept out of the repository so the bench's
+ * own lint, typecheck and tests never see an old skill's config and test files.
+ */
+export async function extractBaseline(sha: string, tmp = tmpdir()): Promise<BaselineCopy> {
+  const parent = await mkdtemp(join(tmp, "pm-bench-baseline-"));
+  const remove = () => rm(parent, { recursive: true, force: true });
   try {
-    hash = (await exists(dest))
-      ? await hashTree(dest, SKILL_SKIP)
-      : await extractSkill(b.sha, dest);
+    const dir = join(parent, "skill");
+    return { dir, hash: await extractSkill(sha, dir), remove };
   } catch (e) {
-    return `baseline skill at ${b.sha} unavailable: ${(e as Error).message}`;
+    await remove();
+    throw e;
   }
+}
+
+export function hashProblem(b: BaselineInfo, hash: string): string | null {
   return hash === b.skillHash
     ? null
     : `baseline skill hash ${hash} differs from manifest ${b.skillHash}`;
+}
+
+/** Re-extracts the pinned commit and compares it with the manifest; leaves nothing behind. */
+export async function baselineProblem(b: BaselineInfo, tmp = tmpdir()): Promise<string | null> {
+  let copy: BaselineCopy;
+  try {
+    copy = await extractBaseline(b.sha, tmp);
+  } catch (e) {
+    return `baseline skill at ${b.sha} unavailable: ${(e as Error).message}`;
+  }
+  await copy.remove();
+  return hashProblem(b, copy.hash);
 }
