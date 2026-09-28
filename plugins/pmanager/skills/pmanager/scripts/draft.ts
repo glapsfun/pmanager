@@ -19,8 +19,6 @@ import { type EpicSummary, findLookAlikes, formatLookAlike } from "./lookalike";
 import { loadPmRepo, PM_DIR } from "./repo";
 import { ensureWorktree, removeWorktree } from "./worktree";
 
-export const EPIC_TYPES = ["bug", "feature", "tech-debt", "initiative"] as const;
-
 export interface DraftOptions {
   harness: string;
   today: string;

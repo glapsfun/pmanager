@@ -2,6 +2,8 @@
 import { join } from "node:path";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
+import { EPIC_TYPES } from "./contract";
+import { draftClaim } from "./draft";
 import { countBySeverity, formatFindings } from "./findings";
 import {
   commitPaths,
@@ -27,7 +29,10 @@ commands
   render [--migrate] [--epic SLUG]
                                 regenerate INDEX.md, plan task tables, memo log
   claim <slug> [--takeover]     claim an epic in the worktree <repo>-pm-<slug> and push it
-  release <slug> [--force]      release an epic you own (clears session, pushes, removes its worktree)
+  claim <slug> --draft --title T --type TYPE [--distinct]
+                                reserve a slug at Phase 1: stub epic in its own worktree, pushed
+  release <slug> [--force] [--abandon]
+                                release an epic you own (clears session, pushes, removes its worktree)
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
@@ -48,6 +53,10 @@ flags
   --no-worktree                 claim/release: switch the current checkout instead of using a worktree
   --keep-worktree               release: leave the epic's worktree in place
   --epic SLUG                   render/check: act in that epic's worktree
+  --title T                     claim --draft: the epic's one-line title
+  --type TYPE                   claim --draft: bug | feature | tech-debt | initiative
+  --distinct                    claim --draft: proceed although an existing epic looks like the same work
+  --abandon                     release: mark the epic abandoned (drafts that will not be framed)
   --since REF                   verify: lower bound of the inspected window (default: task updated, else epic created)
   --files P                     verify: extra path to inspect, relative to each repo root (repeatable)
 
@@ -74,6 +83,11 @@ export interface Args {
   noWorktree: boolean;
   keepWorktree: boolean;
   epic?: string;
+  draft: boolean;
+  title?: string;
+  type?: string;
+  distinct: boolean;
+  abandon: boolean;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -102,12 +116,26 @@ export function parseArgs(argv: string[]): Args | null {
     files: [],
     noWorktree: false,
     keepWorktree: false,
+    draft: false,
+    distinct: false,
+    abandon: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] ?? "";
     if (a === "--json") args.json = true;
     else if (a === "--takeover") args.takeover = true;
-    else if (a === "--force") args.force = true;
+    else if (a === "--draft") args.draft = true;
+    else if (a === "--distinct") args.distinct = true;
+    else if (a === "--abandon") args.abandon = true;
+    else if (a === "--title") {
+      const t = argv[++i];
+      if (!t) return null;
+      args.title = t;
+    } else if (a === "--type") {
+      const t = argv[++i];
+      if (!t) return null;
+      args.type = t;
+    } else if (a === "--force") args.force = true;
     else if (a === "--migrate") args.migrate = true;
     else if (a === "--stale-days") {
       const n = Number.parseInt(argv[++i] ?? "", 10);
@@ -260,12 +288,45 @@ async function runResearch(root: string, args: Args): Promise<number> {
   return 0;
 }
 
+async function runDraft(root: string, args: Args): Promise<number> {
+  const slug = args.positional[0];
+  const types: readonly string[] = EPIC_TYPES;
+  if (!slug || !args.title || !types.includes(args.type ?? "") || args.takeover) {
+    return fail(USAGE);
+  }
+  const result = await draftClaim(root, slug, {
+    harness: args.harness,
+    today: today(),
+    title: args.title,
+    type: args.type as string,
+    distinct: args.distinct,
+    noWorktree: args.noWorktree,
+  });
+  const render = result.ok
+    ? await renderAndCommit(root, slug, "reserve")
+    : { written: [], pushed: true };
+  const failure = result.ok && !render.pushed ? renderPushFailure(slug, render) : "";
+  out(
+    args.json
+      ? json({
+          ...result,
+          rendered: render.written,
+          renderPush: { ok: render.pushed, error: render.error },
+        })
+      : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}\n${failure}`,
+  );
+  if (result.ok) return render.pushed ? 0 : 1;
+  return result.reason === "no-remote" || result.reason === "worktree" ? 2 : 1;
+}
+
 export async function main(argv: string[], cwd = process.cwd()): Promise<number> {
   const args = parseArgs(argv);
   if (!args) return fail(USAGE);
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
   if (args.cmd === "research") return runResearch(root, args);
+  // a reservation comes before any docs/pm exists on a cold start
+  if (args.cmd === "claim" && args.draft) return runDraft(root, args);
   const opts = { staleDays: args.staleDays, today: today() };
 
   let repo: PmRepo;
@@ -335,6 +396,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         today: opts.today,
         force: args.force,
         noWorktree: args.noWorktree,
+        abandon: args.abandon,
       });
       const render = result.ok
         ? await renderAndCommit(root, slug, "release")
