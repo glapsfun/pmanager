@@ -30,6 +30,30 @@ describe("isFramingWrite", () => {
     );
     expect(isFramingWrite({ tool: "Bash", command: `${pm} claim csv-export` })).toBe(true);
     expect(isFramingWrite({ tool: "Bash", command: `${pm} render --epic csv-export` })).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type feature && ${pm} render --epic x`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type bug; ${pm} claim y`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type bug && cat > docs/pm/x/epic.md <<'EOF'\n---\nEOF`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} status && ${pm} claim x --draft --title "T" --type bug`,
+      }),
+    ).toBe(false);
   });
 
   test("shell commands that write under docs/pm, and ones that only read it", () => {
