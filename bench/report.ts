@@ -155,12 +155,26 @@ function renderTool(tools: ToolBenchLine[]): string[] {
     day(cur.date),
     cur.sha,
   ].join(" | ");
-  return [
+  const out = [
     "| Epics | Tasks | Iterations | status median/max | Δ | check median/max | Δ | render median/max | Δ | Date | Sha |",
     "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :--- | :--- |",
     `| ${row} |`,
     "",
   ];
+  if (cur.research?.length) {
+    // same estimate as scripts/prune.ts: a quarter of the characters
+    const tok = (bytes: number) => Math.ceil(bytes / 4);
+    out.push(
+      "| Research fixture | Full bytes | Full ~tokens | Pruned bytes | Pruned ~tokens |",
+      "| :--- | ---: | ---: | ---: | ---: |",
+      ...cur.research.map(
+        (s) =>
+          `| ${s.fixture} | ${s.fullBytes} | ${tok(s.fullBytes)} | ${s.prunedBytes} | ${tok(s.prunedBytes)} |`,
+      ),
+      "",
+    );
+  }
+  return out;
 }
 
 function renderHistory(agents: AgentRunLine[]): string[] {

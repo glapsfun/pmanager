@@ -35,8 +35,13 @@ describe("microbench", () => {
       expect(r[k].median).toBeGreaterThanOrEqual(0);
       expect(r[k].max).toBeGreaterThanOrEqual(r[k].median);
     }
+    expect(r.research.map((s) => s.fixture)).toEqual(["webshop", "noisy"]);
+    for (const s of r.research) expect(s.prunedBytes).toBeLessThanOrEqual(s.fullBytes);
+    const noisy = r.research.find((s) => s.fixture === "noisy");
+    expect(noisy && noisy.prunedBytes < noisy.fullBytes).toBe(true);
     const line = toToolLine(r, { sha: "abc1234", skillVersion: "0.2.0" });
     expect(line.kind).toBe("tool");
     expect(line.tasks).toBe(6);
+    expect(line.research).toEqual(r.research);
   });
 });

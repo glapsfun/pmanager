@@ -3,7 +3,7 @@
 Measures how effectively the pmanager skill does its job, on any harness with a headless mode.
 
 - `bun run bench.ts run --harness <claude-code|codex|pi> [--model <id>] [--scenario <name>]... [--runs N] [--timeout-s N] [--keep]` runs the agent suite: each scenario builds a fixture repo, links the skill from this working tree into it, launches the harness with a fixed prompt, then scores the fixture with deterministic graders. Costs API money.
-- `bun run bench.ts tool [--epics N] [--tasks N] [--iterations N]` times `status`, `check`, and `render` on a synthetic `docs/pm`. Free.
+- `bun run bench.ts tool [--epics N] [--tasks N] [--iterations N]` times `status`, `check`, and `render` on a synthetic `docs/pm`, and records `pm research` output size, unpruned and at the default budget, on the webshop and noisy fixtures. Free.
 - `bun run bench.ts report` regenerates `BENCH.md` from `results/history.jsonl`.
 
 Scores come only from disk. Token columns use one definition on every harness: `input` is the uncached part of the prompt, cache reads and writes are separate (Codex reports cached tokens inside its input count, so the adapter subtracts them). Tokens, cost, turns, and tool calls are recorded when the harness reports them and stored as `null` otherwise. Numbers are comparable only within one harness and model.

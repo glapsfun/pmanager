@@ -2,11 +2,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check } from "../../plugins/pmanager/skills/pmanager/scripts/check";
+import { prune } from "../../plugins/pmanager/skills/pmanager/scripts/prune";
 import { applyRender } from "../../plugins/pmanager/skills/pmanager/scripts/render";
 import { loadPmRepo } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
+import {
+  buildResearch,
+  formatResearch,
+} from "../../plugins/pmanager/skills/pmanager/scripts/research";
 import { buildStatus, formatStatus } from "../../plugins/pmanager/skills/pmanager/scripts/status";
+import { RESEARCH_FIXTURES } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/research-fixtures";
 import { CHECK_OPTS } from "../graders/context";
-import type { Timing, ToolBenchLine } from "../history";
+import type { ResearchSize, Timing, ToolBenchLine } from "../history";
 import { generatePmRepo } from "./generate";
 
 export interface MicrobenchOptions {
@@ -22,6 +28,7 @@ export interface MicrobenchResult {
   statusMs: Timing;
   checkMs: Timing;
   renderMs: Timing;
+  research: ResearchSize[];
 }
 
 export function median(values: number[]): number {
@@ -39,6 +46,33 @@ async function timed(fn: () => Promise<unknown>): Promise<number> {
   const t0 = performance.now();
   await fn();
   return performance.now() - t0;
+}
+
+/** pm research output size on each research fixture, unpruned and at the default budget */
+export async function researchSizes(): Promise<ResearchSize[]> {
+  const out: ResearchSize[] = [];
+  for (const f of RESEARCH_FIXTURES) {
+    const dir = await mkdtemp(join(tmpdir(), `pm-microbench-${f.name}-`));
+    try {
+      await f.build(dir);
+      const r = await buildResearch({
+        root: dir,
+        cwd: dir,
+        keywords: f.keywords,
+        paths: [],
+        limit: 20,
+        gh: false,
+      });
+      out.push({
+        fixture: f.name,
+        fullBytes: Buffer.byteLength(formatResearch({ ...r, pruned: null })),
+        prunedBytes: Buffer.byteLength(formatResearch(prune(r))),
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+  return out;
 }
 
 export async function runMicrobench(opts: MicrobenchOptions): Promise<MicrobenchResult> {
@@ -64,6 +98,7 @@ export async function runMicrobench(opts: MicrobenchOptions): Promise<Microbench
       statusMs: timing(status),
       checkMs: timing(checks),
       renderMs: timing(renders),
+      research: await researchSizes(),
     };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -85,5 +120,6 @@ export function toToolLine(
     statusMs: r.statusMs,
     checkMs: r.checkMs,
     renderMs: r.renderMs,
+    research: r.research,
   };
 }
