@@ -74,7 +74,7 @@ overrides it and the override is recorded.
 "take over X" → `pm claim <slug> --takeover` only when `pm status` shows
 `[stale]`; otherwise tell the user the owner must release. "pick up T03 of
 X" / "brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
-nothing. All three end with a one-line confirmation.
+nothing. Each ends with a one-line confirmation.
 
 ## Write-back (every update run)
 
