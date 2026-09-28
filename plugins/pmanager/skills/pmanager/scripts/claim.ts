@@ -94,6 +94,7 @@ async function writeSession(
   slug: string,
   session: Session | undefined,
   today: string,
+  status?: string,
 ): Promise<string> {
   const path = join(root, epicRel(slug));
   let raw = await readFile(path, "utf8");
@@ -104,6 +105,7 @@ async function writeSession(
       ? { harness: session.harness, claimed: session.claimed, branch: session.branch }
       : undefined,
   );
+  if (status) raw = setFrontmatterKey(raw, "status", status);
   raw = setFrontmatterKey(raw, "updated", today);
   await writeFile(path, raw);
   return path;
@@ -310,7 +312,13 @@ export interface ReleaseOutcome {
 export async function release(
   root: string,
   slug: string,
-  opts: { harness: string; today: string; force?: boolean; noWorktree?: boolean },
+  opts: {
+    harness: string;
+    today: string;
+    force?: boolean;
+    noWorktree?: boolean;
+    abandon?: boolean;
+  },
 ): Promise<ReleaseOutcome> {
   const branch = claimBranch(slug);
   if (!(await hasRemote(root)))
@@ -354,7 +362,9 @@ export async function release(
     };
   }
   const forced = owner.harness !== opts.harness;
-  const paths = [await writeSession(target, slug, undefined, opts.today)];
+  const paths = [
+    await writeSession(target, slug, undefined, opts.today, opts.abandon ? "abandoned" : undefined),
+  ];
   if (forced) {
     const planPath = await appendPlanChangelog(
       target,
@@ -371,16 +381,20 @@ export async function release(
       epic: slug,
       harness: opts.harness,
       kind: "release",
-      message: forced
-        ? `force-released by ${opts.harness} (was ${owner.harness})`
-        : `released by ${opts.harness}`,
+      message: opts.abandon
+        ? `abandoned by ${opts.harness}`
+        : forced
+          ? `force-released by ${opts.harness} (was ${owner.harness})`
+          : `released by ${opts.harness}`,
     }),
   );
-  await commitPaths(target, paths, `docs(pm): release ${slug}`);
+  await commitPaths(target, paths, `docs(pm): ${opts.abandon ? "abandon" : "release"} ${slug}`);
   const push = await pushSetUpstream(target, branch);
   if (push.code !== 0) {
     return { ok: false, reason: "push-failed", message: `push failed: ${push.stderr.trim()}` };
   }
-  const base = `${slug} released; branch ${branch} still exists until its PR is merged`;
+  const base = opts.abandon
+    ? `${slug} abandoned; branch ${branch} stays so the slug is not reused`
+    : `${slug} released; branch ${branch} still exists until its PR is merged`;
   return { ok: true, message: base, worktree: wt?.path ?? null };
 }

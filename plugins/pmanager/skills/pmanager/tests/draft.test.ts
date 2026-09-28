@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { remoteEpicOf } from "../scripts/claim";
+import { release, remoteEpicOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
 import { draftClaim, stubEpic } from "../scripts/draft";
 import { fetchOrigin, gitOk, listRemoteBranches } from "../scripts/git";
@@ -117,5 +117,29 @@ describe("draftClaim", () => {
     ]);
     expect([ra.ok, rb.ok].filter(Boolean)).toHaveLength(1);
     expect(await listRemoteBranches(a, "pm/")).toEqual(["pm/csv-export"]);
+  });
+
+  test("release --abandon marks the draft abandoned, keeps the branch, frees the idea", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const r = await release(a, "csv-export", {
+      harness: "claude-code",
+      today: "2026-09-29",
+      abandon: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain("abandoned");
+    await fetchOrigin(b);
+    const remote = await remoteEpicOf(b, "csv-export");
+    expect(remote?.status).toBe("abandoned");
+    expect(remote?.session).toBeNull();
+    const sameSlug = await draftClaim(b, "csv-export", { ...OPTS, harness: "pi" });
+    expect(sameSlug.ok).toBe(false);
+    const newSlug = await draftClaim(b, "reports-csv-download", {
+      ...OPTS,
+      harness: "pi",
+      title: "Download reports as CSV",
+    });
+    expect(newSlug.ok).toBe(true);
   });
 });
