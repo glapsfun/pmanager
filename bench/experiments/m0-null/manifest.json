@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "id": "m0-null",
+  "createdAt": "2026-09-28T09:32:09.435Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.283",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill",
+    "baseline-skill"
+  ],
+  "pairs": 3,
+  "timeoutS": 900,
+  "repoSha": "cfe7f78",
+  "repoDirty": true,
+  "skillVersion": "0.5.0",
+  "skillHash": "sha256:f1616d1130d8299c5e7449bd5a93809936c0f0be8e606ca7e61453c5c044682d",
+  "contractHash": "sha256:86ca041eefd1e4797212882a9238f330426534a63e1e22f9740eda637d8d34d0",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "perf-bug-new-epic",
+      "version": 1,
+      "promptHash": "sha256:571b3afd86be4194435ddd371dca5e474630a6b1974aa1ee528d232e9f9a2d59",
+      "fixtureHash": "sha256:99c393bae65dc3e20f1821055888c2cf24c505f9df9a391d29c40fdcbc2d8579",
+      "graderVersion": 1
+    },
+    {
+      "name": "feature-idea-epic",
+      "version": 1,
+      "promptHash": "sha256:2a974371aab223f6be9e510b615c890b7e963fda67951e3a75867a1f74620205",
+      "fixtureHash": "sha256:99c393bae65dc3e20f1821055888c2cf24c505f9df9a391d29c40fdcbc2d8579",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "m0-null-p1-perf-bug-new-epic-with-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p1-perf-bug-new-epic-baseline-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "m0-null-p1-feature-idea-epic-with-skill",
+      "pair": 1,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p1-feature-idea-epic-baseline-skill",
+      "pair": 1,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "m0-null-p2-perf-bug-new-epic-baseline-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p2-perf-bug-new-epic-with-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "m0-null-p2-feature-idea-epic-baseline-skill",
+      "pair": 2,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p2-feature-idea-epic-with-skill",
+      "pair": 2,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "m0-null-p3-perf-bug-new-epic-with-skill",
+      "pair": 3,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p3-perf-bug-new-epic-baseline-skill",
+      "pair": 3,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "m0-null-p3-feature-idea-epic-with-skill",
+      "pair": 3,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "m0-null-p3-feature-idea-epic-baseline-skill",
+      "pair": 3,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    }
+  ],
+  "baseline": {
+    "ref": "main",
+    "sha": "ac5b9f2f0fca503ce04e2daef0f63ce9c134d286",
+    "skillHash": "sha256:f1616d1130d8299c5e7449bd5a93809936c0f0be8e606ca7e61453c5c044682d"
+  }
+}
