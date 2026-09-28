@@ -23,11 +23,12 @@ Each document has a register (adopt the matching mindset when writing it):
 1. **Evidence before framing.** Every claim in the epic cites where it came
    from (`[file:line]`, `[git log]`, `[user]`, `[gh issue #N]`). If evidence
    is missing, say what is missing — never present a guess as a finding.
-2. **Read-only research.** Phases 0–3 read code, history, and docs; they
-   change nothing. The only writes this skill ever makes are the spec
-   documents under `docs/pm/`, their commits on the epic's `pm/<slug>`
-   branch, and pushing that branch. Never `main`, never a target
-   repository, never `--force`.
+2. **Read-only research.** Phases 0–3 read code, history, and docs; apart
+   from the Phase 1 reservation, which writes only on its own `pm/<slug>`
+   branch, they change nothing. The only writes this skill ever makes are
+   the spec documents under `docs/pm/`, their commits on the epic's
+   `pm/<slug>` branch, and pushing that branch. Never `main`, never a
+   target repository, never `--force`.
 3. **Epic approval is a gate.** Do not write plan.md or tasks until the user
    approves the epic framing (Phase 4). A wrong problem statement makes every
    downstream task wrong. (Non-interactive runs cannot clear this gate — see
@@ -94,9 +95,10 @@ update rules.
 - **Handoff** — "pick up T03", "brief for T02 of infra-netbird-vm" → run
   `handoff`, print the brief verbatim, write nothing.
 
-A `[remote-only]` row with status `draft` held by another session that
-matches this request means another agent is already on it: tell the user
-who holds it and since when, and do not start a parallel epic.
+A `pm status` row with status `draft` whose session is not yours (whether
+flagged `[remote]` or `[remote-only]`) that matches this request means
+another agent is already on it: tell the user who holds it and since when,
+and do not start a parallel epic.
 
 ### Phase 1 — Understand and scope
 
@@ -107,6 +109,10 @@ in the ledger. Do not ask the user anything yet (Phase 2 answers most
 questions cheaper than an interview does), except when the reservation below
 is refused.
 
+Slug: short kebab-case from the problem, e.g. `app-performance`,
+`checkout-idempotency`. If `docs/pm/<slug>/` already exists for different
+work, disambiguate (`-2`) rather than overwrite.
+
 Then reserve the slug: `pm claim <slug> --draft --title "<one line>" --type
 <type> --harness <yours>` (see `references/commands.md`). It writes a stub
 epic into the epic's own worktree (`<repo>-pm-<slug>`) and pushes
@@ -114,8 +120,13 @@ epic into the epic's own worktree (`<repo>-pm-<slug>`) and pushes
 document for this epic goes into that worktree. On `owned by …` or `looks
 like existing work`, show the user the owner or the look-alikes and ask;
 with no way to ask, stop and report. Pass `--distinct` only after the user
-says it is different work. `no origin remote`: continue without a
-reservation.
+says it is different work. `no origin remote` or `origin is unreachable`:
+continue without a reservation. A local `pm/<slug>` branch refusal means
+another session in this checkout holds the slug, or an earlier attempt of
+yours did not push: tell the user and ask before deleting anything. `push
+failed`: rerun the printed push command once; if it still fails, continue
+without a reservation and say so. Exit 2 `worktree`: rerun with
+`--no-worktree` (see Degraded situations).
 
 ### Phase 2 — Research
 
@@ -173,10 +184,6 @@ epic. With a draft reservation from Phase 1, fill the stub in its worktree
 the epic's documents live in the worktree the claim printed, with branch
 `pm/<slug>` checked out there; the user's own checkout keeps its branch,
 and later commands find the worktree themselves. Proceed.
-
-Slug: short kebab-case from the problem, e.g. `app-performance`,
-`checkout-idempotency`. If `docs/pm/<slug>/` already exists for different
-work, disambiguate (`-2`) rather than overwrite.
 
 ### Phase 5 — Plan and decompose
 
