@@ -55,6 +55,9 @@ describe("experiment report", () => {
       "| s | baseline-skill | 15500 (15250–15750; n 2) | 31000 (30500–31500; n 2) | 1 (1–1; n 2) |",
     );
     expect(out).toContain("| s | -4500 (-4750–-4250; n 2) |");
+    const summary = renderExperimentsSection([{ m, s: aggregate(m, traced) }]).join("\n");
+    expect(summary).toContain("| Pre-framing context A / B |");
+    expect(summary).toContain("| 11000 / 15500 |");
     expect(renderExperimentReport(manifest, aggregate(manifest, attempts))).not.toContain(
       "Pre-framing",
     );

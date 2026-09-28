@@ -188,16 +188,19 @@ export function renderExperimentsSection(items: ExperimentItem[]): string[] {
       const fresh = (g: GroupStats | undefined) =>
         g?.tokens.fresh ? String(Math.round(g.tokens.fresh.median)) : DASH;
       const tokens = b ? `${fresh(a)} / ${fresh(b)}` : fresh(a);
+      const context = (g: GroupStats | undefined) =>
+        g?.trace.preFramingContext ? String(Math.round(g.trace.preFramingContext.median)) : DASH;
+      const preFraming = b ? `${context(a)} / ${context(b)}` : context(a);
       const model = `${m.modelRequested}${m.reasoning ? ` (${m.reasoning})` : ""}`;
       const conditions = m.conditions.join(" / ");
-      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${conditions} | ${pairs} | ${success} | ${diff} | ${tokens} | ${money(s.spendUsd)} |`;
+      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${conditions} | ${pairs} | ${success} | ${diff} | ${tokens} | ${preFraming} | ${money(s.spendUsd)} |`;
     });
   });
   return [
     "## Experiments",
     "",
-    "| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Cost |",
-    "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |",
+    "| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost |",
+    "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     "",
   ];
