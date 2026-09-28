@@ -54,6 +54,18 @@ describe("isFramingWrite", () => {
         command: `${pm} status && ${pm} claim x --draft --title "T" --type bug`,
       }),
     ).toBe(false);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x \\\n  --draft \\\n  --title "T" --type bug`,
+      }),
+    ).toBe(false);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x \\\n  --harness pi`,
+      }),
+    ).toBe(true);
   });
 
   test("shell commands that write under docs/pm, and ones that only read it", () => {

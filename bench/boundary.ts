@@ -38,6 +38,7 @@ export function isFramingWrite(c: ToolCall): boolean {
   const cmd = c.command;
   if (!cmd) return false;
   const pmWrite = cmd
+    .replace(/\\\n/g, " ")
     .split(SEGMENTS)
     .some((part) => PM_WRITES.test(part) && !PM_RESERVATIONS.test(part));
   if (pmWrite) return true;
