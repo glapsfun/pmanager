@@ -288,10 +288,13 @@ async function runResearch(root: string, args: Args): Promise<number> {
   return 0;
 }
 
+const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
 async function runDraft(root: string, args: Args): Promise<number> {
   const slug = args.positional[0];
   const types: readonly string[] = EPIC_TYPES;
-  if (!slug || !args.title || !types.includes(args.type ?? "") || args.takeover) {
+  const validSlug = slug !== undefined && SLUG.test(slug) && slug !== "log";
+  if (!validSlug || !args.title || !types.includes(args.type ?? "") || args.takeover) {
     return fail(USAGE);
   }
   const result = await draftClaim(root, slug, {

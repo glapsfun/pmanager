@@ -124,6 +124,12 @@ describe("two sessions on one repository", () => {
     expect(
       (await pm(a, "pi", "claim", "csv-export", "--draft", "--title", "X", "--type", "chore")).code,
     ).toBe(2);
+    for (const slug of ["Foo Bar", "log"]) {
+      const bad = await pm(a, "pi", "claim", slug, "--draft", "--title", "X", "--type", "feature");
+      expect(bad.code).toBe(2);
+      expect(bad.stderr).toContain("usage");
+    }
+    expect((await gitOk(["branch", "--list", "pm/*"], a)).trim()).toBe("");
     const plain = await makeTempDir("ms-plain");
     await initGitRepo(plain);
     const none = await pm(plain, "pi", ...CSV);
