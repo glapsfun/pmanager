@@ -68,10 +68,12 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 "release the X epic" → `pm release <slug>` — refused when another harness
 owns the claim; only `release --force`, on the user's explicit say-so,
-overrides it and the override is recorded. "take over X" →
-`pm claim <slug> --takeover` only when `pm status` shows `[stale]`;
-otherwise tell the user the owner must release. "pick up T03 of X" /
-"brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
+overrides it and the override is recorded.
+"drop the idea" / "we won't do X" on a draft → `pm release <slug>
+--abandon`: the epic is marked abandoned, the branch stays.
+"take over X" → `pm claim <slug> --takeover` only when `pm status` shows
+`[stale]`; otherwise tell the user the owner must release. "pick up T03 of
+X" / "brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
 nothing. All three end with a one-line confirmation.
 
 ## Write-back (every update run)
