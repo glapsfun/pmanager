@@ -12,6 +12,7 @@ import {
   repoRoot,
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
+import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { applyRender, migrate } from "./render";
 import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
@@ -29,7 +30,7 @@ commands
   release <slug> [--force]      release an epic you own (clears session, pushes, removes its worktree)
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
-  research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--no-gh]
+  research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
   verify <slug> <task-id> [--repo NAME|PATH] [--since REF] [--files P]... [--limit N]
                                 read-only evidence per acceptance criterion from the task's files, commits and diff
@@ -41,6 +42,8 @@ flags
   --path P                      git pathspec to scope research (repeatable)
   --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo)
   --limit N                     max entries per research/verify section (default 20)
+  --budget N                    research: output budget in estimated tokens (default 1500, minimum 300)
+  --full                        research: print every probe line, no pruning
   --no-gh                       skip the gh PR/issue probe
   --no-worktree                 claim/release: switch the current checkout instead of using a worktree
   --keep-worktree               release: leave the epic's worktree in place
@@ -63,6 +66,8 @@ export interface Args {
   paths: string[];
   repo?: string;
   limit: number;
+  budget: number;
+  full: boolean;
   noGh: boolean;
   since?: string;
   files: string[];
@@ -91,6 +96,8 @@ export function parseArgs(argv: string[]): Args | null {
     migrate: false,
     paths: [],
     limit: 20,
+    budget: DEFAULT_BUDGET,
+    full: false,
     noGh: false,
     files: [],
     noWorktree: false,
@@ -129,6 +136,12 @@ export function parseArgs(argv: string[]): Args | null {
       const n = Number.parseInt(argv[++i] ?? "", 10);
       if (!Number.isFinite(n) || n < 1) return null;
       args.limit = n;
+    } else if (a === "--budget") {
+      const n = Number.parseInt(argv[++i] ?? "", 10);
+      if (!Number.isFinite(n) || n < MIN_BUDGET) return null;
+      args.budget = n;
+    } else if (a === "--full") {
+      args.full = true;
     } else if (a === "--since") {
       const s = argv[++i];
       if (!s) return null;
@@ -242,7 +255,8 @@ async function runResearch(root: string, args: Args): Promise<number> {
     gh: !args.noGh,
     ghCmd: process.env.PM_GH,
   });
-  out(args.json ? json(report) : formatResearch(report));
+  const view = args.full ? { ...report, pruned: null } : prune(report, args.budget);
+  out(args.json ? json(view) : formatResearch(view));
   return 0;
 }
 

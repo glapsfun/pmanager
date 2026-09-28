@@ -19,6 +19,7 @@ import {
   type ResearchReport,
   rankFiles,
 } from "../scripts/research";
+import { buildNoisyRepo } from "./fixtures/build-noisy";
 import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 async function seededRepo(files: Record<string, string>, message = "seed"): Promise<string> {
@@ -458,6 +459,29 @@ describe("pm research (cli)", () => {
     expect(r.stdout).toContain("[src/orders.ts:1]");
     expect(r.stdout).toContain("memory: none");
     expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+  });
+  test("output is pruned by default; --full prints everything; --budget below 300 is usage", async () => {
+    const dir = await makeTempDir("research-cli-noisy");
+    await buildNoisyRepo(dir);
+    const kw = ["research", "invoice", "retry", "--no-gh"];
+    const pruned = await runPm(kw, dir);
+    expect(pruned.code).toBe(0);
+    expect(pruned.stdout.split("\n")[1]).toMatch(
+      /^pruned: \d+ lines \(import 4, data 6, budget \d+\) · --full shows all$/,
+    );
+    expect(pruned.stdout).not.toContain("data/invoices.jsonl");
+    const full = await runPm([...kw, "--full"], dir);
+    expect(full.stdout).toContain("[data/invoices.jsonl:1]");
+    expect(full.stdout).not.toContain("pruned:");
+    expect(JSON.parse((await runPm([...kw, "--full", "--json"], dir)).stdout).pruned).toBeNull();
+    expect(JSON.parse((await runPm([...kw, "--json"], dir)).stdout).pruned).toMatchObject({
+      import: 4,
+      data: 6,
+      budgetTokens: 1500,
+    });
+    const tight = await runPm([...kw, "--budget", "300"], dir);
+    expect(tight.stdout.length).toBeLessThan(pruned.stdout.length);
+    expect((await runPm(["research", "invoice", "--budget", "299"], dir)).code).toBe(2);
   });
   test("--repo resolves a mapped name, a path, and rejects unknown names", async () => {
     const root = await orchestrationRepo();
