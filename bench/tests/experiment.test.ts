@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -320,9 +320,14 @@ describe("baseline experiments", () => {
   test("an id outside the experiments root is refused; an existing copy is never replaced", async () => {
     const root = await makeTempDir("bench-exp");
     const experiments = join(root, "experiments");
+    await mkdir(experiments, { recursive: true });
     const victim = join(root, "victim", "baseline-skill");
     await mkdir(victim, { recursive: true });
     await writeFile(join(victim, "keep.txt"), "keep\n");
+    const escaped = join(root, "escaped");
+    await mkdir(escaped);
+    await writeFile(join(escaped, "keep.txt"), "keep\n");
+    await symlink(escaped, join(experiments, "linked"), "dir");
     const a = adapter(async () => ({}));
     const opts = {
       harness: "claude-code" as const,
@@ -336,6 +341,14 @@ describe("baseline experiments", () => {
     await expect(
       createExperiment({ ...opts, id: "../victim" }, deps(a, experiments)),
     ).rejects.toThrow(/experiment id/);
+    await expect(createExperiment({ ...opts, id: "linked" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
+    await mkdir(join(experiments, "stale"), { recursive: true });
+    await writeFile(join(experiments, "stale", "keep.txt"), "keep\n");
+    await expect(createExperiment({ ...opts, id: "stale" }, deps(a, experiments))).rejects.toThrow(
+      /already exists/,
+    );
     const leftover = join(experiments, "b6", "baseline-skill");
     await mkdir(leftover, { recursive: true });
     await writeFile(join(leftover, "keep.txt"), "keep\n");
@@ -343,6 +356,7 @@ describe("baseline experiments", () => {
       /already exists/,
     );
     expect(await readFile(join(victim, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await readFile(join(escaped, "keep.txt"), "utf8")).toBe("keep\n");
     expect(await readFile(join(leftover, "keep.txt"), "utf8")).toBe("keep\n");
   });
 

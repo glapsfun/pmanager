@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import { exists } from "./adapters/claude-code";
 import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
@@ -120,7 +120,17 @@ export function experimentDir(experimentsDir: string, id: string): string {
       `experiment id ${JSON.stringify(id)} must start with a letter or digit and use only letters, digits, ".", "_" or "-"`,
     );
   }
-  return join(experimentsDir, id);
+  const root = resolve(experimentsDir);
+  const destination = resolve(root, id);
+  const relativeDestination = relative(root, destination);
+  if (
+    relativeDestination === ".." ||
+    relativeDestination.startsWith(`..${sep}`) ||
+    isAbsolute(relativeDestination)
+  ) {
+    throw new Error(`experiment id ${JSON.stringify(id)} must stay under ${root}`);
+  }
+  return destination;
 }
 
 export function attemptId(
@@ -187,7 +197,11 @@ export async function createExperiment(
   deps: CreateDeps,
 ): Promise<Manifest> {
   const dir = experimentDir(deps.experimentsDir, opts.id);
-  if (await exists(join(dir, "manifest.json"))) {
+  const destination = await lstat(dir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (destination) {
     throw new Error(`experiment ${opts.id} already exists at ${dir}; pick a new id`);
   }
   if (opts.conditions.includes("baseline-skill") !== Boolean(opts.baseline)) {
