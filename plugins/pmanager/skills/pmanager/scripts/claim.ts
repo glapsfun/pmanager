@@ -331,6 +331,23 @@ export async function release(
     return { ok: false, reason: "no-remote", message: "no origin remote" };
   await fetchOrigin(root);
   const wt = opts.noWorktree ? null : await worktreeFor(root, branch);
+
+  const noBranch: ReleaseOutcome = {
+    ok: false,
+    reason: "no-branch",
+    message: `not on ${branch} and no local branch of that name`,
+  };
+  // No worktree holds the branch, the checkout is not already on it, and no
+  // local branch exists to check out or build a worktree from: there is
+  // nothing to release, in either mode. This must be decided before an
+  // origin-record refusal below, or that refusal's --force hint would lead
+  // nowhere.
+  let onBranch = false;
+  if (!wt) {
+    onBranch = (await currentBranch(root)) === branch;
+    if (!onBranch && !(await localBranchExists(root, branch))) return noBranch;
+  }
+
   // The remote claim record is authoritative. When origin has it, a refusal
   // must run, and leave no trace, before the checkout is touched or a
   // worktree is created.
@@ -361,49 +378,76 @@ export async function release(
     if (refusal) return refusal;
   }
 
+  // Reads a branch's own claim record when origin has none for it — never
+  // pushed, or pushed and later deleted (a merged PR with branch
+  // auto-delete) — and refuses on it exactly as the remote record would.
+  const refuseLocal = async (
+    raw: string | null,
+  ): Promise<{
+    owner: Session | null;
+    status: string | undefined;
+    refusal: ReleaseOutcome | null;
+  }> => {
+    const local = raw !== null ? parseDoc(epicRel(slug), raw).frontmatter : null;
+    const owner = local ? sessionOf(local) : null;
+    const status = local ? getString(local, "status") : undefined;
+    return { owner, status, refusal: refuse(owner, status, local !== null) };
+  };
+
   // Establish the target: the worktree that already holds the branch, the
   // legacy checkout switch under --no-worktree, or a freshly recreated
-  // worktree for a local branch whose worktree was removed. The user's own
-  // checkout is never switched here.
+  // worktree for a local branch whose worktree was removed. A refusal
+  // creates nothing, so a worktree that does not exist yet is only built
+  // once the release is known to proceed.
   let target = root;
   let worktree: string | null = null;
-  const noBranch: ReleaseOutcome = {
-    ok: false,
-    reason: "no-branch",
-    message: `not on ${branch} and no local branch of that name`,
-  };
+  let owner: Session | null;
+  let status: string | undefined;
   if (wt) {
     target = wt.path;
     worktree = wt.path;
-  } else if (opts.noWorktree) {
-    if ((await currentBranch(root)) !== branch) {
-      if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-      else return noBranch;
+    if (remote !== null) {
+      owner = remote.session;
+      status = remote.status;
+    } else {
+      const raw = (await localEpicExists(target, slug))
+        ? await readFile(join(target, epicRel(slug)), "utf8")
+        : null;
+      const rec = await refuseLocal(raw);
+      if (rec.refusal) return rec.refusal;
+      owner = rec.owner;
+      status = rec.status;
     }
-  } else if (await localBranchExists(root, branch)) {
+  } else if (opts.noWorktree) {
+    if (!onBranch) await checkoutBranch(root, branch, false);
+    if (remote !== null) {
+      owner = remote.session;
+      status = remote.status;
+    } else {
+      const raw = (await localEpicExists(root, slug))
+        ? await readFile(join(root, epicRel(slug)), "utf8")
+        : null;
+      const rec = await refuseLocal(raw);
+      if (rec.refusal) return rec.refusal;
+      owner = rec.owner;
+      status = rec.status;
+    }
+  } else {
+    // The precheck above already proved this local branch exists.
+    if (remote !== null) {
+      owner = remote.session;
+      status = remote.status;
+    } else {
+      const raw = await readFileAtRef(root, branch, epicRel(slug));
+      const rec = await refuseLocal(raw);
+      if (rec.refusal) return rec.refusal;
+      owner = rec.owner;
+      status = rec.status;
+    }
     const created = await ensureWorktree(root, slug, { branch });
     if (!created.ok) return { ok: false, reason: "worktree", message: created.message };
     target = created.path;
     worktree = created.path;
-  } else {
-    return noBranch;
-  }
-
-  // Origin has never seen this branch: the local epic file is the only
-  // record, and it can only be read once the target above exists.
-  let owner: Session | null;
-  let status: string | undefined;
-  if (remote !== null) {
-    owner = remote.session;
-    status = remote.status;
-  } else {
-    const local = (await localEpicExists(target, slug))
-      ? parseDoc(epicRel(slug), await readFile(join(target, epicRel(slug)), "utf8")).frontmatter
-      : null;
-    owner = local ? sessionOf(local) : null;
-    status = local ? getString(local, "status") : undefined;
-    const refusal = refuse(owner, status, local !== null);
-    if (refusal) return refusal;
   }
   const overridden = owner !== null && owner.harness !== opts.harness ? owner.harness : null;
   const forced = overridden !== null;
@@ -438,7 +482,14 @@ export async function release(
   await commitPaths(target, paths, `docs(pm): ${opts.abandon ? "abandon" : "release"} ${slug}`);
   const push = await pushSetUpstream(target, branch);
   if (push.code !== 0) {
-    return { ok: false, reason: "push-failed", message: `push failed: ${push.stderr.trim()}` };
+    const retry = worktree
+      ? `\nthe release commit is in ${worktree}; retry with: git -C ${worktree} push origin ${branch}`
+      : "";
+    return {
+      ok: false,
+      reason: "push-failed",
+      message: `push failed: ${push.stderr.trim()}${retry}`,
+    };
   }
   const base = opts.abandon
     ? `${slug} abandoned; branch ${branch} stays so the slug is not reused`

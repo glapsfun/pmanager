@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { gitOk } from "../scripts/git";
-import { worktreePath } from "../scripts/worktree";
+import { listWorktrees, worktreePath } from "../scripts/worktree";
 import { exists, initGitRepo, makeTempDir, remoteWithClones, unclaimedSeed } from "./helpers";
 
 const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
@@ -187,5 +187,31 @@ describe("two sessions on one repository", () => {
     expect(again.stdout).toContain("already abandoned");
     expect((await gitOk(["branch", "--show-current"], a)).trim()).toBe("main");
     expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+  });
+
+  test("release after origin deletes the branch refuses without building a worktree", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
+    expect((await pm(a, "claude-code", "release", "csv-export")).code).toBe(0);
+    expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+    // a merged PR with branch auto-delete: origin no longer has pm/csv-export
+    await gitOk(["push", "-q", "origin", "--delete", "pm/csv-export"], a);
+
+    const r = await pm(a, "claude-code", "release", "csv-export");
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("already unclaimed");
+    expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+    expect(await listWorktrees(a)).toHaveLength(1);
+    expect((await gitOk(["branch", "--show-current"], a)).trim()).toBe("main");
+  });
+
+  test("release from a clone with no local branch refuses no-branch, not the origin record", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    expect((await pm(a, "claude-code", "claim", "app-performance")).code).toBe(0);
+    const r = await pm(b, "pi", "release", "app-performance");
+    expect(r.code).toBe(2);
+    expect(r.stdout).toContain("no local branch");
+    expect((await gitOk(["branch", "--show-current"], b)).trim()).toBe("main");
+    expect(await listWorktrees(b)).toHaveLength(1);
   });
 });

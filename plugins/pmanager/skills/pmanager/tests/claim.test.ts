@@ -265,4 +265,16 @@ describe("claim", () => {
     expect(r.worktree).not.toBeNull();
     expect(await branchOf(a)).toBe(before);
   });
+
+  test("a rejected release push names the worktree and a git -C retry", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const wt = worktreePath(a, SLUG);
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const r = await release(a, SLUG, { harness: OPTS.harness, today: "2026-09-16" });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("push-failed");
+    expect(r.message).toContain(`the release commit is in ${wt}`);
+    expect(r.message).toContain(`retry with: git -C ${wt} push origin ${claimBranch(SLUG)}`);
+  });
 });
