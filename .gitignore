@@ -11,6 +11,7 @@
 
 # Ai
 .docs
+.superpowers/
 
 # Bun / tooling
 node_modules/

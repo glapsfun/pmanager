@@ -17,6 +17,57 @@ describe("isFramingWrite", () => {
     expect(isFramingWrite({ tool: "Write", path: "app/app.py" })).toBe(false);
   });
 
+  test("reservations at Phase 1 are not framing writes; the plain claim and render still are", () => {
+    const pm = "bun run .claude/skills/pmanager/scripts/pm.ts";
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim csv-export --draft --title "CSV export" --type feature --harness claude-code`,
+      }),
+    ).toBe(false);
+    expect(isFramingWrite({ tool: "Bash", command: `${pm} release csv-export --abandon` })).toBe(
+      false,
+    );
+    expect(isFramingWrite({ tool: "Bash", command: `${pm} claim csv-export` })).toBe(true);
+    expect(isFramingWrite({ tool: "Bash", command: `${pm} render --epic csv-export` })).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type feature && ${pm} render --epic x`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type bug; ${pm} claim y`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x --draft --title "T" --type bug && cat > docs/pm/x/epic.md <<'EOF'\n---\nEOF`,
+      }),
+    ).toBe(true);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} status && ${pm} claim x --draft --title "T" --type bug`,
+      }),
+    ).toBe(false);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x \\\n  --draft \\\n  --title "T" --type bug`,
+      }),
+    ).toBe(false);
+    expect(
+      isFramingWrite({
+        tool: "Bash",
+        command: `${pm} claim x \\\n  --harness pi`,
+      }),
+    ).toBe(true);
+  });
+
   test("shell commands that write under docs/pm, and ones that only read it", () => {
     const writes = [
       "mkdir -p docs/pm/orders/tasks docs/pm/log",
