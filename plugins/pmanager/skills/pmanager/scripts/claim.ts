@@ -419,19 +419,22 @@ export async function release(
       status = rec.status;
     }
   } else if (opts.noWorktree) {
-    if (!onBranch) await checkoutBranch(root, branch, false);
     if (remote !== null) {
       owner = remote.session;
       status = remote.status;
     } else {
-      const raw = (await localEpicExists(root, slug))
-        ? await readFile(join(root, epicRel(slug)), "utf8")
-        : null;
+      // Decide from the branch's own record before switching, so a refusal leaves the checkout.
+      const raw = onBranch
+        ? (await localEpicExists(root, slug))
+          ? await readFile(join(root, epicRel(slug)), "utf8")
+          : null
+        : await readFileAtRef(root, branch, epicRel(slug));
       const rec = await refuseLocal(raw);
       if (rec.refusal) return rec.refusal;
       owner = rec.owner;
       status = rec.status;
     }
+    if (!onBranch) await checkoutBranch(root, branch, false);
   } else {
     // The precheck above already proved this local branch exists.
     if (remote !== null) {

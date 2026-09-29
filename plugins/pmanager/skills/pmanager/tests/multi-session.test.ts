@@ -205,6 +205,46 @@ describe("two sessions on one repository", () => {
     expect((await gitOk(["branch", "--show-current"], a)).trim()).toBe("main");
   });
 
+  test("--no-worktree refusals decided by the local record leave the checkout on main", async () => {
+    const current = async (dir: string) => (await gitOk(["branch", "--show-current"], dir)).trim();
+    const dropOrigin = (dir: string, slug: string) =>
+      gitOk(["push", "-q", "origin", "--delete", `pm/${slug}`], dir);
+
+    const unclaimed = (await remoteWithClones(await unclaimedSeed())).a;
+    expect((await pm(unclaimed, "claude-code", ...CSV)).code).toBe(0);
+    expect((await pm(unclaimed, "claude-code", "release", "csv-export")).code).toBe(0);
+    await dropOrigin(unclaimed, "csv-export");
+    const r1 = await pm(unclaimed, "claude-code", "release", "csv-export", "--no-worktree");
+    expect(r1.code).toBe(1);
+    expect(r1.stdout).toContain("already unclaimed");
+    expect(await current(unclaimed)).toBe("main");
+
+    const abandoned = (await remoteWithClones(await unclaimedSeed())).a;
+    expect((await pm(abandoned, "claude-code", ...CSV)).code).toBe(0);
+    expect((await pm(abandoned, "claude-code", "release", "csv-export", "--abandon")).code).toBe(0);
+    await dropOrigin(abandoned, "csv-export");
+    const r2 = await pm(
+      abandoned,
+      "claude-code",
+      "release",
+      "csv-export",
+      "--abandon",
+      "--no-worktree",
+    );
+    expect(r2.code).toBe(1);
+    expect(r2.stdout).toContain("already abandoned");
+    expect(await current(abandoned)).toBe("main");
+
+    const owned = (await remoteWithClones(await unclaimedSeed())).a;
+    expect((await pm(owned, "claude-code", ...CSV)).code).toBe(0);
+    await gitOk(["worktree", "remove", worktreePath(owned, "csv-export")], owned);
+    await dropOrigin(owned, "csv-export");
+    const r3 = await pm(owned, "pi", "release", "csv-export", "--no-worktree");
+    expect(r3.code).toBe(1);
+    expect(r3.stdout).toContain("owned by claude-code");
+    expect(await current(owned)).toBe("main");
+  });
+
   test("release from a clone with no local branch refuses no-branch, not the origin record", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
     expect((await pm(a, "claude-code", "claim", "app-performance")).code).toBe(0);
