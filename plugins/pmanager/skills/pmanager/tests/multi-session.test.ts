@@ -163,4 +163,29 @@ describe("two sessions on one repository", () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("csv-export abandoned");
   });
+
+  test("release recreates the epic's worktree instead of switching the checkout", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
+    const plain = await pm(a, "claude-code", "release", "csv-export");
+    expect(plain.code).toBe(0);
+    // the plain release removed the worktree it found; the local branch stays
+    expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+
+    const abandoned = await pm(a, "claude-code", "release", "csv-export", "--abandon");
+    expect(abandoned.code).toBe(0);
+    expect((await gitOk(["branch", "--show-current"], a)).trim()).toBe("main");
+    expect(abandoned.stdout).toContain("worktree removed:");
+    expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+    await gitOk(["fetch", "origin"], a);
+    expect(await gitOk(["show", "origin/pm/csv-export:docs/pm/csv-export/epic.md"], a)).toContain(
+      "status: abandoned",
+    );
+
+    const again = await pm(a, "claude-code", "release", "csv-export", "--abandon");
+    expect(again.code).toBe(1);
+    expect(again.stdout).toContain("already abandoned");
+    expect((await gitOk(["branch", "--show-current"], a)).trim()).toBe("main");
+    expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
+  });
 });

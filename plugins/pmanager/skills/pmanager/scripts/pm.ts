@@ -437,7 +437,11 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
           : `${result.message}\n${worktreeNote}${failure}`,
       );
       if (result.ok) return render.pushed ? 0 : 1;
-      return result.reason === "no-remote" || result.reason === "no-branch" ? 2 : 1;
+      return result.reason === "no-remote" ||
+        result.reason === "no-branch" ||
+        result.reason === "worktree"
+        ? 2
+        : 1;
     }
     case "status": {
       const { remote, claims } = await remoteClaims(root);

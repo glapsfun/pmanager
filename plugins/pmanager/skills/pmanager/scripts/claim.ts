@@ -299,7 +299,13 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   };
 }
 
-export type ReleaseReason = "no-remote" | "no-branch" | "unclaimed" | "not-owner" | "push-failed";
+export type ReleaseReason =
+  | "no-remote"
+  | "no-branch"
+  | "unclaimed"
+  | "not-owner"
+  | "push-failed"
+  | "worktree";
 
 export interface ReleaseOutcome {
   ok: boolean;
@@ -325,42 +331,79 @@ export async function release(
     return { ok: false, reason: "no-remote", message: "no origin remote" };
   await fetchOrigin(root);
   const wt = opts.noWorktree ? null : await worktreeFor(root, branch);
-  let target = wt?.path ?? root;
-  if (!wt) {
+  // The remote claim record is authoritative. When origin has it, a refusal
+  // must run, and leave no trace, before the checkout is touched or a
+  // worktree is created.
+  const remote = await remoteEpicOf(root, slug);
+  const refuse = (
+    owner: Session | null,
+    status: string | undefined,
+    hasRecord: boolean,
+  ): ReleaseOutcome | null => {
+    if (opts.abandon && status === "abandoned") {
+      return { ok: false, reason: "unclaimed", message: `${slug} is already abandoned` };
+    }
+    // an unowned epic can still be abandoned: there is no owner to override
+    if (owner === null && !(opts.abandon && hasRecord)) {
+      return { ok: false, reason: "unclaimed", message: `${slug} is already unclaimed` };
+    }
+    if (owner !== null && owner.harness !== opts.harness && !opts.force) {
+      return {
+        ok: false,
+        reason: "not-owner",
+        message: `${slug} is owned by ${owner.harness} (claimed ${owner.claimed || "unknown"}), not ${opts.harness}; ask that session to release it, use claim --takeover if status shows [stale], or release --force as a deliberate override`,
+      };
+    }
+    return null;
+  };
+  if (remote !== null) {
+    const refusal = refuse(remote.session, remote.status, true);
+    if (refusal) return refusal;
+  }
+
+  // Establish the target: the worktree that already holds the branch, the
+  // legacy checkout switch under --no-worktree, or a freshly recreated
+  // worktree for a local branch whose worktree was removed. The user's own
+  // checkout is never switched here.
+  let target = root;
+  let worktree: string | null = null;
+  const noBranch: ReleaseOutcome = {
+    ok: false,
+    reason: "no-branch",
+    message: `not on ${branch} and no local branch of that name`,
+  };
+  if (wt) {
+    target = wt.path;
+    worktree = wt.path;
+  } else if (opts.noWorktree) {
     if ((await currentBranch(root)) !== branch) {
       if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
-      else {
-        return {
-          ok: false,
-          reason: "no-branch",
-          message: `not on ${branch} and no local branch of that name`,
-        };
-      }
+      else return noBranch;
     }
-    target = root;
+  } else if (await localBranchExists(root, branch)) {
+    const created = await ensureWorktree(root, slug, { branch });
+    if (!created.ok) return { ok: false, reason: "worktree", message: created.message };
+    target = created.path;
+    worktree = created.path;
+  } else {
+    return noBranch;
   }
-  // The remote claim record is authoritative; fall back to the local file
-  // only when the branch has never been pushed.
-  const remote = await remoteEpicOf(root, slug);
-  const local =
-    remote === null && (await localEpicExists(target, slug))
+
+  // Origin has never seen this branch: the local epic file is the only
+  // record, and it can only be read once the target above exists.
+  let owner: Session | null;
+  let status: string | undefined;
+  if (remote !== null) {
+    owner = remote.session;
+    status = remote.status;
+  } else {
+    const local = (await localEpicExists(target, slug))
       ? parseDoc(epicRel(slug), await readFile(join(target, epicRel(slug)), "utf8")).frontmatter
       : null;
-  const owner = remote !== null ? remote.session : local ? sessionOf(local) : null;
-  const status = remote?.status ?? (local ? getString(local, "status") : undefined);
-  if (opts.abandon && status === "abandoned") {
-    return { ok: false, reason: "unclaimed", message: `${slug} is already abandoned` };
-  }
-  // an unowned epic can still be abandoned: there is no owner to override
-  if (owner === null && !(opts.abandon && (remote !== null || local !== null))) {
-    return { ok: false, reason: "unclaimed", message: `${slug} is already unclaimed` };
-  }
-  if (owner !== null && owner.harness !== opts.harness && !opts.force) {
-    return {
-      ok: false,
-      reason: "not-owner",
-      message: `${slug} is owned by ${owner.harness} (claimed ${owner.claimed || "unknown"}), not ${opts.harness}; ask that session to release it, use claim --takeover if status shows [stale], or release --force as a deliberate override`,
-    };
+    owner = local ? sessionOf(local) : null;
+    status = local ? getString(local, "status") : undefined;
+    const refusal = refuse(owner, status, local !== null);
+    if (refusal) return refusal;
   }
   const overridden = owner !== null && owner.harness !== opts.harness ? owner.harness : null;
   const forced = overridden !== null;
@@ -402,5 +445,5 @@ export async function release(
     : status === "draft"
       ? `${slug} released; its draft stays on ${branch} (release --abandon drops it)`
       : `${slug} released; branch ${branch} still exists until its PR is merged`;
-  return { ok: true, message: base, worktree: wt?.path ?? null };
+  return { ok: true, message: base, worktree };
 }

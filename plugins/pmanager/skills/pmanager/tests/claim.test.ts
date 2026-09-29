@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { claim, claimBranch, release, remoteSessionOf } from "../scripts/claim";
 import { parseDoc, sessionOf } from "../scripts/contract";
 import { fetchOrigin, gitOk, listRemoteBranches, localBranchExists } from "../scripts/git";
-import { worktreeFor, worktreePath } from "../scripts/worktree";
+import { removeWorktree, worktreeFor, worktreePath } from "../scripts/worktree";
 import {
   exists,
   fixtureFiles,
@@ -251,5 +251,18 @@ describe("claim", () => {
     const again = await release(b, SLUG, { harness: "pi", today: "2026-09-17" });
     expect(again.ok).toBe(false);
     expect(again.reason).toBe("unclaimed");
+  });
+
+  test("release recreates a removed worktree from the local branch, never switching the checkout", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const wt = worktreePath(a, SLUG);
+    const removed = await removeWorktree(a, wt, {});
+    expect(removed.ok && removed.removed).toBe(true);
+    const before = await branchOf(a);
+    const r = await release(a, SLUG, { harness: OPTS.harness, today: "2026-09-16" });
+    expect(r.ok).toBe(true);
+    expect(r.worktree).not.toBeNull();
+    expect(await branchOf(a)).toBe(before);
   });
 });
