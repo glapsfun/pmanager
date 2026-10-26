@@ -355,6 +355,28 @@ describe("worktrees", () => {
     const status = await run(["status"], a);
     expect(status.stdout).toContain(`test-harness · 2026-09-15 · ${sid(c.stdout)}`);
   });
+  test("render --epic with a wrong session id is refused", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const r = await run(["render", "--epic", "app-performance", "--session", "ffffff"], a);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("is owned by test-harness");
+    expect(r.stdout).toContain("not your session ffffff");
+  });
+  test("render --epic keeps the harness rule for a claim without an id", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const file = join(worktreePath(a, "app-performance"), "docs/pm/app-performance/epic.md");
+    const legacy = (await readFile(file, "utf8")).replace(/^ +id: [0-9a-f]{6}\n/m, "");
+    expect(legacy).not.toMatch(/^ +id: [0-9a-f]{6}$/m);
+    await Bun.write(file, legacy);
+    const same = await run(["render", "--epic", "app-performance"], a);
+    expect(same.code).toBe(0);
+    const other = await run(["render", "--epic", "app-performance"], a, { PM_HARNESS: "pi" });
+    expect(other.code).toBe(1);
+    expect(other.stdout).toContain("owned by test-harness");
+    expect(other.stdout).toContain("not pi");
+  });
   test("--no-worktree switches the checkout like before", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     const r = await run(["claim", "app-performance", "--no-worktree"], a);
