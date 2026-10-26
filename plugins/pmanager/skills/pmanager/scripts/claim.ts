@@ -6,6 +6,7 @@ import {
   getString,
   parseDoc,
   type Session,
+  sessionFields,
   sessionOf,
   setFrontmatterKey,
 } from "./contract";
@@ -24,6 +25,7 @@ import {
 } from "./git";
 import { writeLogEntry } from "./log";
 import { PM_DIR } from "./repo";
+import { newSessionId, ownershipProblem } from "./session";
 import { ensureWorktree, movePendingEpic, removeWorktree, worktreeFor } from "./worktree";
 
 export const CLAIM_PREFIX = "pm/";
@@ -33,7 +35,7 @@ export function claimBranch(slug: string): string {
 }
 
 export type ClaimOutcome =
-  | { ok: true; branch: string; worktree: string; message: string }
+  | { ok: true; branch: string; worktree: string; session: string; message: string }
   | {
       ok: false;
       reason: "taken" | "not-stale" | "no-remote" | "no-epic" | "push-failed" | "worktree";
@@ -98,13 +100,7 @@ async function writeSession(
 ): Promise<string> {
   const path = join(root, epicRel(slug));
   let raw = await readFile(path, "utf8");
-  raw = setFrontmatterKey(
-    raw,
-    "session",
-    session
-      ? { harness: session.harness, claimed: session.claimed, branch: session.branch }
-      : undefined,
-  );
+  raw = setFrontmatterKey(raw, "session", session ? sessionFields(session) : undefined);
   if (status) raw = setFrontmatterKey(raw, "status", status);
   raw = setFrontmatterKey(raw, "updated", today);
   await writeFile(path, raw);
@@ -243,11 +239,12 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       }),
     );
   }
+  const id = newSessionId();
   paths.push(
     await writeSession(
       target,
       slug,
-      { harness: opts.harness, claimed: opts.today, branch },
+      { harness: opts.harness, claimed: opts.today, branch, id },
       opts.today,
     ),
   );
@@ -259,6 +256,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       ok: true,
       branch,
       worktree: target,
+      session: id,
       message: `${slug} claimed by ${opts.harness} on ${branch}`,
     };
   }
@@ -324,6 +322,7 @@ export async function release(
     force?: boolean;
     noWorktree?: boolean;
     abandon?: boolean;
+    session?: string;
   },
 ): Promise<ReleaseOutcome> {
   const branch = claimBranch(slug);
@@ -364,12 +363,9 @@ export async function release(
     if (owner === null && !(opts.abandon && hasRecord)) {
       return { ok: false, reason: "unclaimed", message: `${slug} is already unclaimed` };
     }
-    if (owner !== null && owner.harness !== opts.harness && !opts.force) {
-      return {
-        ok: false,
-        reason: "not-owner",
-        message: `${slug} is owned by ${owner.harness} (claimed ${owner.claimed || "unknown"}), not ${opts.harness}; ask that session to release it, use claim --takeover if status shows [stale], or release --force as a deliberate override`,
-      };
+    const problem = owner === null ? null : ownershipProblem(owner, opts.harness, opts.session);
+    if (problem !== null && !opts.force) {
+      return { ok: false, reason: "not-owner", message: `${slug} is ${problem}` };
     }
     return null;
   };
@@ -452,8 +448,8 @@ export async function release(
     target = created.path;
     worktree = created.path;
   }
-  const overridden = owner !== null && owner.harness !== opts.harness ? owner.harness : null;
-  const forced = overridden !== null;
+  const forced = owner !== null && ownershipProblem(owner, opts.harness, opts.session) !== null;
+  const overridden = forced ? owner?.harness : null;
   const paths = [
     await writeSession(target, slug, undefined, opts.today, opts.abandon ? "abandoned" : undefined),
   ];
