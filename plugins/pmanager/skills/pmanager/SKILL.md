@@ -92,7 +92,11 @@ update rules.
   `pm status` + the epic's plan/tasks; write nothing unless asked.
 - **Claim management** — "release the argocd epic", "take over
   infra-netbird-vm" → run `release` or `claim --takeover` per
-  `references/commands.md`, confirm in one line, write nothing else.
+  `references/commands.md`, confirm in one line, write nothing else. A
+  refusal naming a session that may be the user's own earlier conversation
+  (same harness, no id on your ledger): ask the user, and on their
+  confirmation rerun with `--session <id>` (the refusal and `pm status` show
+  it). `--force` only when the user wants to override someone else's claim.
 - **Handoff** — "pick up T03", "brief for T02 of infra-netbird-vm" → run
   `handoff`, print the brief verbatim, write nothing.
 
@@ -129,9 +133,10 @@ failed`: rerun the printed push command once; if it still fails, continue
 without a reservation and say so. Exit 2 `worktree`: rerun with
 `--no-worktree` (see Degraded situations).
 
-The claim prints `session: <id>`: put it on the ledger's `Session:` line
-and pass `--session <id>` to every `render --epic` and `release` for this
-epic. Without it the tool treats you as another session.
+The claim prints `session: <id>`, even when its push failed. Put it on the
+ledger's `Session:` line and pass `--session <id>` to every `render --epic`
+and `release` for this epic. Without it the tool treats you as another
+session.
 
 ### Phase 2 — Research
 
@@ -182,14 +187,14 @@ research. **Stop. Do not write plan.md or any task until the epic framing
 is approved.** On "adjust", revise and re-present; on approval, write the
 epic. With a draft reservation from Phase 1, fill the stub in its worktree
 (`<repo>-pm-<slug>/docs/pm/<slug>/epic.md`), keeping its `id`, `created` and
-`session` lines. Without one (no remote at Phase 1), write
-`docs/pm/<slug>/epic.md` (with `contract: 1`, `repos`,
-`primary-metric`), then run `pm claim <slug> --harness <yours>`; it prints the session id the
-same way; `owned by
-…` means another session has this epic: stop and tell the user. Either way
-the epic's documents live in the worktree the claim printed, with branch
-`pm/<slug>` checked out there; the user's own checkout keeps its branch,
-and later commands find the worktree themselves. Proceed.
+whole `session` block, `session.id` included. Without one (no remote at
+Phase 1), write `docs/pm/<slug>/epic.md` (with `contract: 1`, `repos`,
+`primary-metric`), then run `pm claim <slug> --harness <yours>`; it prints
+the session id the same way. `owned by …` means another session has this
+epic: stop and tell the user. Either way the epic's documents live in the
+worktree the claim printed, with branch `pm/<slug>` checked out there; the
+user's own checkout keeps its branch, and later commands find the worktree
+themselves. Proceed.
 
 ### Phase 5 — Plan and decompose
 
@@ -226,7 +231,8 @@ optimization task.
 3. Reconcile the memo's hand-written sections (goals, stakeholders,
    conventions) and refresh `_Last updated:_`. Create from
    `references/memo.template.md` on cold start.
-4. `pm render`, then `pm check`; fix findings until exit 0. Commit on
+4. `pm render --epic <slug> --session <id>`, then `pm check --epic <slug>`;
+   fix findings until exit 0. Commit on
    `pm/<slug>` and push it, per `references/memory.md` — the single source
    of truth for the commit command, message format, and its prohibitions.
 5. Post the final ledger plus a one-screen summary: epic, milestone list,

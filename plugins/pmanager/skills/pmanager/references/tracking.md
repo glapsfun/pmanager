@@ -12,10 +12,13 @@ Then read that epic's plan.md and the affected task files before changing
 anything — the docs on disk are the state of record, not your memory of
 them, and the user may have hand-edited them since the last run.
 
-Check who holds it first: the `pm status` row's session. Your id (the
-ledger's `Session:` line) or unclaimed: proceed. Another session: tell the
-user who holds it and since when; adopt its id with `--session <id>` only
-when the user confirms it is their own earlier conversation.
+Check who holds it first: the `pm status` row's session. This applies when
+resuming an epic in a new conversation too. Your id (the ledger's `Session:`
+line) or unclaimed: proceed. A row with no id (a claim made before session
+ids) belongs to its harness: the same harness proceeds without `--session`.
+Another session: tell the user who holds it and since when; adopt its id
+with `--session <id>` only when the user confirms it is their own earlier
+conversation.
 
 ## Apply the update
 
@@ -25,8 +28,9 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 1. If the approval came with corrections, revise the epic framing first.
 2. Epic frontmatter: `status: draft → approved`, refresh `updated`; resolve
    any Open questions the user just answered.
-3. Add a plan changelog row (`epic approved`) and run `pm render` (the
-   INDEX row follows the frontmatter).
+3. Add a plan changelog row (`epic approved`) and run
+   `pm render --epic <slug> --session <id>` (the INDEX row follows the
+   frontmatter).
    When work starts on the first task, the same flow moves
    `approved → in-progress`.
 
@@ -34,7 +38,8 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 1. Task frontmatter: `status`, `updated`; blockers also get a Notes line
    naming the blocker.
-2. Run `pm render` (regenerates the plan task table and INDEX).
+2. Run `pm render --epic <slug> --session <id>` (regenerates the plan task
+   table and INDEX).
 3. `done` claims: run `pm verify <slug> <id>` (pass any paths the user's
    message names as `--files`). Check off a criterion only when the
    evidence printed under it proves it; for `no evidence in scope` and
@@ -71,9 +76,9 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 ## Claim management and handoff
 
-"release the X epic" → `pm release <slug> --session <id>` — refused when
-another session owns the claim; only `release --force`, on the user's explicit say-so,
-overrides it and the override is recorded.
+"release the X epic" → `pm release <slug> --session <id>`. It is refused
+when another session owns the claim. Only `release --force`, on the user's
+explicit say-so, overrides it, and the override is recorded.
 "drop the idea" / "we won't do X" on a draft → `pm release <slug>
 --session <id> --abandon`: the epic is marked abandoned, the branch stays.
 "take over X" → `pm claim <slug> --takeover` only when `pm status` shows
@@ -84,8 +89,9 @@ nothing. Each ends with a one-line confirmation.
 ## Write-back (every update run)
 
 Run log entry (`kind: update`), memo hand-written sections if something
-durable was learned, `pm render --epic <slug> --session <id>`, `pm check` to exit 0, then the scoped
-commit and push of `pm/<slug>` per `memory.md` (the single source for the
-command and its rules). Post a compact status after: the `pm status` line
-for the epic, tasks by status, current blockers, suggested next task
-(respecting `depends-on` and priority).
+durable was learned, `pm render --epic <slug> --session <id>`, `pm check
+--epic <slug>` to exit 0, then the scoped commit and push of `pm/<slug>` per
+`memory.md` (the single source for the command and its rules). Post a
+compact status after: the `pm status` line for the epic, tasks by status,
+current blockers, suggested next task (respecting `depends-on` and
+priority).

@@ -60,7 +60,8 @@ never silently kept.
    `references/commands.md`.
 2. Memo: add newly learned business goals/stakeholders/conventions to the
    hand-written sections; refresh `_Last updated:_`.
-3. `pm render --epic <slug> --session <id>`, then `pm check --epic <slug>` until exit 0.
+3. `pm render --epic <slug> --session <id>`, then `pm check --epic <slug>`
+   until exit 0.
 4. Commit on the epic's `pm/<slug>` branch, which is checked out in the
    worktree `claim` printed (this is the **canonical** commit rule —
    SKILL.md Phase 6 and tracking.md defer here). With `W` the worktree path:
