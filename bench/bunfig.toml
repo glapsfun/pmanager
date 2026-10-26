@@ -1,0 +1,2 @@
+[test]
+preload = ["../plugins/pmanager/skills/pmanager/tests/setup.ts"]
