@@ -30,6 +30,8 @@ async function run(args: string[], cwd: string, env: Record<string, string> = {}
   return { code, stdout, stderr };
 }
 
+const sid = (stdout: string) => /session: ([0-9a-f]{6})/.exec(stdout)?.[1] ?? "missing";
+
 async function localRepo() {
   const root = await makeTempDir("cli");
   await copyFixture(root);
@@ -151,7 +153,7 @@ describe("claim through the CLI", () => {
     expect(parsed.remote).toBe("ok");
     expect(parsed.rows[0]?.remoteClaim).toBe(true);
     expect(parsed.rows[0]?.session?.harness).toBe("test-harness");
-    const rel = await run(["release", "app-performance"], a);
+    const rel = await run(["release", "app-performance", "--session", sid(first.stdout)], a);
     expect(rel.code).toBe(0);
   });
 
@@ -187,7 +189,7 @@ describe("claim through the CLI", () => {
     expect(await gitOk(["log", "-1", "--format=%s"], worktreePath(a, "app-performance"))).toContain(
       "render after claim",
     );
-    const j = await run(["release", "app-performance", "--json"], a);
+    const j = await run(["release", "app-performance", "--json", "--session", sid(r.stdout)], a);
     const parsed = JSON.parse(j.stdout) as { ok: boolean; renderPush: { ok: boolean } };
     expect(parsed.ok).toBe(true);
     expect(parsed.renderPush.ok).toBe(false);
@@ -293,8 +295,8 @@ describe("worktrees", () => {
   });
   test("render --epic writes in the worktree, not the checkout", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    await run(["claim", "app-performance"], a);
-    const r = await run(["render", "--epic", "app-performance"], a);
+    const c = await run(["claim", "app-performance"], a);
+    const r = await run(["render", "--epic", "app-performance", "--session", sid(c.stdout)], a);
     expect(r.code).toBe(0);
     const wtIndex = join(worktreePath(a, "app-performance"), "docs", "pm", "INDEX.md");
     expect(await readFile(wtIndex, "utf8")).toContain("app-performance");
@@ -312,8 +314,8 @@ describe("worktrees", () => {
   });
   test("release removes the worktree", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    await run(["claim", "app-performance"], a);
-    const gone = await run(["release", "app-performance"], a);
+    const c = await run(["claim", "app-performance"], a);
+    const gone = await run(["release", "app-performance", "--session", sid(c.stdout)], a);
     expect(gone.code).toBe(0);
     expect(gone.stdout).toContain("worktree removed:");
     expect(await exists(worktreePath(a, "app-performance"))).toBe(false);
@@ -321,22 +323,37 @@ describe("worktrees", () => {
   });
   test("release --keep-worktree leaves it in place", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    await run(["claim", "app-performance"], a);
-    const kept = await run(["release", "app-performance", "--keep-worktree"], a);
+    const c = await run(["claim", "app-performance"], a);
+    const kept = await run(
+      ["release", "app-performance", "--keep-worktree", "--session", sid(c.stdout)],
+      a,
+    );
     expect(kept.code).toBe(0);
     expect(kept.stdout).not.toContain("worktree removed:");
     expect(await exists(worktreePath(a, "app-performance"))).toBe(true);
   });
   test("release keeps a dirty worktree and says why", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    await run(["claim", "app-performance"], a);
+    const c = await run(["claim", "app-performance"], a);
     const wt = worktreePath(a, "app-performance");
     await Bun.write(join(wt, "scratch.md"), "unsaved\n");
-    const r = await run(["release", "app-performance"], a);
+    const r = await run(["release", "app-performance", "--session", sid(c.stdout)], a);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("scratch.md");
     expect(r.stdout).toContain("--keep-worktree");
     expect(await exists(wt)).toBe(true);
+  });
+  test("claim prints the session id; render --epic needs it or --force", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const c = await run(["claim", "app-performance"], a);
+    expect(sid(c.stdout)).toMatch(/^[0-9a-f]{6}$/);
+    const refused = await run(["render", "--epic", "app-performance"], a);
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain("app-performance is owned by test-harness");
+    const forced = await run(["render", "--epic", "app-performance", "--force"], a);
+    expect(forced.code).toBe(0);
+    const status = await run(["status"], a);
+    expect(status.stdout).toContain(`test-harness · 2026-09-15 · ${sid(c.stdout)}`);
   });
   test("--no-worktree switches the checkout like before", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());

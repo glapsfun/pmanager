@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
-import { EPIC_TYPES } from "./contract";
+import { EPIC_TYPES, parseDoc, sessionOf } from "./contract";
 import { draftClaim } from "./draft";
 import { countBySeverity, formatFindings } from "./findings";
 import {
@@ -18,6 +19,7 @@ import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { applyRender, migrate } from "./render";
 import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
+import { ownershipProblem } from "./session";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
 import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
 import { removeWorktree, worktreeFor } from "./worktree";
@@ -53,6 +55,8 @@ flags
   --no-worktree                 claim/release: switch the current checkout instead of using a worktree
   --keep-worktree               release: leave the epic's worktree in place
   --epic SLUG                   render/check: act in that epic's worktree
+  --session ID                  release, render --epic: the id pm claim printed for your session
+  --force                       release, render --epic: act on another session's claim deliberately
   --title T                     claim --draft: the epic's one-line title
   --type TYPE                   claim --draft: bug | feature | tech-debt | initiative
   --distinct                    claim --draft: proceed although an existing epic looks like the same work
@@ -83,6 +87,7 @@ export interface Args {
   noWorktree: boolean;
   keepWorktree: boolean;
   epic?: string;
+  session?: string;
   draft: boolean;
   title?: string;
   type?: string;
@@ -152,6 +157,10 @@ export function parseArgs(argv: string[]): Args | null {
       const e = argv[++i];
       if (!e) return null;
       args.epic = e;
+    } else if (a === "--session") {
+      const s = argv[++i];
+      if (!s) return null;
+      args.session = s;
     } else if (a === "--path") {
       const p = argv[++i];
       if (!p) return null;
@@ -316,10 +325,22 @@ async function runDraft(root: string, args: Args): Promise<number> {
           rendered: render.written,
           renderPush: { ok: render.pushed, error: render.error },
         })
-      : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}\n${failure}`,
+      : `${result.message}${result.ok ? `\nworktree: ${result.worktree}\nsession: ${result.session}` : ""}\n${failure}`,
   );
   if (result.ok) return render.pushed ? 0 : 1;
   return result.reason === "no-remote" || result.reason === "worktree" ? 2 : 1;
+}
+
+/** The refusal when this caller may not write for a claimed epic; null when unclaimed or theirs. */
+async function epicOwnership(target: string, slug: string, args: Args): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(target, PM_DIR, slug, "epic.md"), "utf8");
+  } catch {
+    return null;
+  }
+  const owner = sessionOf(parseDoc(slug, raw).frontmatter);
+  return owner ? ownershipProblem(owner, args.harness, args.session) : null;
 }
 
 export async function main(argv: string[], cwd = process.cwd()): Promise<number> {
@@ -362,6 +383,13 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
     }
     case "render": {
       const target = await targetRoot(root, args);
+      if (args.epic && !args.force) {
+        const problem = await epicOwnership(target, args.epic, args);
+        if (problem) {
+          out(`${args.epic} is ${problem}\n`);
+          return 1;
+        }
+      }
       const base = target === root ? repo : await loadPmRepo(target);
       const migrated = args.migrate ? await migrate(base, opts.today) : [];
       const written = await applyRender(await loadPmRepo(target));
@@ -394,7 +422,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
               rendered: render.written,
               renderPush: { ok: render.pushed, error: render.error },
             })
-          : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}\n${failure}`,
+          : `${result.message}${result.ok ? `\nworktree: ${result.worktree}\nsession: ${result.session}` : ""}\n${failure}`,
       );
       if (result.ok) return render.pushed ? 0 : 1;
       if (result.reason === "worktree") return 2;
@@ -407,6 +435,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
         harness: args.harness,
         today: opts.today,
         force: args.force,
+        session: args.session,
         noWorktree: args.noWorktree,
         abandon: args.abandon,
       });

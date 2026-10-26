@@ -21,6 +21,8 @@ async function pm(cwd: string, harness: string, ...args: string[]) {
   return { code, stdout, stderr };
 }
 
+const sid = (stdout: string) => /session: ([0-9a-f]{6})/.exec(stdout)?.[1] ?? "missing";
+
 const CSV = [
   "claim",
   "csv-export",
@@ -49,7 +51,9 @@ describe("two sessions on one repository", () => {
     expect(second.stdout).toContain("sso-login reserved as draft by codex");
     const status = await pm(b, "codex", "status");
     expect(status.stdout).toContain("csv-export  feature  draft  CSV export for reports");
-    expect(status.stdout).toContain("session: claude-code · 2026-09-28 [remote-only]");
+    expect(status.stdout).toMatch(
+      /session: claude-code · 2026-09-28 · [0-9a-f]{6} \[remote-only\]/,
+    );
   });
 
   test("same slug one after the other: the second is refused and told the owner", async () => {
@@ -139,15 +143,26 @@ describe("two sessions on one repository", () => {
 
   test("cold start: follow-up commands work from the checkout after a draft", async () => {
     const { a } = await remoteWithClones({ "README.md": "# app\n" });
-    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
+    const draft = await pm(a, "claude-code", ...CSV);
+    expect(draft.code).toBe(0);
+    const id = sid(draft.stdout);
     const status = await pm(a, "claude-code", "status");
     expect(status.code).toBe(0);
     expect(status.stdout).toContain("csv-export  feature  draft  CSV export for reports");
-    expect((await pm(a, "claude-code", "render", "--epic", "csv-export")).code).toBe(0);
+    const rendered = await pm(a, "claude-code", "render", "--epic", "csv-export", "--session", id);
+    expect(rendered.code).toBe(0);
     const check = await pm(a, "claude-code", "check", "--epic", "csv-export");
     expect(check.code).toBe(1);
     expect(check.stdout).toContain("E-STR-002");
-    const released = await pm(a, "claude-code", "release", "csv-export", "--abandon");
+    const released = await pm(
+      a,
+      "claude-code",
+      "release",
+      "csv-export",
+      "--abandon",
+      "--session",
+      id,
+    );
     expect(released.code).toBe(0);
     expect(released.stdout).toContain("csv-export abandoned");
     const plain = await pm(a, "claude-code", "render");
@@ -158,16 +173,26 @@ describe("two sessions on one repository", () => {
 
   test("release --abandon through the CLI", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
-    const r = await pm(a, "claude-code", "release", "csv-export", "--abandon");
+    const d = await pm(a, "claude-code", ...CSV);
+    expect(d.code).toBe(0);
+    const r = await pm(
+      a,
+      "claude-code",
+      "release",
+      "csv-export",
+      "--abandon",
+      "--session",
+      sid(d.stdout),
+    );
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("csv-export abandoned");
   });
 
   test("release recreates the epic's worktree instead of switching the checkout", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
-    const plain = await pm(a, "claude-code", "release", "csv-export");
+    const d = await pm(a, "claude-code", ...CSV);
+    expect(d.code).toBe(0);
+    const plain = await pm(a, "claude-code", "release", "csv-export", "--session", sid(d.stdout));
     expect(plain.code).toBe(0);
     // the plain release removed the worktree it found; the local branch stays
     expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
@@ -191,8 +216,10 @@ describe("two sessions on one repository", () => {
 
   test("release after origin deletes the branch refuses without building a worktree", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await pm(a, "claude-code", ...CSV)).code).toBe(0);
-    expect((await pm(a, "claude-code", "release", "csv-export")).code).toBe(0);
+    const d = await pm(a, "claude-code", ...CSV);
+    expect(d.code).toBe(0);
+    const rel = await pm(a, "claude-code", "release", "csv-export", "--session", sid(d.stdout));
+    expect(rel.code).toBe(0);
     expect(await exists(worktreePath(a, "csv-export"))).toBe(false);
     // a merged PR with branch auto-delete: origin no longer has pm/csv-export
     await gitOk(["push", "-q", "origin", "--delete", "pm/csv-export"], a);
@@ -211,8 +238,17 @@ describe("two sessions on one repository", () => {
       gitOk(["push", "-q", "origin", "--delete", `pm/${slug}`], dir);
 
     const unclaimed = (await remoteWithClones(await unclaimedSeed())).a;
-    expect((await pm(unclaimed, "claude-code", ...CSV)).code).toBe(0);
-    expect((await pm(unclaimed, "claude-code", "release", "csv-export")).code).toBe(0);
+    const d1 = await pm(unclaimed, "claude-code", ...CSV);
+    expect(d1.code).toBe(0);
+    const rel1 = await pm(
+      unclaimed,
+      "claude-code",
+      "release",
+      "csv-export",
+      "--session",
+      sid(d1.stdout),
+    );
+    expect(rel1.code).toBe(0);
     await dropOrigin(unclaimed, "csv-export");
     const r1 = await pm(unclaimed, "claude-code", "release", "csv-export", "--no-worktree");
     expect(r1.code).toBe(1);
@@ -220,8 +256,18 @@ describe("two sessions on one repository", () => {
     expect(await current(unclaimed)).toBe("main");
 
     const abandoned = (await remoteWithClones(await unclaimedSeed())).a;
-    expect((await pm(abandoned, "claude-code", ...CSV)).code).toBe(0);
-    expect((await pm(abandoned, "claude-code", "release", "csv-export", "--abandon")).code).toBe(0);
+    const d2 = await pm(abandoned, "claude-code", ...CSV);
+    expect(d2.code).toBe(0);
+    const rel2 = await pm(
+      abandoned,
+      "claude-code",
+      "release",
+      "csv-export",
+      "--abandon",
+      "--session",
+      sid(d2.stdout),
+    );
+    expect(rel2.code).toBe(0);
     await dropOrigin(abandoned, "csv-export");
     const r2 = await pm(
       abandoned,
@@ -253,5 +299,19 @@ describe("two sessions on one repository", () => {
     expect(r.stdout).toContain("no local branch");
     expect((await gitOk(["branch", "--show-current"], b)).trim()).toBe("main");
     expect(await listWorktrees(b)).toHaveLength(1);
+  });
+
+  test("two sessions of one harness in one checkout: only the id holder may render or release", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const first = await pm(a, "claude-code", ...CSV);
+    const id = sid(first.stdout);
+    expect(id).toMatch(/^[0-9a-f]{6}$/);
+    const render = await pm(a, "claude-code", "render", "--epic", "csv-export");
+    expect(render.code).toBe(1);
+    expect(render.stdout).toContain("owned by claude-code");
+    expect((await pm(a, "claude-code", "release", "csv-export")).code).toBe(1);
+    const owned = await pm(a, "claude-code", "render", "--epic", "csv-export", "--session", id);
+    expect(owned.code).toBe(0);
+    expect((await pm(a, "claude-code", "release", "csv-export", "--session", id)).code).toBe(0);
   });
 });

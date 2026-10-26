@@ -149,7 +149,7 @@ describe("buildStatus", () => {
       [
         "brand-new",
         {
-          session: { harness: "pi", claimed: "2026-09-14", branch: "pm/brand-new" },
+          session: { harness: "pi", claimed: "2026-09-14", branch: "pm/brand-new", id: "a1b2c3" },
           updated: "2026-09-14",
           title: "Brand new epic",
           type: "feature",
@@ -175,7 +175,7 @@ describe("buildStatus", () => {
     expect(formatStatus(report)).toContain(
       [
         "brand-new  feature  approved  Brand new epic",
-        "  owner: someone  session: pi · 2026-09-14 [remote-only]  tasks: 0/0  updated: 2026-09-14",
+        "  owner: someone  session: pi · 2026-09-14 · a1b2c3 [remote-only]  tasks: 0/0  updated: 2026-09-14",
         "  repos: glapsfun/other  metric: signups +10%",
       ].join("\n"),
     );
