@@ -12,6 +12,11 @@ Then read that epic's plan.md and the affected task files before changing
 anything — the docs on disk are the state of record, not your memory of
 them, and the user may have hand-edited them since the last run.
 
+Check who holds it first: the `pm status` row's session. Your id (the
+ledger's `Session:` line) or unclaimed: proceed. Another session: tell the
+user who holds it and since when; adopt its id with `--session <id>` only
+when the user confirms it is their own earlier conversation.
+
 ## Apply the update
 
 **Epic approval** ("the epic looks good", "approved" — consumes the
@@ -66,11 +71,11 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 
 ## Claim management and handoff
 
-"release the X epic" → `pm release <slug>` — refused when another harness
-owns the claim; only `release --force`, on the user's explicit say-so,
+"release the X epic" → `pm release <slug> --session <id>` — refused when
+another session owns the claim; only `release --force`, on the user's explicit say-so,
 overrides it and the override is recorded.
 "drop the idea" / "we won't do X" on a draft → `pm release <slug>
---abandon`: the epic is marked abandoned, the branch stays.
+--session <id> --abandon`: the epic is marked abandoned, the branch stays.
 "take over X" → `pm claim <slug> --takeover` only when `pm status` shows
 `[stale]`; otherwise tell the user the owner must release. "pick up T03 of
 X" / "brief for T03" → `pm handoff <slug> T03`, print it verbatim, write
@@ -79,7 +84,7 @@ nothing. Each ends with a one-line confirmation.
 ## Write-back (every update run)
 
 Run log entry (`kind: update`), memo hand-written sections if something
-durable was learned, `pm render`, `pm check` to exit 0, then the scoped
+durable was learned, `pm render --epic <slug> --session <id>`, `pm check` to exit 0, then the scoped
 commit and push of `pm/<slug>` per `memory.md` (the single source for the
 command and its rules). Post a compact status after: the `pm status` line
 for the epic, tasks by status, current blockers, suggested next task

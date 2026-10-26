@@ -50,6 +50,7 @@ SPEC LEDGER — <one-line problem statement>
 Phase: <current phase>
 Mode: <new epic | update <slug> | status query | claim management | handoff>
 Tool: <ok | ok, no remote | unavailable (bun missing)>
+Session: <id printed by pm claim, or none>
 Memory: <memo found/absent; related prior epics from INDEX, or "none">
 Evidence:
   - [<source>] <fact>
@@ -128,6 +129,10 @@ failed`: rerun the printed push command once; if it still fails, continue
 without a reservation and say so. Exit 2 `worktree`: rerun with
 `--no-worktree` (see Degraded situations).
 
+The claim prints `session: <id>`: put it on the ledger's `Session:` line
+and pass `--session <id>` to every `render --epic` and `release` for this
+epic. Without it the tool treats you as another session.
+
 ### Phase 2 — Research
 
 Read `references/research.md` for the playbook. Gather evidence read-only,
@@ -179,7 +184,8 @@ epic. With a draft reservation from Phase 1, fill the stub in its worktree
 (`<repo>-pm-<slug>/docs/pm/<slug>/epic.md`), keeping its `id`, `created` and
 `session` lines. Without one (no remote at Phase 1), write
 `docs/pm/<slug>/epic.md` (with `contract: 1`, `repos`,
-`primary-metric`), then run `pm claim <slug> --harness <yours>`; `owned by
+`primary-metric`), then run `pm claim <slug> --harness <yours>`; it prints the session id the
+same way; `owned by
 …` means another session has this epic: stop and tell the user. Either way
 the epic's documents live in the worktree the claim printed, with branch
 `pm/<slug>` checked out there; the user's own checkout keeps its branch,
