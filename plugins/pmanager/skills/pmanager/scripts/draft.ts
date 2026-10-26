@@ -1,7 +1,14 @@
 import { mkdir, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { claimBranch, remoteEpicOf } from "./claim";
-import { type FmValue, formatFmValue, getString, type Session, sessionOf } from "./contract";
+import {
+  type FmValue,
+  formatFmValue,
+  getString,
+  type Session,
+  sessionFields,
+  sessionOf,
+} from "./contract";
 import {
   commitPaths,
   currentBranch,
@@ -18,6 +25,7 @@ import {
 import { writeLogEntry } from "./log";
 import { type EpicSummary, findLookAlikes, formatLookAlike } from "./lookalike";
 import { loadPmRepo, PM_DIR } from "./repo";
+import { newSessionId } from "./session";
 import { ensureWorktree, worktreeFor } from "./worktree";
 
 export interface DraftOptions {
@@ -30,12 +38,13 @@ export interface DraftOptions {
 }
 
 export type DraftOutcome =
-  | { ok: true; branch: string; worktree: string; message: string }
+  | { ok: true; branch: string; worktree: string; session: string; message: string }
   | {
       ok: false;
       reason: "no-remote" | "taken" | "exists" | "look-alike" | "worktree" | "push-failed";
       message: string;
       owner?: Session;
+      session?: string;
       lookAlikes?: EpicSummary[];
     };
 
@@ -56,10 +65,7 @@ export function stubEpic(
     ["contract", "1"],
     ["primary-metric", "unknown"],
     ["repos", []],
-    [
-      "session",
-      { harness: o.session.harness, claimed: o.session.claimed, branch: o.session.branch },
-    ],
+    ["session", sessionFields(o.session)],
   ];
   const fm = fields.map(([k, v]) => formatFmValue(k, v)).join("");
   return `---\n${fm}---\n\n# ${o.title}\n\nResearch in progress; framing happens in Phase 4.\n`;
@@ -312,7 +318,8 @@ async function writeAndPush(
   made: Made,
 ): Promise<DraftOutcome> {
   const target = made.worktree ?? root;
-  const session: Session = { harness: o.harness, claimed: o.today, branch };
+  const id = newSessionId();
+  const session: Session = { harness: o.harness, claimed: o.today, branch, id };
   const epicPath = join(target, PM_DIR, slug, "epic.md");
   await mkdir(dirname(epicPath), { recursive: true });
   made.files.push(epicPath);
@@ -334,6 +341,7 @@ async function writeAndPush(
     ok: true,
     branch,
     worktree: target,
+    session: id,
     message: `${slug} reserved as draft by ${o.harness} on ${branch}`,
   };
   const push = await pushSetUpstream(target, branch);
@@ -354,6 +362,7 @@ async function writeAndPush(
   return {
     ok: false,
     reason: "push-failed",
+    session: id,
     message: `push of ${branch} failed: ${push.stderr.trim()}\nyour draft commit is still on ${branch}; retry with: git push origin ${branch}`,
   };
 }

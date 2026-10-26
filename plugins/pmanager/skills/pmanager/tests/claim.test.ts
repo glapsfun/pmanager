@@ -19,6 +19,7 @@ import {
 const SLUG = "app-performance";
 const EPIC = `docs/pm/${SLUG}/epic.md`;
 const OPTS = { harness: "claude-code", takeover: false, staleDays: 14, today: "2026-09-15" };
+const ID = expect.stringMatching(/^[0-9a-f]{6}$/);
 
 async function branchOf(dir: string): Promise<string> {
   return (await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], dir)).trim();
@@ -35,6 +36,7 @@ describe("claim", () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
     const first = await claim(a, SLUG, OPTS);
     expect(first.ok).toBe(true);
+    if (first.ok) expect(first.session).toMatch(/^[0-9a-f]{6}$/);
     await expectClaimed(a, SLUG);
     expect(await listRemoteBranches(a, "pm/")).toEqual(["pm/app-performance"]);
     const epic = parseDoc(EPIC, await readFile(join(worktreePath(a, SLUG), EPIC), "utf8"));
@@ -42,6 +44,7 @@ describe("claim", () => {
       harness: "claude-code",
       claimed: "2026-09-15",
       branch: "pm/app-performance",
+      id: ID,
     });
     const second = await claim(b, SLUG, { ...OPTS, harness: "pi" });
     expect(second.ok).toBe(false);
@@ -55,6 +58,7 @@ describe("claim", () => {
       harness: "claude-code",
       claimed: "2026-09-15",
       branch: "pm/app-performance",
+      id: ID,
     });
   });
 
@@ -98,8 +102,13 @@ describe("claim", () => {
 
   test("release then claim by another session: branch still marks it taken", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
-    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
-    const rel = await release(a, SLUG, { harness: "claude-code", today: "2026-09-16" });
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
+    const rel = await release(a, SLUG, {
+      harness: "claude-code",
+      today: "2026-09-16",
+      session: c.session,
+    });
     expect(rel.ok).toBe(true);
     expect(await remoteSessionOf(b, SLUG)).toBeNull();
     const again = await claim(b, SLUG, { ...OPTS, harness: "pi" });
@@ -139,6 +148,7 @@ describe("claim", () => {
       harness: "pi",
       claimed: "2026-09-15",
       branch: "pm/app-performance",
+      id: ID,
     });
   });
 
@@ -162,6 +172,7 @@ describe("claim", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.reason).toBe("push-failed");
+      expect(r.session).toMatch(/^[0-9a-f]{6}$/);
       expect(r.message).toContain("git push origin pm/app-performance");
     }
     await expectClaimed(a, SLUG);
@@ -213,9 +224,14 @@ describe("claim", () => {
 
   test("release writes in the worktree and reports it for the caller to remove", async () => {
     const { a } = await remoteWithClones(await fixtureFiles());
-    await claim(a, SLUG, OPTS);
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
     const wt = worktreePath(a, SLUG);
-    const r = await release(a, SLUG, { harness: OPTS.harness, today: OPTS.today });
+    const r = await release(a, SLUG, {
+      harness: OPTS.harness,
+      today: OPTS.today,
+      session: c.session,
+    });
     expect(r.ok).toBe(true);
     expect(r.worktree).toBe(wt);
     // the session was cleared on the branch, in the worktree
@@ -225,7 +241,8 @@ describe("claim", () => {
 
   test("release refuses another harness's claim unless forced; unclaimed is reported", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
-    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const c0 = await claim(a, SLUG, OPTS);
+    if (!c0.ok) throw new Error(c0.message);
     await fetchOrigin(b);
     await gitOk(["checkout", "-q", "-b", "pm/app-performance", "origin/pm/app-performance"], b);
     const before = await gitOk(["rev-parse", "HEAD"], b);
@@ -238,6 +255,7 @@ describe("claim", () => {
       harness: "claude-code",
       claimed: "2026-09-15",
       branch: "pm/app-performance",
+      id: ID,
     });
     const forced = await release(b, SLUG, { harness: "pi", today: "2026-09-16", force: true });
     expect(forced.ok).toBe(true);
@@ -248,6 +266,7 @@ describe("claim", () => {
     );
     const plan = await readFile(join(b, `docs/pm/${SLUG}/plan.md`), "utf8");
     expect(plan).toContain("force-released by pi");
+    expect(plan).toContain(`claim by claude-code session ${c0.session} overridden`);
     const again = await release(b, SLUG, { harness: "pi", today: "2026-09-17" });
     expect(again.ok).toBe(false);
     expect(again.reason).toBe("unclaimed");
@@ -255,12 +274,17 @@ describe("claim", () => {
 
   test("release recreates a removed worktree from the local branch, never switching the checkout", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
     const wt = worktreePath(a, SLUG);
     const removed = await removeWorktree(a, wt, {});
     expect(removed.ok && removed.removed).toBe(true);
     const before = await branchOf(a);
-    const r = await release(a, SLUG, { harness: OPTS.harness, today: "2026-09-16" });
+    const r = await release(a, SLUG, {
+      harness: OPTS.harness,
+      today: "2026-09-16",
+      session: c.session,
+    });
     expect(r.ok).toBe(true);
     expect(r.worktree).not.toBeNull();
     expect(await branchOf(a)).toBe(before);
@@ -268,13 +292,68 @@ describe("claim", () => {
 
   test("a rejected release push names the worktree and a git -C retry", async () => {
     const { bare, a } = await remoteWithClones(await unclaimedSeed());
-    expect((await claim(a, SLUG, OPTS)).ok).toBe(true);
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
     const wt = worktreePath(a, SLUG);
     await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
-    const r = await release(a, SLUG, { harness: OPTS.harness, today: "2026-09-16" });
+    const r = await release(a, SLUG, {
+      harness: OPTS.harness,
+      today: "2026-09-16",
+      session: c.session,
+    });
     expect(r.ok).toBe(false);
     expect(r.reason).toBe("push-failed");
     expect(r.message).toContain(`the release commit is in ${wt}`);
     expect(r.message).toContain(`retry with: git -C ${wt} push origin ${claimBranch(SLUG)}`);
+  });
+
+  test("the same harness without the session id is refused; the id or --force releases", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
+    const refused = await release(a, SLUG, { harness: "claude-code", today: OPTS.today });
+    expect(refused.ok).toBe(false);
+    expect(refused.reason).toBe("not-owner");
+    expect(refused.message).toContain(`session ${c.session}`);
+    const wrong = await release(a, SLUG, {
+      harness: "claude-code",
+      today: OPTS.today,
+      session: "ffffff",
+    });
+    expect(wrong.ok).toBe(false);
+    const ok = await release(a, SLUG, {
+      harness: "claude-code",
+      today: OPTS.today,
+      session: c.session,
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  test("an older claim without an id keeps the harness rule", async () => {
+    const { a } = await remoteWithClones(await fixtureFiles());
+    await gitOk(["push", "-q", "origin", "main:pm/app-performance"], a);
+    await gitOk(
+      ["checkout", "-q", "-b", "pm/app-performance", "--track", "origin/pm/app-performance"],
+      a,
+    );
+    const byHarness = await release(a, SLUG, {
+      harness: "claude-code",
+      today: OPTS.today,
+      noWorktree: true,
+    });
+    expect(byHarness.ok).toBe(true);
+  });
+
+  test("an older claim without an id refuses a different harness", async () => {
+    const { a } = await remoteWithClones(await fixtureFiles());
+    await gitOk(["push", "-q", "origin", "main:pm/app-performance"], a);
+    await gitOk(
+      ["checkout", "-q", "-b", "pm/app-performance", "--track", "origin/pm/app-performance"],
+      a,
+    );
+    const other = await release(a, SLUG, { harness: "pi", today: OPTS.today, noWorktree: true });
+    expect(other.ok).toBe(false);
+    expect(other.reason).toBe("not-owner");
+    expect(other.message).toContain("owned by claude-code");
   });
 });

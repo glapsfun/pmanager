@@ -61,9 +61,15 @@ describe("stubEpic", () => {
 describe("draftClaim", () => {
   test("writes the stub in its own worktree, pushes, and leaves the checkout untouched", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
+    const wt = worktreePath(a, "csv-export");
     const r = await draftClaim(a, "csv-export", OPTS);
     expect(r.ok).toBe(true);
-    const wt = worktreePath(a, "csv-export");
+    if (r.ok) {
+      expect(r.session).toMatch(/^[0-9a-f]{6}$/);
+      expect(await readFile(join(wt, "docs/pm/csv-export/epic.md"), "utf8")).toContain(
+        `id: ${r.session}`,
+      );
+    }
     expect(await readFile(join(wt, "docs/pm/csv-export/epic.md"), "utf8")).toContain(
       "status: draft",
     );
@@ -266,8 +272,9 @@ describe("draftClaim", () => {
 
   test("a draft released without --abandon can still be abandoned, once", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
-    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
-    const opts = { harness: "claude-code", today: "2026-09-29" };
+    const d = await draftClaim(a, "csv-export", OPTS);
+    if (!d.ok) throw new Error(d.message);
+    const opts = { harness: "claude-code", today: "2026-09-29", session: d.session };
     const plain = await release(a, "csv-export", opts);
     expect(plain.ok).toBe(true);
     expect(plain.message).toBe(
@@ -285,7 +292,8 @@ describe("draftClaim", () => {
 
   test("a forced abandon records whose claim it overrode", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const d0 = await draftClaim(a, "csv-export", OPTS);
+    if (!d0.ok) throw new Error(d0.message);
     const opts = { harness: "pi", today: "2026-09-29", abandon: true };
     expect((await release(a, "csv-export", opts)).reason).toBe("not-owner");
     expect((await release(a, "csv-export", { ...opts, force: true })).ok).toBe(true);
@@ -293,16 +301,20 @@ describe("draftClaim", () => {
     const logs = await Promise.all(
       (await readdir(logDir)).map((n) => readFile(join(logDir, n), "utf8")),
     );
-    expect(logs.join("\n")).toContain("abandoned by pi (forced, was claude-code)");
+    expect(logs.join("\n")).toContain(
+      `abandoned by pi (forced, was claude-code session ${d0.session})`,
+    );
   });
 
   test("release --abandon marks the draft abandoned, keeps the branch, frees the idea", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
-    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const d = await draftClaim(a, "csv-export", OPTS);
+    if (!d.ok) throw new Error(d.message);
     const r = await release(a, "csv-export", {
       harness: "claude-code",
       today: "2026-09-29",
       abandon: true,
+      session: d.session,
     });
     expect(r.ok).toBe(true);
     expect(r.message).toContain("abandoned");

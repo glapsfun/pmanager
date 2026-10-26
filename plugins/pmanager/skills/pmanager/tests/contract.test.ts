@@ -9,6 +9,7 @@ import {
   parseDoc,
   parseYamlSubset,
   sectionBody,
+  sessionFields,
   sessionOf,
   setFrontmatterKey,
   splitFrontmatter,
@@ -106,6 +107,30 @@ describe("parseDoc and accessors", () => {
     });
     expect(sessionOf({})).toBeNull();
     expect(sessionOf({ session: "" })).toBeNull();
+  });
+  test("sessionOf reads an id when present and leaves it out otherwise", () => {
+    const fm = {
+      session: { harness: "pi", claimed: "2026-09-28", branch: "pm/x", id: "a1b2c3" },
+    };
+    expect(sessionOf(fm)).toEqual({
+      harness: "pi",
+      claimed: "2026-09-28",
+      branch: "pm/x",
+      id: "a1b2c3",
+    });
+    expect(
+      sessionOf({ session: { harness: "pi", claimed: "2026-09-28", branch: "pm/x" } }),
+    ).toEqual({
+      harness: "pi",
+      claimed: "2026-09-28",
+      branch: "pm/x",
+    });
+    expect(sessionFields({ harness: "pi", claimed: "d", branch: "b", id: "x" })).toEqual({
+      harness: "pi",
+      claimed: "d",
+      branch: "b",
+      id: "x",
+    });
   });
   test("doc without frontmatter has empty frontmatter", () => {
     const d = parseDoc("x.md", "# hi\n");

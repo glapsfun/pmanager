@@ -161,7 +161,9 @@ export function formatStatus(report: StatusReport): string {
   if (report.rows.length === 0) lines.push("no epics under docs/pm");
   for (const r of report.rows) {
     const flags = `${r.remoteOnly ? " [remote-only]" : r.remoteClaim ? " [remote]" : ""}${r.stale ? " [stale]" : ""}`;
-    const session = r.session ? `${r.session.harness} · ${r.session.claimed}${flags}` : "unowned";
+    const session = r.session
+      ? `${r.session.harness} · ${r.session.claimed}${r.session.id ? ` · ${r.session.id}` : ""}${flags}`
+      : "unowned";
     const head = [r.slug, r.type, r.status, r.title].filter(Boolean).join("  ");
     lines.push(head);
     lines.push(

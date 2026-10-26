@@ -26,6 +26,7 @@ repos: []                     # remote URLs of the target repositories
 #   harness: claude-code
 #   claimed: YYYY-MM-DD
 #   branch: pm/<slug>
+#   id: <6 hex, issued by pm claim>
 ---
 
 # <Title>

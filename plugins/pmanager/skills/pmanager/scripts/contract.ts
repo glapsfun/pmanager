@@ -67,6 +67,8 @@ export interface Session {
   harness: string;
   claimed: string;
   branch: string;
+  /** issued by pm claim; absent on claims made before session ids */
+  id?: string;
 }
 
 const FENCE = "---\n";
@@ -237,7 +239,22 @@ export function contractVersion(fm: Frontmatter): number {
 export function sessionOf(fm: Frontmatter): Session | null {
   const m = getMap(fm, "session");
   if (!m) return null;
-  return { harness: m.harness ?? "", claimed: m.claimed ?? "", branch: m.branch ?? "" };
+  return {
+    harness: m.harness ?? "",
+    claimed: m.claimed ?? "",
+    branch: m.branch ?? "",
+    ...(m.id ? { id: m.id } : {}),
+  };
+}
+
+/** The session block as frontmatter writes it. */
+export function sessionFields(s: Session): Record<string, string> {
+  return {
+    harness: s.harness,
+    claimed: s.claimed,
+    branch: s.branch,
+    ...(s.id ? { id: s.id } : {}),
+  };
 }
 
 function normalizeHeading(h: string): string {
