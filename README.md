@@ -290,6 +290,7 @@ plugins/pmanager/
     ├── README.md                 # usage guide + worked example
     ├── scripts/pm.ts             # pm tool: check, render, claim, release, status, handoff, research, verify (Bun)
     ├── tests/                    # bun test suite + webshop fixture
+    ├── bunfig.toml               # test fixtures go in one temp dir, removed after the run (PM_KEEP_TEST_TMP=1 keeps it)
     ├── package.json              # bun run gate → typecheck, lint, test
     ├── evals/evals.json          # skill evals
     └── references/               # playbooks, command reference, templates
