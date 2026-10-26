@@ -41,6 +41,7 @@ export type ClaimOutcome =
       reason: "taken" | "not-stale" | "no-remote" | "no-epic" | "push-failed" | "worktree";
       message: string;
       owner?: Session;
+      session?: string;
     };
 
 export interface ClaimOptions {
@@ -293,6 +294,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   return {
     ok: false,
     reason: "push-failed",
+    session: id,
     message: `push of ${branch} failed: ${push.stderr.trim()}\nyour claim commit is still on ${branch}; retry with: git push origin ${branch}`,
   };
 }
@@ -449,7 +451,7 @@ export async function release(
     worktree = created.path;
   }
   const forced = owner !== null && ownershipProblem(owner, opts.harness, opts.session) !== null;
-  const overridden = forced ? owner?.harness : null;
+  const overridden = forced ? `${owner?.harness}${owner?.id ? ` session ${owner.id}` : ""}` : null;
   const paths = [
     await writeSession(target, slug, undefined, opts.today, opts.abandon ? "abandoned" : undefined),
   ];

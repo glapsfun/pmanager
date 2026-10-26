@@ -292,6 +292,59 @@ describe("worktrees", () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     const r = await run(["claim", "app-performance", "--json"], a);
     expect(JSON.parse(r.stdout).worktree).toBe(worktreePath(a, "app-performance"));
+    expect(JSON.parse(r.stdout).session).toMatch(/^[0-9a-f]{6}$/);
+  });
+  test("claim --draft --json carries the session field", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const r = await run(
+      ["claim", "csv-export", "--draft", "--title", "CSV export", "--type", "feature", "--json"],
+      a,
+    );
+    expect(JSON.parse(r.stdout).session).toMatch(/^[0-9a-f]{6}$/);
+  });
+  test("a hook-rejected draft claim prints its session id; the pushed branch is still owned", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const r = await run(
+      ["claim", "csv-export", "--draft", "--title", "CSV export", "--type", "feature"],
+      a,
+    );
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("push of pm/csv-export failed");
+    const id = sid(r.stdout);
+    expect(id).toMatch(/^[0-9a-f]{6}$/);
+    await installPreReceiveHook(bare, "exit 0");
+    const wt = worktreePath(a, "csv-export");
+    await gitOk(["push", "origin", "pm/csv-export"], wt);
+    const ok = await run(["render", "--epic", "csv-export", "--session", id], a);
+    expect(ok.code).toBe(0);
+    const refused = await run(["release", "csv-export"], a);
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain(`session ${id}`);
+  });
+  test("a hook-rejected claim prints its session id", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const r = await run(["claim", "app-performance"], a);
+    expect(r.code).toBe(1);
+    expect(sid(r.stdout)).toMatch(/^[0-9a-f]{6}$/);
+  });
+  test("a hook-rejected claim --json carries the session id", async () => {
+    const { bare, a } = await remoteWithClones(await unclaimedSeed());
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const j = await run(["claim", "app-performance", "--json"], a);
+    expect(j.code).toBe(1);
+    expect(JSON.parse(j.stdout).session).toMatch(/^[0-9a-f]{6}$/);
+  });
+  test("render --epic --json reports an ownership refusal as json", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const r = await run(["render", "--epic", "app-performance", "--json"], a);
+    expect(r.code).toBe(1);
+    const parsed = JSON.parse(r.stdout) as { ok: boolean; reason: string; message: string };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe("not-owner");
+    expect(parsed.message).toContain("owned by test-harness");
   });
   test("render --epic writes in the worktree, not the checkout", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());

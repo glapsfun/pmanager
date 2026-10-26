@@ -292,7 +292,8 @@ describe("draftClaim", () => {
 
   test("a forced abandon records whose claim it overrode", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
-    expect((await draftClaim(a, "csv-export", OPTS)).ok).toBe(true);
+    const d0 = await draftClaim(a, "csv-export", OPTS);
+    if (!d0.ok) throw new Error(d0.message);
     const opts = { harness: "pi", today: "2026-09-29", abandon: true };
     expect((await release(a, "csv-export", opts)).reason).toBe("not-owner");
     expect((await release(a, "csv-export", { ...opts, force: true })).ok).toBe(true);
@@ -300,7 +301,9 @@ describe("draftClaim", () => {
     const logs = await Promise.all(
       (await readdir(logDir)).map((n) => readFile(join(logDir, n), "utf8")),
     );
-    expect(logs.join("\n")).toContain("abandoned by pi (forced, was claude-code)");
+    expect(logs.join("\n")).toContain(
+      `abandoned by pi (forced, was claude-code session ${d0.session})`,
+    );
   });
 
   test("release --abandon marks the draft abandoned, keeps the branch, frees the idea", async () => {

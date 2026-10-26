@@ -44,6 +44,7 @@ export type DraftOutcome =
       reason: "no-remote" | "taken" | "exists" | "look-alike" | "worktree" | "push-failed";
       message: string;
       owner?: Session;
+      session?: string;
       lookAlikes?: EpicSummary[];
     };
 
@@ -317,7 +318,8 @@ async function writeAndPush(
   made: Made,
 ): Promise<DraftOutcome> {
   const target = made.worktree ?? root;
-  const session: Session = { harness: o.harness, claimed: o.today, branch, id: newSessionId() };
+  const id = newSessionId();
+  const session: Session = { harness: o.harness, claimed: o.today, branch, id };
   const epicPath = join(target, PM_DIR, slug, "epic.md");
   await mkdir(dirname(epicPath), { recursive: true });
   made.files.push(epicPath);
@@ -339,7 +341,7 @@ async function writeAndPush(
     ok: true,
     branch,
     worktree: target,
-    session: session.id as string,
+    session: id,
     message: `${slug} reserved as draft by ${o.harness} on ${branch}`,
   };
   const push = await pushSetUpstream(target, branch);
@@ -360,6 +362,7 @@ async function writeAndPush(
   return {
     ok: false,
     reason: "push-failed",
+    session: id,
     message: `push of ${branch} failed: ${push.stderr.trim()}\nyour draft commit is still on ${branch}; retry with: git push origin ${branch}`,
   };
 }

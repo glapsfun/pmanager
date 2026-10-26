@@ -325,7 +325,7 @@ async function runDraft(root: string, args: Args): Promise<number> {
           rendered: render.written,
           renderPush: { ok: render.pushed, error: render.error },
         })
-      : `${result.message}${result.ok ? `\nworktree: ${result.worktree}\nsession: ${result.session}` : ""}\n${failure}`,
+      : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}${result.session ? `\nsession: ${result.session}` : ""}\n${failure}`,
   );
   if (result.ok) return render.pushed ? 0 : 1;
   return result.reason === "no-remote" || result.reason === "worktree" ? 2 : 1;
@@ -386,7 +386,11 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
       if (args.epic && !args.force) {
         const problem = await epicOwnership(target, args.epic, args);
         if (problem) {
-          out(`${args.epic} is ${problem}\n`);
+          out(
+            args.json
+              ? json({ ok: false, reason: "not-owner", message: `${args.epic} is ${problem}` })
+              : `${args.epic} is ${problem}\n`,
+          );
           return 1;
         }
       }
@@ -422,7 +426,7 @@ export async function main(argv: string[], cwd = process.cwd()): Promise<number>
               rendered: render.written,
               renderPush: { ok: render.pushed, error: render.error },
             })
-          : `${result.message}${result.ok ? `\nworktree: ${result.worktree}\nsession: ${result.session}` : ""}\n${failure}`,
+          : `${result.message}${result.ok ? `\nworktree: ${result.worktree}` : ""}${result.session ? `\nsession: ${result.session}` : ""}\n${failure}`,
       );
       if (result.ok) return render.pushed ? 0 : 1;
       if (result.reason === "worktree") return 2;

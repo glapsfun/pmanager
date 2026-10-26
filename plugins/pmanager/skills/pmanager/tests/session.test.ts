@@ -24,6 +24,7 @@ describe("ownershipProblem", () => {
 
   test("an older claim without an id keeps the harness rule", () => {
     expect(ownershipProblem(legacy, "claude-code")).toBeNull();
+    expect(ownershipProblem(legacy, "claude-code", "zzzzzz")).toBeNull();
     expect(ownershipProblem(legacy, "pi")).toContain(
       "owned by claude-code (claimed 2026-09-10), not pi",
     );
