@@ -17,7 +17,12 @@ describe("claude-code adapter", () => {
       ],
       finalMessage: "Epic written as draft; awaiting approval.",
       model: "claude-sonnet-5",
-      trace: { preFramingContext: null, preFramingToolBytes: null, preResearchCommands: null },
+      trace: {
+        preFramingContext: null,
+        preFramingToolBytes: null,
+        preResearchCommands: null,
+        modelCalls: null,
+      },
     });
   });
 
@@ -27,6 +32,7 @@ describe("claude-code adapter", () => {
       preFramingContext: 1000,
       preFramingToolBytes: 69,
       preResearchCommands: 1,
+      modelCalls: 5,
     });
   });
 

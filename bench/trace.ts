@@ -12,6 +12,8 @@ export interface TraceMetrics {
   preFramingToolBytes: number | null;
   /** tool calls on the fixture before the first pm research */
   preResearchCommands: number | null;
+  /** model calls in the run, null when the harness emits no call events */
+  modelCalls: number | null;
 }
 
 type ToolEvent = Extract<TraceEvent, { kind: "tool" }>;
@@ -25,6 +27,7 @@ export function traceMetrics(events: TraceEvent[]): TraceMetrics {
   const contexts = before.flatMap((e) => (e.kind === "call" ? [e.context] : []));
   const first = contexts[0];
   const last = contexts[contexts.length - 1];
+  const calls = events.filter((e) => e.kind === "call").length;
   return {
     preFramingContext: first !== undefined && last !== undefined ? last - first : null,
     preFramingToolBytes:
@@ -33,5 +36,6 @@ export function traceMetrics(events: TraceEvent[]): TraceMetrics {
       research < 0
         ? null
         : events.slice(0, research).filter((e) => isTool(e) && isExploration(e)).length,
+    modelCalls: calls || null,
   };
 }

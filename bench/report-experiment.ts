@@ -39,6 +39,15 @@ function secs(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
+function durationDiffCell(q: Quartiles | null): string {
+  if (!q) return DASH;
+  const s = (ms: number) => {
+    const v = Math.round(ms / 1000);
+    return `${v < 0 ? "-" : "+"}${Math.abs(v)}s`;
+  };
+  return `${s(q.median)} (${s(q.q1)}–${s(q.q3)})`;
+}
+
 function money(n: number | null): string {
   return n === null ? DASH : `$${n.toFixed(2)}`;
 }
@@ -83,6 +92,8 @@ function groupRow(g: GroupStats): string {
     g.durationMs ? secs(g.durationMs.median) : DASH,
     tokensCell(g),
     costCell(g),
+    money(g.costPerRun?.median ?? null),
+    g.trace.modelCalls ? String(Math.round(g.trace.modelCalls.median)) : DASH,
   ];
   return `| ${cells.join(" | ")} |`;
 }
@@ -94,8 +105,8 @@ export function renderExperimentReport(m: Manifest, s: ExperimentSummary): strin
   out.push(
     "## Per scenario and condition",
     "",
-    "| Scenario | Condition | Planned | Attempted | Completed | Failed | Success rate | Score median (IQR) | Duration median | Tokens in/out (n) | Cost (n) |",
-    "| :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: |",
+    "| Scenario | Condition | Planned | Attempted | Completed | Failed | Success rate | Score median (IQR) | Duration median | Tokens in/out (n) | Cost (n) | Cost median | Steps median |",
+    "| :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...s.groups.map(groupRow),
     "",
   );
@@ -104,11 +115,11 @@ export function renderExperimentReport(m: Manifest, s: ExperimentSummary): strin
     out.push(
       `## Paired differences (${first.a} minus ${first.b})`,
       "",
-      "| Scenario | Pairs completed | Pairs excluded | Score diff median (IQR) | Success diff |",
-      "| :--- | ---: | ---: | ---: | ---: |",
+      "| Scenario | Pairs completed | Pairs excluded | Score diff median (IQR) | Success diff | Cost diff median (IQR) | Duration diff median (IQR) | Steps diff median (IQR) |",
+      "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
       ...s.pairings.map(
         (p) =>
-          `| ${p.scenario} | ${p.pairsCompleted} | ${p.pairsExcluded} | ${iqr(p.scoreDiff, true)} | ${signedPct(p.successDiff)} |`,
+          `| ${p.scenario} | ${p.pairsCompleted} | ${p.pairsExcluded} | ${iqr(p.scoreDiff, true)} | ${signedPct(p.successDiff)} | ${iqr(p.costDiff, true)} | ${durationDiffCell(p.durationDiff)} | ${wholeIqr(p.callsDiff, true)} |`,
       ),
       "",
     );
@@ -191,16 +202,20 @@ export function renderExperimentsSection(items: ExperimentItem[]): string[] {
       const context = (g: GroupStats | undefined) =>
         g?.trace.preFramingContext ? String(Math.round(g.trace.preFramingContext.median)) : DASH;
       const preFraming = b ? `${context(a)} / ${context(b)}` : context(a);
+      const perRun = (g: GroupStats | undefined) => money(g?.costPerRun?.median ?? null);
+      const costPerRun = b ? `${perRun(a)} / ${perRun(b)}` : perRun(a);
+      const dur = (g: GroupStats | undefined) => (g?.durationMs ? secs(g.durationMs.median) : DASH);
+      const duration = b ? `${dur(a)} / ${dur(b)}` : dur(a);
       const model = `${m.modelRequested}${m.reasoning ? ` (${m.reasoning})` : ""}`;
       const conditions = m.conditions.join(" / ");
-      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${conditions} | ${pairs} | ${success} | ${diff} | ${tokens} | ${preFraming} | ${money(s.spendUsd)} |`;
+      return `| ${label} | ${m.harness} ${m.harnessVersion} | ${model} | ${sc.name} | ${conditions} | ${pairs} | ${success} | ${diff} | ${tokens} | ${preFraming} | ${costPerRun} | ${duration} | ${money(s.spendUsd)} |`;
     });
   });
   return [
     "## Experiments",
     "",
-    "| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost |",
-    "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost per run A / B | Duration A / B | Cost |",
+    "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     "",
   ];

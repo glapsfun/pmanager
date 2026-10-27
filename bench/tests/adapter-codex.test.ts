@@ -14,7 +14,12 @@ describe("codex adapter", () => {
       commands: ["git log --oneline -5", "bun run .agents/skills/pmanager/scripts/pm.ts check"],
       finalMessage: "Committed on pm/x; awaiting approval.",
       model: null,
-      trace: { preFramingContext: null, preFramingToolBytes: 18, preResearchCommands: null },
+      trace: {
+        preFramingContext: null,
+        preFramingToolBytes: 18,
+        preResearchCommands: null,
+        modelCalls: null,
+      },
     });
   });
 
@@ -24,6 +29,7 @@ describe("codex adapter", () => {
       preFramingContext: null,
       preFramingToolBytes: 30,
       preResearchCommands: 1,
+      modelCalls: null,
     });
   });
 

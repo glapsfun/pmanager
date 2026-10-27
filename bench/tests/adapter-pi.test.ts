@@ -48,6 +48,7 @@ describe("pi adapter", () => {
       preFramingContext: 500,
       preFramingToolBytes: 30,
       preResearchCommands: 1,
+      modelCalls: 4,
     });
   });
 

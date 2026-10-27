@@ -156,6 +156,7 @@ describe("traceMetrics", () => {
       preFramingContext: 1000,
       preFramingToolBytes: 30,
       preResearchCommands: 1,
+      modelCalls: 4,
     });
   });
 
@@ -164,11 +165,19 @@ describe("traceMetrics", () => {
       preFramingContext: null,
       preFramingToolBytes: null,
       preResearchCommands: null,
+      modelCalls: 1,
     });
     expect(traceMetrics([tool({ tool: "file_change", path: "docs/pm/x/epic.md" })])).toEqual({
       preFramingContext: null,
       preFramingToolBytes: 0,
       preResearchCommands: null,
+      modelCalls: null,
     });
+  });
+
+  test("modelCalls counts model calls, null without any", () => {
+    const t = tool({ tool: "Bash", command: "ls" });
+    expect(traceMetrics([call(1), t, result(2), call(3), t, call(4)]).modelCalls).toBe(3);
+    expect(traceMetrics([t, result(2)]).modelCalls).toBeNull();
   });
 });

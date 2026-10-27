@@ -23,14 +23,16 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 
 ## Experiments
 
-| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost |
-| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | with-skill / without-skill | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — / — | — |
-| m0-null (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill / baseline-skill | 3 (0) | 100% / 100% | +0.00 | 74839 / 69546 | 39335 / 31231 | $10.67 |
-| m0-null (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill / baseline-skill | 3 (0) | 33% / 100% | -0.08 | 73674 / 74920 | 28277 / 25246 | $10.67 |
-| m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill | 3 | 67% | — | 72806 | 29234 | $5.50 |
-| m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill | 3 | 100% | — | 79164 | 31844 | $5.50 |
-| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $2.71 |
+| Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost per run A / B | Duration A / B | Cost |
+| :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | with-skill / without-skill | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — / — | — / — | 541s / 327s | — |
+| fewer-steps | claude-code 2.1.311 | claude-sonnet-5 | perf-bug-new-epic | with-skill / baseline-skill | 10 (0) | 90% / 90% | +0.00 | 70414 / 75771 | 34939 / 35819 | $0.66 / $1.01 | 255s / 265s | $31.97 |
+| fewer-steps | claude-code 2.1.311 | claude-sonnet-5 | feature-idea-epic | with-skill / baseline-skill | 10 (0) | 60% / 90% | +0.00 | 69412 / 73431 | 27458 / 31306 | $0.60 / $0.90 | 247s / 268s | $31.97 |
+| m0-null (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill / baseline-skill | 3 (0) | 100% / 100% | +0.00 | 74839 / 69546 | 39335 / 31231 | $0.92 / $0.87 | 291s / 253s | $10.67 |
+| m0-null (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill / baseline-skill | 3 (0) | 33% / 100% | -0.08 | 73674 / 74920 | 28277 / 25246 | $0.89 / $0.83 | 276s / 285s | $10.67 |
+| m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill | 3 | 67% | — | 72806 | 29234 | $0.86 | 290s | $5.50 |
+| m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill | 3 | 100% | — | 79164 | 31844 | $0.99 | 317s | $5.50 |
+| pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
 
 ## History (last 20 agent runs)
 

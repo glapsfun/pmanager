@@ -70,6 +70,8 @@ Who is affected, who must be consulted, who signs off.
 | checkout error rate | guardrail | 0.2% | ≤0.2% | same | Prometheus |
 
 One primary metric; at least one guardrail (a thing the fix must not break).
+Every target is a number, never "TBD"; with no baseline, estimate one and
+mark it as an assumption.
 
 ## Scope
 

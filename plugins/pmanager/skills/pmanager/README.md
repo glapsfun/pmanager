@@ -80,7 +80,9 @@ the branch releases it.
 ## What it writes
 
 Everything lives under `docs/pm/` in your orchestration repo, committed on
-the epic's `pm/<slug>` branch and pushed there (never `main`):
+the epic's `pm/<slug>` branch and pushed there (never `main`; with no origin
+remote, or an unreachable one, it is committed on the checkout's current
+branch, unpushed):
 
 ```text
 docs/pm/
@@ -91,8 +93,8 @@ docs/pm/
     ├── epic.md               # why & what — problem, evidence, hypothesis, metrics, non-goals
     ├── plan.md               # how & when — milestones, risks, dependencies, MoSCoW, changelog
     └── tasks/
-        ├── T01-<slug>.md     # self-contained INVEST tasks with binary acceptance criteria
-        └── T02-<slug>.md
+        ├── T01-<short-slug>.md  # self-contained INVEST tasks with binary acceptance criteria
+        └── T02-<short-slug>.md
 ```
 
 Later runs get `INDEX.md` and the memo through `pm status` first, so the agent remembers prior
@@ -189,8 +191,10 @@ commits, and answers:
   non-interactive runs (nobody to ask), where the spec is written with the
   epic marked `draft` and your later "approved" flips it.
 - **Research is read-only**; the only writes are `docs/pm/`, its scoped
-  commit, and the push of the epic's own `pm/<slug>` branch. Never `main`,
-  never a target repo, no secrets/PII in the docs.
+  commit, and the push of the epic's own `pm/<slug>` branch. Never `main`
+  (except with no origin remote, or an unreachable one: then the commit
+  lands on the checkout's current branch, unpushed), never a target repo,
+  no secrets/PII in the docs.
 - **Rendered files:** `INDEX.md`, the plan's task table, and the memo
   changelog are generated; edit task files instead and the agent re-renders.
 - **Too small for an epic?** The agent says so and offers a single task
