@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "id": "fewer-steps",
+  "createdAt": "2026-10-27T16:27:35.991Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.311",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill",
+    "baseline-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 900,
+  "repoSha": "a85801b",
+  "repoDirty": false,
+  "skillVersion": "0.9.0",
+  "skillHash": "sha256:9f9c4f0124d69fc5a2b954811371a266ed33824dffa8abe5d88fc359e85d9787",
+  "contractHash": "sha256:86ca041eefd1e4797212882a9238f330426534a63e1e22f9740eda637d8d34d0",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "perf-bug-new-epic",
+      "version": 1,
+      "promptHash": "sha256:571b3afd86be4194435ddd371dca5e474630a6b1974aa1ee528d232e9f9a2d59",
+      "fixtureHash": "sha256:99c393bae65dc3e20f1821055888c2cf24c505f9df9a391d29c40fdcbc2d8579",
+      "graderVersion": 1
+    },
+    {
+      "name": "feature-idea-epic",
+      "version": 1,
+      "promptHash": "sha256:2a974371aab223f6be9e510b615c890b7e963fda67951e3a75867a1f74620205",
+      "fixtureHash": "sha256:99c393bae65dc3e20f1821055888c2cf24c505f9df9a391d29c40fdcbc2d8579",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "fewer-steps-p1-perf-bug-new-epic-with-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p1-perf-bug-new-epic-baseline-skill",
+      "pair": 1,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p1-feature-idea-epic-with-skill",
+      "pair": 1,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p1-feature-idea-epic-baseline-skill",
+      "pair": 1,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p2-perf-bug-new-epic-baseline-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p2-perf-bug-new-epic-with-skill",
+      "pair": 2,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p2-feature-idea-epic-baseline-skill",
+      "pair": 2,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p2-feature-idea-epic-with-skill",
+      "pair": 2,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p3-perf-bug-new-epic-with-skill",
+      "pair": 3,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p3-perf-bug-new-epic-baseline-skill",
+      "pair": 3,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p3-feature-idea-epic-with-skill",
+      "pair": 3,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p3-feature-idea-epic-baseline-skill",
+      "pair": 3,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p4-perf-bug-new-epic-baseline-skill",
+      "pair": 4,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p4-perf-bug-new-epic-with-skill",
+      "pair": 4,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p4-feature-idea-epic-baseline-skill",
+      "pair": 4,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p4-feature-idea-epic-with-skill",
+      "pair": 4,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p5-perf-bug-new-epic-with-skill",
+      "pair": 5,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p5-perf-bug-new-epic-baseline-skill",
+      "pair": 5,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p5-feature-idea-epic-with-skill",
+      "pair": 5,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p5-feature-idea-epic-baseline-skill",
+      "pair": 5,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p6-perf-bug-new-epic-baseline-skill",
+      "pair": 6,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p6-perf-bug-new-epic-with-skill",
+      "pair": 6,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p6-feature-idea-epic-baseline-skill",
+      "pair": 6,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p6-feature-idea-epic-with-skill",
+      "pair": 6,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p7-perf-bug-new-epic-with-skill",
+      "pair": 7,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p7-perf-bug-new-epic-baseline-skill",
+      "pair": 7,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p7-feature-idea-epic-with-skill",
+      "pair": 7,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p7-feature-idea-epic-baseline-skill",
+      "pair": 7,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p8-perf-bug-new-epic-baseline-skill",
+      "pair": 8,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p8-perf-bug-new-epic-with-skill",
+      "pair": 8,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p8-feature-idea-epic-baseline-skill",
+      "pair": 8,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p8-feature-idea-epic-with-skill",
+      "pair": 8,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p9-perf-bug-new-epic-with-skill",
+      "pair": 9,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p9-perf-bug-new-epic-baseline-skill",
+      "pair": 9,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p9-feature-idea-epic-with-skill",
+      "pair": 9,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p9-feature-idea-epic-baseline-skill",
+      "pair": 9,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p10-perf-bug-new-epic-baseline-skill",
+      "pair": 10,
+      "scenario": "perf-bug-new-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p10-perf-bug-new-epic-with-skill",
+      "pair": 10,
+      "scenario": "perf-bug-new-epic",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "fewer-steps-p10-feature-idea-epic-baseline-skill",
+      "pair": 10,
+      "scenario": "feature-idea-epic",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "fewer-steps-p10-feature-idea-epic-with-skill",
+      "pair": 10,
+      "scenario": "feature-idea-epic",
+      "condition": "with-skill",
+      "order": 2
+    }
+  ],
+  "baseline": {
+    "ref": "310df2d",
+    "sha": "310df2d80fbaee961e0e2d26c3b461e9a57325f0",
+    "skillHash": "sha256:992345d81adb0f6ff4208a110a4015ae693311715a8bd8c24ea14ca162d72f4f"
+  }
+}
