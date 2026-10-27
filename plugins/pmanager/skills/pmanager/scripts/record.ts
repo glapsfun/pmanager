@@ -4,12 +4,12 @@ import type { BundleFile } from "./bundle";
 import { check } from "./check";
 import { claimBranch } from "./claim";
 import { countBySeverity, type Finding, formatFindings } from "./findings";
-import { currentBranch, git, hasRemote, pushSetUpstream } from "./git";
+import { fetchOrigin, git, hasRemote, headBranch, pushSetUpstream } from "./git";
 import { writeLogEntry } from "./log";
 import { applyRender } from "./render";
 import { loadPmRepo, PM_DIR } from "./repo";
 
-export type PushState = "pushed" | "no-remote" | "no-claim" | "failed";
+export type PushState = "pushed" | "no-remote" | "no-claim" | "unreachable" | "failed";
 
 export interface RecordOptions {
   slug: string;
@@ -28,6 +28,7 @@ export interface RecordResult {
   log: string;
   logReused: boolean;
   rendered: string[];
+  checked: boolean;
   findings: Finding[];
   errors: number;
   warnings: number;
@@ -75,17 +76,21 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
   let branch = "";
   let claimed = false;
   let remote = false;
+  let unreachable = false;
   if (opts.inRepo) {
-    branch = await currentBranch(target);
+    branch = await headBranch(target);
     claimed = branch === claimBranch(slug);
     remote = await hasRemote(target);
-    if (!claimed && remote) {
+    // an unreachable origin means no claims this run, as pm status reports it
+    if (!claimed && remote) unreachable = !(await fetchOrigin(target));
+    if (!claimed && remote && !unreachable) {
       return {
         ok: false,
         wrote: [],
         log: "",
         logReused: false,
         rendered: [],
+        checked: false,
         findings: [],
         errors: 0,
         warnings: 0,
@@ -127,6 +132,7 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     log,
     logReused: reused !== null,
     rendered,
+    checked: true,
     findings,
     errors,
     warnings,
@@ -144,15 +150,15 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     return skip("staged changes outside docs/pm");
   }
 
+  // other epics' re-rendered plans stay in the working tree, never in this commit
   const candidates = [
     `${PM_DIR}/${slug}`,
     `${PM_DIR}/${log}`,
     `${PM_DIR}/INDEX.md`,
     `${PM_DIR}/pmanager-memo.md`,
-    ...rendered.map((p) => relative(target, p)),
   ];
   const paths: string[] = [];
-  for (const p of new Set(candidates)) if (await exists(join(target, p))) paths.push(p);
+  for (const p of candidates) if (await exists(join(target, p))) paths.push(p);
   const add = await git(["add", "--", ...paths], target);
   if (add.code !== 0) return skip(`git add failed: ${add.stderr.trim()}`, false);
   const pending = await git(["diff", "--cached", "--quiet", "--", ...paths], target);
@@ -165,7 +171,7 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
   const sha = (await git(["rev-parse", "--short=7", "HEAD"], target)).stdout.trim();
   result.commit = { sha, branch };
 
-  if (!claimed) return { ...result, push: "no-claim" };
+  if (!claimed) return { ...result, push: unreachable ? "unreachable" : "no-claim" };
   if (!remote) return { ...result, push: "no-remote" };
   const push = await pushSetUpstream(target, claimBranch(slug));
   if (push.code === 0) return { ...result, push: "pushed" };
@@ -176,6 +182,7 @@ export function formatRecord(r: RecordResult, target: string, slug: string): str
   const lines = r.wrote.map((p) => `wrote ${PM_DIR}/${p}`);
   if (r.log !== "") lines.push(`log ${PM_DIR}/${r.log}${r.logReused ? " (reused)" : ""}`);
   for (const p of r.rendered) lines.push(`rendered ${p}`);
+  if (r.checked) lines.push(formatFindings(r.findings).trimEnd());
   const closing = (() => {
     if (!r.commit) {
       return r.skipped === "check errors"
@@ -186,7 +193,9 @@ export function formatRecord(r: RecordResult, target: string, slug: string): str
     if (r.push === "pushed") return `${head}, pushed`;
     if (r.push === "no-remote") return `${head}, unpushed: no remote`;
     if (r.push === "no-claim") return `${head}, unpushed: no claim`;
+    if (r.push === "unreachable") return `${head}, unpushed: origin unreachable`;
     return `${head}, push failed: ${r.pushError}\nretry with: git -C ${target} push origin ${claimBranch(slug)}`;
   })();
-  return `${lines.join("\n")}\n${formatFindings(r.findings)}${closing}\n`;
+  lines.push(closing);
+  return `${lines.join("\n")}\n`;
 }

@@ -377,7 +377,7 @@ async function runRecord(cwd: string, args: Args): Promise<number> {
     try {
       text = args.from === "-" ? await Bun.stdin.text() : await readFile(args.from, "utf8");
     } catch {
-      return fail(USAGE);
+      return fail(`cannot read ${args.from === "-" ? "stdin" : args.from}`);
     }
     const bundle = parseBundle(text, slug);
     if (!bundle.ok) return fail(bundle.error);

@@ -87,6 +87,12 @@ export async function currentBranch(cwd: string): Promise<string> {
   return (await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], cwd)).trim();
 }
 
+/** Like currentBranch, but also names an unborn branch (a repository with no commits). */
+export async function headBranch(cwd: string): Promise<string> {
+  const r = await git(["symbolic-ref", "--short", "-q", "HEAD"], cwd);
+  return r.code === 0 ? r.stdout.trim() : currentBranch(cwd);
+}
+
 export async function localBranchExists(cwd: string, name: string): Promise<boolean> {
   return (await git(["show-ref", "--verify", "--quiet", `refs/heads/${name}`], cwd)).code === 0;
 }

@@ -56,6 +56,23 @@ const logFiles = async (root: string) =>
 
 const head = (cwd: string) => gitOk(["rev-parse", "HEAD"], cwd);
 
+const committed = async (cwd: string) =>
+  (await gitOk(["show", "--name-only", "--format=", "HEAD"], cwd)).split("\n").filter(Boolean);
+
+/** A second epic, `other`, copied from app-performance and committed. */
+async function addOtherEpic(root: string): Promise<void> {
+  const files: Record<string, string> = {};
+  for (const [path, content] of Object.entries(await unclaimedSeed())) {
+    if (!path.startsWith(`docs/pm/${SLUG}/`)) continue;
+    files[path.replace(`/${SLUG}/`, "/other/")] = content
+      .replace(`id: ${SLUG}`, "id: other")
+      .replace(`epic: ${SLUG}`, "epic: other");
+  }
+  await writeTree(root, files);
+  await gitOk(["add", "-A"], root);
+  await gitOk(["commit", "-q", "-m", "other epic"], root);
+}
+
 describe("pm record", () => {
   test("no remote: commits on the current branch, unpushed, no trailer", async () => {
     const root = await localUnclaimed();
@@ -107,6 +124,73 @@ describe("pm record", () => {
     expect(await readFile(join(a, PLAN), "utf8")).not.toContain(NEW_LINE);
     expect(await logFiles(a)).toHaveLength(0);
     expect((await gitOk(["status", "--porcelain"], a)).trim()).toBe("");
+    expect(r.stdout).not.toContain("no findings");
+  });
+
+  test("unreachable origin: commits on the current branch like no remote", async () => {
+    const root = await localUnclaimed();
+    await gitOk(["remote", "add", "origin", join(root, "no-such-origin.git")], root);
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/committed [0-9a-f]{7} on main, unpushed: origin unreachable/);
+    expect((await gitOk(["log", "-1", "--format=%s"], root)).trim()).toBe(`docs(pm): spec ${SLUG}`);
+    expect((await gitOk(["rev-parse", "--abbrev-ref", "HEAD"], root)).trim()).toBe("main");
+    expect(await gitOk(["branch", "--list", "pm/*"], root)).toBe("");
+    const worktrees = await gitOk(["worktree", "list", "--porcelain"], root);
+    expect(worktrees.match(/^worktree /gm)).toHaveLength(1);
+    expect(await exists(`${root}-pm-${SLUG}`)).toBe(false);
+  });
+
+  test("a repository with no commits: the first commit lands on the unborn branch", async () => {
+    const root = await makeTempDir("record-unborn");
+    await gitOk(["init", "-q", "-b", "trunk"], root);
+    await gitOk(["config", "user.name", "test"], root);
+    await gitOk(["config", "user.email", "test@example.com"], root);
+    await writeTree(root, await unclaimedSeed());
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/committed [0-9a-f]{7} on trunk, unpushed: no claim/);
+    expect((await gitOk(["rev-list", "--count", "HEAD"], root)).trim()).toBe("1");
+    expect((await gitOk(["symbolic-ref", "--short", "HEAD"], root)).trim()).toBe("trunk");
+    expect(await committed(root)).toContain(PLAN);
+  });
+
+  test("another epic's re-rendered plan stays out of the commit", async () => {
+    const root = await localUnclaimed();
+    await addOtherEpic(root);
+    const task = "docs/pm/other/tasks/T01-benchmark-orders.md";
+    const raw = await readFile(join(root, task), "utf8");
+    await writeFile(join(root, task), raw.replace("status: todo", "status: in-progress"));
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("docs/pm/other/plan.md");
+    const status = await gitOk(["status", "--porcelain"], root);
+    expect(status).toContain(` M ${task}`);
+    expect(status).toContain(" M docs/pm/other/plan.md");
+    const files = await committed(root);
+    expect(files).toContain(PLAN);
+    expect(files).not.toContain(task);
+    expect(files).not.toContain("docs/pm/other/plan.md");
+  });
+
+  test("another epic's staged file stays staged and out of the commit", async () => {
+    const root = await localUnclaimed();
+    await addOtherEpic(root);
+    const task = "docs/pm/other/tasks/T01-benchmark-orders.md";
+    await writeFile(join(root, task), `${await readFile(join(root, task), "utf8")}\nstaged note\n`);
+    await gitOk(["add", task], root);
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(0);
+    expect(await gitOk(["diff", "--cached", "--name-only"], root)).toBe(`${task}\n`);
+    expect(await committed(root)).not.toContain(task);
+  });
+
+  test("an unreadable --from names the file", async () => {
+    const root = await localUnclaimed();
+    const missing = join(root, "no-such-bundle.md");
+    const r = await rec(root, undefined, "--from", missing);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toBe(`cannot read ${missing}\n`);
   });
 
   test("check errors: nothing committed, rerun commits with one log entry", async () => {
