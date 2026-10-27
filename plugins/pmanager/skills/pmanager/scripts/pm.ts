@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { type BundleFile, parseBundle } from "./bundle";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
 import { EPIC_TYPES, parseDoc, sessionOf } from "./contract";
@@ -16,6 +17,7 @@ import {
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
+import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
 import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
@@ -35,6 +37,8 @@ commands
                                 reserve a slug at Phase 1: stub epic in its own worktree, pushed
   release <slug> [--force] [--abandon]
                                 release an epic you own (clears session, pushes, removes its worktree)
+  record <slug> --harness NAME [--session ID] --kind spec|update -m MSG [--from FILE|-]
+                                write a bundle of documents, log, render, check, commit and push an epic
   status                        epics, owners, stale claims, next task
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
@@ -60,6 +64,9 @@ flags
   --title T                     claim --draft: the epic's one-line title
   --type TYPE                   claim --draft: bug | feature | tech-debt | initiative
   --distinct                    claim --draft: proceed although an existing epic looks like the same work
+  --kind spec|update            record: the log entry kind
+  -m, --message MSG             record: log entry text and commit subject
+  --from FILE|-                 record: bundle of <!-- pm:file PATH --> sections (- reads stdin)
   --abandon                     release: mark the epic abandoned (drafts that will not be framed)
   --since REF                   verify: lower bound of the inspected window (default: task updated, else epic created)
   --files P                     verify: extra path to inspect, relative to each repo root (repeatable)
@@ -93,6 +100,9 @@ export interface Args {
   type?: string;
   distinct: boolean;
   abandon: boolean;
+  kind?: string;
+  message?: string;
+  from?: string;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -140,6 +150,18 @@ export function parseArgs(argv: string[]): Args | null {
       const t = argv[++i];
       if (!t) return null;
       args.type = t;
+    } else if (a === "--kind") {
+      const k = argv[++i];
+      if (!k) return null;
+      args.kind = k;
+    } else if (a === "-m" || a === "--message") {
+      const m = argv[++i];
+      if (m === undefined) return null;
+      args.message = m;
+    } else if (a === "--from") {
+      const f = argv[++i];
+      if (!f) return null;
+      args.from = f;
     } else if (a === "--force") args.force = true;
     else if (a === "--migrate") args.migrate = true;
     else if (a === "--stale-days") {
@@ -343,9 +365,55 @@ async function epicOwnership(target: string, slug: string, args: Args): Promise<
   return owner ? ownershipProblem(owner, args.harness, args.session) : null;
 }
 
+async function runRecord(cwd: string, args: Args): Promise<number> {
+  const slug = args.positional[0];
+  const kind = args.kind;
+  const message = args.message?.trim() ?? "";
+  if (!slug || !SLUG.test(slug) || slug === "log") return fail(USAGE);
+  if ((kind !== "spec" && kind !== "update") || message === "") return fail(USAGE);
+  let files: BundleFile[] = [];
+  if (args.from !== undefined) {
+    let text: string;
+    try {
+      text = args.from === "-" ? await Bun.stdin.text() : await readFile(args.from, "utf8");
+    } catch {
+      return fail(USAGE);
+    }
+    const bundle = parseBundle(text, slug);
+    if (!bundle.ok) return fail(bundle.error);
+    files = bundle.files;
+  }
+  const found = await repoRoot(cwd);
+  const root = found ?? cwd;
+  const target = found ? await epicRoot(root, slug) : root;
+  const problem = await epicOwnership(target, slug, args);
+  if (problem) {
+    const refusal = `${slug} is ${problem}`;
+    out(args.json ? json({ ok: false, reason: "not-owner", message: refusal }) : `${refusal}\n`);
+    return 1;
+  }
+  const hasEpic =
+    files.some((f) => f.path === `${slug}/epic.md`) ||
+    (await Bun.file(join(target, PM_DIR, slug, "epic.md")).exists());
+  if (!hasEpic) return fail(`unknown epic ${slug}`);
+  const result = await record(target, {
+    slug,
+    harness: args.harness,
+    kind,
+    message,
+    today: today(),
+    staleDays: args.staleDays,
+    files,
+    inRepo: found !== null,
+  });
+  out(args.json ? json(result) : formatRecord(result, target, slug));
+  return result.ok ? 0 : 1;
+}
+
 export async function main(argv: string[], cwd = process.cwd()): Promise<number> {
   const args = parseArgs(argv);
   if (!args) return fail(USAGE);
+  if (args.cmd === "record") return runRecord(cwd, args);
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
   if (args.cmd === "research") return runResearch(root, args);
