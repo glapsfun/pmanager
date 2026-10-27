@@ -11,18 +11,9 @@ Claude Code plugin installs it is `${CLAUDE_PLUGIN_ROOT}/skills/pmanager`;
 on `npx skills` installs it is wherever the skill was copied. Below, `pm`
 stands for that full prefix.
 
-## Preflight (every run, Phase 0)
+## Preflight
 
-1. `bun --version` — if it fails, print to the user:
-   "PManager's checker, renderer and claim commands need Bun (https://bun.sh).
-   Install with: `curl -fsSL https://bun.sh/install | bash`, then restart the
-   shell." Offer to run the install yourself. Do not run any other command
-   below until Bun works. Continue planning without the tool only if the user
-   says so; set the ledger line `Tool: unavailable (bun missing)`.
-2. `pm status --harness <yours>` — read the output; it replaces reading
-   INDEX.md and the memo. `remote: none` or `remote: unreachable` → claims are
-   unavailable this run; say so and set `Tool: ok, no remote`. Otherwise
-   `Tool: ok`.
+See SKILL.md Phase 0.
 
 ## Command table
 
@@ -36,6 +27,7 @@ stands for that full prefix.
 | `claim <slug> --draft --title T --type TYPE --harness NAME [--distinct] [--no-worktree]` | Phase 1, after scoping: reserve the slug before research | exit 0; `<slug> reserved as draft by <harness> on pm/<slug>`, then `worktree: <path>` holding a stub epic (`status: draft`); nothing is written to your checkout, then `session: <id>` (keep it for --session) | exit 1: `owned by …` (someone holds the slug), `looks like existing work` (lists slug, status, title, owner; ask the user, then `--distinct` if it is different work), `already exists here` (use update mode), or a local `pm/<slug>` branch exists; exit 2: no remote, bad `--type`, missing `--title`; exit 1 push failed (the draft commit stays on pm/<slug>; retry the printed git push); exit 2: worktree (the sibling path is unusable; rerun with --no-worktree), origin unreachable, a slug that is not kebab-case |
 | `claim <slug> --takeover --harness NAME` | user explicitly asks to take over a stale claim | exit 0; plan changelog records the previous owner, then `session: <id>` (keep it for --session) | exit 1 `not stale`: refuse; the user must ask the owner to release |
 | `release <slug> --harness NAME [--session ID] [--keep-worktree] [--abandon]` | user says "release …" or hands the epic to another session | exit 0; session cleared and pushed, then the worktree is removed (`worktree removed: <path>`); a worktree holding uncommitted work is kept and named instead, as is one released with `--keep-worktree`; with --abandon the epic is marked abandoned and its branch kept, so a dropped draft stops blocking look-alikes | exit 1 `owned by …, not your session`: only the owning session releases; if it may be the user's own earlier conversation (same harness, no id on your ledger), ask the user and on their confirmation rerun with `--session <id>` (the refusal and `pm status` show it); otherwise the owner must release, or the user asks for `claim --takeover` (stale) or `release --force` (a deliberate override of someone else's claim, recorded in the log and plan changelog). exit 1 `already unclaimed` (or `already abandoned` with --abandon); exit 2 no remote / no branch / `worktree` (the sibling path is unusable; move it aside) |
+| `record <slug> --harness NAME [--session ID] --kind spec\|update -m MSG [--from FILE\|-]` | Phase 6 of a new epic: one call writes the bundle (sections opened by `<!-- pm:file <path> -->`, path relative to `docs/pm/`), the log entry, renders, checks, commits only its own paths and pushes `pm/<slug>` when claimed with a remote | exit 0; closing line `committed <sha7> on <branch>, pushed`, or `unpushed: no remote` / `unpushed: no claim`; also exit 0 for `not committed:` with reason not a git repository, staged changes outside docs/pm, or nothing to commit | exit 1: check errors (findings, then `not committed: check errors; fix the findings, then rerun without --from`), `<slug> is <problem>` (ownership), `not committed: <slug> is not claimed; run pm claim <slug> first` (remote but unclaimed), `push failed: <stderr>` followed by `retry with: git -C <target> push origin pm/<slug>`, git add/commit failure; exit 2: usage error, bundle refused (nothing written: absolute or `..`/`.`/empty path segments, `log/`, `INDEX.md`, `.local/`, other epics, non-`.md`, duplicates, empty sections, text before the first marker, unclosed code fence), or `unknown epic <slug>` |
 | `handoff <slug> <task-id>` | user says "pick up T03", "brief for T02 of …" | exit 0; the brief on stdout — paste it to the executing agent or user, write nothing | exit 2 unknown epic/task: check `status` for the right ids |
 | `verify <slug> <task-id> [--repo NAME\|PATH] [--since REF] [--files P]... [--limit N] [--json]` | Update mode, on every `done` claim, before checking any box | exit 0; header `verify: <slug> <id> · repos: … · since <date> (<sha>, <rule>)`, then each acceptance criterion with its evidence lines and a label (`evidence: N lines`, `no evidence in scope`, `needs measurement`, `already checked · …`), then `unattributed`, `scope`, `gaps`, `errors` | exit 2: unknown epic or task, bad `--limit`, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
 | `research <keyword>... [--path P]... [--repo NAME\|PATH] [--limit N] [--budget N] [--full] [--no-gh] [--json]` | Phase 2, first thing; again with narrower keywords or paths per open question | exit 0; header `research: <repo> @ <sha> · keywords: … · paths: …`, then `pruned: N lines (import …, data …, budget …)` when anything was cut, then `files`, `history`, `docs`, `memory`, `tests`, `gh` sections of `[source] fact` lines; a probe that failed prints one line (`gh: unavailable (not installed)`) | exit 2: no keywords, bad `--limit`, `--budget` below 300, unknown `--repo` name (lists known names), or a `--repo` path outside a git repository |
@@ -67,7 +59,9 @@ epic's `created` date; `--since REF` overrides the bound. Every URL in the
 epic's `repos` list is resolved through `docs/pm/.local/repos.json`;
 unmapped ones print under `gaps`.
 
-## Phase 6 order (new epic) and every update run
+## Update runs and hand edits
+
+New epic: `pm record` (SKILL.md Phase 6). The manual order:
 
 1. Write/modify epic, plan (hand-written parts only), tasks.
 2. Write the run log entry: `docs/pm/log/YYYY-MM-DD-<slug>-<6 hex>.md` with
