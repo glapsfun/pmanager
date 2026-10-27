@@ -73,9 +73,9 @@ numbered steps stay for update mode and hand edits.
    `git -C W push origin pm/<slug>`.
    The `git add` is required — new epics create untracked files a bare
    path-commit would miss. Never a bare `git commit`; never push `main` or
-   any other branch; never a co-author line. No remote → no claim and no
-   `pm/<slug>`: commit on the branch the checkout has and say it is
-   unpushed. Not a repo / conflicting unstaged changes →
+   any other branch; never a co-author line. No remote, or an unreachable
+   one → no claim and no `pm/<slug>`: commit on the branch the checkout has
+   and say it is unpushed. Not a repo / conflicting unstaged changes →
    write files, note they're uncommitted.
 
 ## Edge cases

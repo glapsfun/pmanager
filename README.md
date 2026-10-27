@@ -272,7 +272,9 @@ _Last run: 2026-09-16 at 2569592._
 - Invent metric targets you didn't confirm and evidence didn't establish.
 - Push anything except the epic's own `pm/<slug>` branch of the orchestration
   repo (never `main`, never a target repo, never with force), bare-commit, or
-  touch anything outside `docs/pm/` (research is read-only).
+  touch anything outside `docs/pm/` (research is read-only). With no origin
+  remote, or an unreachable one, it commits the epic on the checkout's
+  current branch and pushes nothing.
 - Execute tasks in a target repository. It hands off a brief and tracks the
   result.
 - Record secrets or PII in the docs. Metadata and reasoning only.
