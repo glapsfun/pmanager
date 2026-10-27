@@ -93,8 +93,8 @@ docs/pm/
     ├── epic.md               # why & what — problem, evidence, hypothesis, metrics, non-goals
     ├── plan.md               # how & when — milestones, risks, dependencies, MoSCoW, changelog
     └── tasks/
-        ├── T01-<slug>.md     # self-contained INVEST tasks with binary acceptance criteria
-        └── T02-<slug>.md
+        ├── T01-<short-slug>.md  # self-contained INVEST tasks with binary acceptance criteria
+        └── T02-<short-slug>.md
 ```
 
 Later runs get `INDEX.md` and the memo through `pm status` first, so the agent remembers prior

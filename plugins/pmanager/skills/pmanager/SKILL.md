@@ -156,9 +156,11 @@ says it is different work. `no origin remote` or `origin is unreachable`
 `Tool: ok, no remote`. A local `pm/<slug>` branch refusal means another
 session in this checkout holds the slug, or an earlier attempt of yours did
 not push: tell the user and ask before deleting anything. `push failed`:
-rerun the printed push command once; if it still fails, continue without a
-reservation and say so. Exit 2 `worktree`: rerun with `--no-worktree` (see
-Degraded situations).
+rerun the printed push command once; if it still fails, keep working in the
+epic's worktree with the printed session. The reservation is local only, so
+other sessions cannot see it until `pm record` pushes `pm/<slug>` at
+Phase 6; say so in the summary. Exit 2 `worktree`: rerun with
+`--no-worktree` (see Degraded situations).
 
 The claim prints `session: <id>`, even when its push failed. Put it on the
 ledger's `Session:` line and pass `--session <id>` to `pm record` and every
@@ -215,7 +217,8 @@ answer — record the unknown and lower the epic's confidence.
 Draft the epic from `references/epic.template.md`: problem statement with
 cited evidence, hypothesis ("we believe X will improve M by Y within W"),
 business-goal alignment, stakeholders, success metrics (primary + guardrail,
-each with target and measurement window), scope, non-goals, open questions.
+each with a numeric target and measurement window), scope, non-goals, open
+questions.
 
 Present a compact summary (problem, hypothesis, primary metric, scope,
 non-goals) and ask the user to approve, adjust, or send you back to
