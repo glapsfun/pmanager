@@ -6,16 +6,16 @@ claude-code 9 · model m · 2 conditions · 3 pairs · timeout 10s · skill 0.2.
 
 ## Per scenario and condition
 
-| Scenario | Condition | Planned | Attempted | Completed | Failed | Success rate | Score median (IQR) | Duration median | Tokens in/out (n) | Cost (n) |
-| :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| s | with-skill | 3 | 3 | 3 | — | 67% | 1.00 (0.75–1.00) | 0s | 10/5 (2) | $2.00 (2) |
-| s | without-skill | 3 | 2 | 1 | timeout 1 | 0% | 0.50 (0.50–0.50) | 0s | 10/5 (1) | $3.00 (2) |
+| Scenario | Condition | Planned | Attempted | Completed | Failed | Success rate | Score median (IQR) | Duration median | Tokens in/out (n) | Cost (n) | Cost median | Steps median |
+| :--- | :--- | ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| s | with-skill | 3 | 3 | 3 | — | 67% | 1.00 (0.75–1.00) | 0s | 10/5 (2) | $2.00 (2) | $1.00 | — |
+| s | without-skill | 3 | 2 | 1 | timeout 1 | 0% | 0.50 (0.50–0.50) | 0s | 10/5 (1) | $3.00 (2) | $1.00 | — |
 
 ## Paired differences (with-skill minus without-skill)
 
-| Scenario | Pairs completed | Pairs excluded | Score diff median (IQR) | Success diff |
-| :--- | ---: | ---: | ---: | ---: |
-| s | 1 | 2 | +0.50 (+0.50–+0.50) | +100% |
+| Scenario | Pairs completed | Pairs excluded | Score diff median (IQR) | Success diff | Cost diff median (IQR) | Duration diff median (IQR) | Steps diff median (IQR) |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| s | 1 | 2 | +0.50 (+0.50–+0.50) | +100% | +0.00 (+0.00–+0.00) | +0s (+0s–+0s) | — |
 
 ## Check failure rates over completed attempts
 

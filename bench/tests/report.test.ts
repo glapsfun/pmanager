@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { aggregate } from "../aggregate";
 import type { AgentRunLine, HistoryLine, ToolBenchLine } from "../history";
 import { renderReadmeSection, renderReport, writeReadmeSection } from "../report";
+import { attempts, manifest } from "./fixtures/experiment-fixture";
 
 function agent(over: Partial<AgentRunLine>): AgentRunLine {
   return {
@@ -131,4 +133,10 @@ test("the tool section lists research sizes when the line has them", () => {
   );
   expect(out).toContain("| noisy | 7704 | 1926 | 5716 | 1429 |");
   expect(renderReport([tool])).not.toContain("Research fixture");
+});
+
+test("the experiments table shows cost per run and duration for both conditions", () => {
+  const out = renderReport([], [{ m: manifest, s: aggregate(manifest, attempts) }]);
+  expect(out).toContain("| Cost per run A / B |");
+  expect(out).toContain("| Duration A / B |");
 });

@@ -60,7 +60,12 @@ describe("history", () => {
 });
 
 test("stripTelemetry keeps trace when the run had it and omits the key otherwise", () => {
-  const trace = { preFramingContext: 5, preFramingToolBytes: 6, preResearchCommands: 0 };
+  const trace = {
+    preFramingContext: 5,
+    preFramingToolBytes: 6,
+    preResearchCommands: 0,
+    modelCalls: 7,
+  };
   expect(stripTelemetry({ ...EMPTY_TELEMETRY, trace }).trace).toEqual(trace);
   expect("trace" in stripTelemetry(EMPTY_TELEMETRY)).toBe(false);
 });

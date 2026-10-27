@@ -9,7 +9,11 @@ export interface Quartiles {
   n: number;
 }
 
-export type TraceKey = "preFramingContext" | "preFramingToolBytes" | "preResearchCommands";
+export type TraceKey =
+  | "preFramingContext"
+  | "preFramingToolBytes"
+  | "preResearchCommands"
+  | "modelCalls";
 
 export interface GroupStats {
   scenario: string;
@@ -31,6 +35,8 @@ export interface GroupStats {
     fresh: Quartiles | null;
   };
   cost: { sumUsd: number | null; n: number };
+  /** cost of each completed attempt that reported one */
+  costPerRun: Quartiles | null;
   trace: Record<TraceKey, Quartiles | null>;
 }
 
@@ -52,6 +58,10 @@ export interface ScenarioPairing {
   diffs: PairDiff[];
   /** with-skill minus the other condition, over pairs where both runs have a value */
   contextDiff: Quartiles | null;
+  /** with-skill minus the other condition, over completed pairs where both runs have a value */
+  costDiff: Quartiles | null;
+  durationDiff: Quartiles | null;
+  callsDiff: Quartiles | null;
 }
 
 export interface ExperimentSummary {
@@ -154,10 +164,14 @@ function groupStats(
       ),
     },
     cost: { sumUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null, n: costs.length },
+    costPerRun: quartiles(
+      done.flatMap((a) => (a.telemetry.costUsd === null ? [] : [a.telemetry.costUsd])),
+    ),
     trace: {
       preFramingContext: traced("preFramingContext"),
       preFramingToolBytes: traced("preFramingToolBytes"),
       preResearchCommands: traced("preResearchCommands"),
+      modelCalls: traced("modelCalls"),
     },
   };
 }
@@ -171,6 +185,9 @@ function pairing(
 ): ScenarioPairing {
   const diffs: PairDiff[] = [];
   const contextDiffs: number[] = [];
+  const costDiffs: number[] = [];
+  const durationDiffs: number[] = [];
+  const callsDiffs: number[] = [];
   let excluded = 0;
   for (let pair = 1; pair <= m.pairs; pair++) {
     const find = (c: Condition) =>
@@ -187,6 +204,13 @@ function pairing(
       const cx = traceValue(x, "preFramingContext");
       const cy = traceValue(y, "preFramingContext");
       if (cx !== null && cy !== null) contextDiffs.push(cx - cy);
+      const kx = x.telemetry.costUsd;
+      const ky = y.telemetry.costUsd;
+      if (kx !== null && ky !== null) costDiffs.push(kx - ky);
+      durationDiffs.push(x.durationMs - y.durationMs);
+      const nx = traceValue(x, "modelCalls");
+      const ny = traceValue(y, "modelCalls");
+      if (nx !== null && ny !== null) callsDiffs.push(nx - ny);
     } else {
       excluded++;
     }
@@ -201,6 +225,9 @@ function pairing(
     successDiff: diffs.length ? diffs.reduce((s, d) => s + d.successDiff, 0) / diffs.length : null,
     diffs,
     contextDiff: quartiles(contextDiffs),
+    costDiff: quartiles(costDiffs),
+    durationDiff: quartiles(durationDiffs),
+    callsDiff: quartiles(callsDiffs),
   };
 }
 

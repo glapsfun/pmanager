@@ -23,6 +23,17 @@ describe("experiment report", () => {
     expect(section).toBe(golden);
   });
 
+  test("report carries cost, duration and step columns", () => {
+    const out = renderExperimentReport(manifest, aggregate(manifest, attempts));
+    expect(out).toContain("| Cost median |");
+    expect(out).toContain("| Steps median |");
+    expect(out).toContain("| Cost diff median (IQR) |");
+    expect(out).toContain("| Duration diff median (IQR) |");
+    expect(out).toContain("| Steps diff median (IQR) |");
+    const row = out.split("\n").find((l) => l.startsWith("| s | with-skill | 3 |"));
+    expect(row).toMatch(/\| \$1\.00 \| — \|$/);
+  });
+
   test("pre-framing section and baseline headline appear only with the data", () => {
     const conditions: Condition[] = ["with-skill", "baseline-skill"];
     const m = {
@@ -37,7 +48,12 @@ describe("experiment report", () => {
       costUsd: null,
       turns: null,
       toolCalls: null,
-      trace: { preFramingContext: ctx, preFramingToolBytes: ctx * 2, preResearchCommands: 1 },
+      trace: {
+        preFramingContext: ctx,
+        preFramingToolBytes: ctx * 2,
+        preResearchCommands: 1,
+        modelCalls: 20,
+      },
     });
     const traced = [
       rec(1, "with-skill", { telemetry: t(10000) }),
