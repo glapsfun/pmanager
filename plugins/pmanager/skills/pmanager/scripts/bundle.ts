@@ -9,8 +9,8 @@ const MARKER = /^<!-- pm:file (.+?) -->\s*$/;
 const FENCE = /^(```|~~~)/;
 
 function pathError(path: string, slug: string): string | null {
-  if (path.split("/").some((seg) => seg === "." || seg === "..")) {
-    return `bundle path ${path} has a . or .. segment`;
+  if (path.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) {
+    return `bundle path ${path} has an empty, . or .. segment`;
   }
   const inEpic =
     path.startsWith(`${slug}/`) && path.endsWith(".md") && path.length > slug.length + 4;
@@ -53,6 +53,11 @@ export function parseBundle(text: string, slug: string): BundleResult {
     const current = sections[sections.length - 1];
     if (current) current.lines.push(line);
     else if (line.trim() !== "") stray = true;
+  }
+
+  if (fence !== null) {
+    const opened = sections[sections.length - 1]?.path ?? "the start";
+    return { ok: false, error: `unclosed code fence in bundle section ${opened}` };
   }
 
   if (sections.length === 0) return { ok: false, error: "empty bundle: no pm:file markers" };
