@@ -72,6 +72,29 @@ async function reusableLog(target: string, opts: RecordOptions): Promise<string 
 export async function record(target: string, opts: RecordOptions): Promise<RecordResult> {
   const { slug } = opts;
   const pmDir = join(target, PM_DIR);
+  let branch = "";
+  let claimed = false;
+  let remote = false;
+  if (opts.inRepo) {
+    branch = await currentBranch(target);
+    claimed = branch === claimBranch(slug);
+    remote = await hasRemote(target);
+    if (!claimed && remote) {
+      return {
+        ok: false,
+        wrote: [],
+        log: "",
+        logReused: false,
+        rendered: [],
+        findings: [],
+        errors: 0,
+        warnings: 0,
+        commit: null,
+        push: null,
+        skipped: `${slug} is not claimed; run pm claim ${slug} first`,
+      };
+    }
+  }
   for (const f of opts.files) {
     const path = join(pmDir, f.path);
     await mkdir(dirname(path), { recursive: true });
@@ -121,11 +144,6 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     return skip("staged changes outside docs/pm");
   }
 
-  const branch = await currentBranch(target);
-  const claimed = branch === claimBranch(slug);
-  const remote = await hasRemote(target);
-  if (!claimed && remote) return skip(`${slug} is not claimed; run pm claim ${slug} first`, false);
-
   const candidates = [
     `${PM_DIR}/${slug}`,
     `${PM_DIR}/${log}`,
@@ -156,7 +174,7 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
 
 export function formatRecord(r: RecordResult, target: string, slug: string): string {
   const lines = r.wrote.map((p) => `wrote ${PM_DIR}/${p}`);
-  lines.push(`log ${PM_DIR}/${r.log}${r.logReused ? " (reused)" : ""}`);
+  if (r.log !== "") lines.push(`log ${PM_DIR}/${r.log}${r.logReused ? " (reused)" : ""}`);
   for (const p of r.rendered) lines.push(`rendered ${p}`);
   const closing = (() => {
     if (!r.commit) {

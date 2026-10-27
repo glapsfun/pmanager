@@ -93,14 +93,20 @@ describe("pm record", () => {
     expect(await readFile(join(wt, PLAN), "utf8")).toBe(plan);
   });
 
-  test("remote but unclaimed: written, not committed", async () => {
+  test("remote but unclaimed: refused before writing", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     const before = await head(a);
+    const plan = await readFile(join(a, PLAN), "utf8");
     const r = await rec(a, await bundle(SLUG), "--from", "-");
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain("not committed: app-performance is not claimed");
+    expect(r.stdout).toContain(
+      "not committed: app-performance is not claimed; run pm claim app-performance first",
+    );
     expect(await head(a)).toBe(before);
-    expect(await readFile(join(a, PLAN), "utf8")).toContain(NEW_LINE);
+    expect(await readFile(join(a, PLAN), "utf8")).toBe(plan);
+    expect(await readFile(join(a, PLAN), "utf8")).not.toContain(NEW_LINE);
+    expect(await logFiles(a)).toHaveLength(0);
+    expect((await gitOk(["status", "--porcelain"], a)).trim()).toBe("");
   });
 
   test("check errors: nothing committed, rerun commits with one log entry", async () => {

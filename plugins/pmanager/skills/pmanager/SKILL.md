@@ -303,8 +303,9 @@ Outcomes:
 - Exit 1 with check findings and `not committed: check errors`: fix each
   finding in its file, then rerun the same command without `--from`; the
   files are already written. Exit 1 `is not claimed; run pm claim <slug>
-  first`: run it, then rerun without `--from`. Exit 1 `owned by …`: stop and
-  tell the user.
+  first`: nothing was written; run `pm claim <slug> --harness <yours>`, then
+  rerun the same `pm record` command with the same bundle. Exit 1 `owned by
+  …`: stop and tell the user.
 - Exit 2: the bundle or usage was refused and nothing was written; fix the
   named problem and rerun the full command.
 - Run no `git` by hand for any of this.
