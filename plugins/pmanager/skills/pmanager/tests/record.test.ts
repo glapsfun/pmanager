@@ -191,6 +191,38 @@ describe("pm record", () => {
     expect(await gitOk(["status", "--porcelain"], root)).toBe("");
   });
 
+  test("a slug that prefixes another never reuses its log entry", async () => {
+    const root = await localUnclaimed();
+    const seed = await unclaimedSeed();
+    const appEpic = (seed[`docs/pm/${SLUG}/epic.md`] ?? "")
+      .replace("id: app-performance", "id: app")
+      .replace("# Fix orders page latency", "# Fix orders page latency\n");
+    const appPlan = seed[`docs/pm/${SLUG}/plan.md`] ?? "";
+    await writeTree(root, { "docs/pm/app/epic.md": appEpic, "docs/pm/app/plan.md": appPlan });
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-q", "-m", "app epic"], root);
+    const broken = `<!-- pm:file ${SLUG}/tasks/T05-broken.md -->\nno frontmatter here\n`;
+    expect((await rec(root, await bundle(SLUG, broken), "--from", "-")).code).toBe(1);
+    const [other] = await logFiles(root);
+    await rm(join(root, `docs/pm/${SLUG}/tasks/T05-broken.md`));
+    const stdin = `<!-- pm:file app/epic.md -->\n${appEpic.replace("App shell", "App shell v2")}`;
+    const r = await run(
+      ["record", "app", "--kind", "update", "-m", "update app", "--from", "-"],
+      root,
+      stdin,
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("(reused)");
+    const logs = await readdir(join(root, "docs/pm/log"));
+    const mine = logs.filter((n) => /^2026-09-15-app-[0-9a-f]{6}\.md$/.test(n));
+    expect(mine).toHaveLength(1);
+    expect(await readFile(join(root, "docs/pm/log", mine[0] ?? ""), "utf8")).toContain(
+      "epic: app\n",
+    );
+    const status = await gitOk(["status", "--porcelain", "--untracked-files=all"], root);
+    expect(status).toContain(`?? docs/pm/log/${other}`);
+  });
+
   test("--json", async () => {
     const root = await localUnclaimed();
     const r = await rec(root, await bundle(SLUG), "--from", "-", "--json");

@@ -47,7 +47,8 @@ async function exists(path: string): Promise<boolean> {
 /** An uncommitted log entry for today and this slug, as a docs/pm-relative path. */
 async function reusableLog(target: string, opts: RecordOptions): Promise<string | null> {
   const prefix = `${opts.today}-${opts.slug}-`;
-  const isEntry = (name: string) => name.startsWith(prefix) && name.endsWith(".md");
+  const isEntry = (name: string) =>
+    name.startsWith(prefix) && /^[0-9a-f]{6}\.md$/.test(name.slice(prefix.length));
   if (!opts.inRepo) {
     const dir = join(target, PM_DIR, "log");
     const names = await readdir(dir).catch(() => [] as string[]);
