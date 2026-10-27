@@ -61,7 +61,7 @@ describe("condition prompts", () => {
       expect(s.task.includes("pmanager")).toBe(false);
       expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
       expect(composePrompt(s, "without-skill")).toBe(s.task);
-      expect(s.graderVersion).toBe(1);
+      expect(s.graderVersion).toBe(s.name === "planning-traps" ? 2 : 1);
     }
   });
 });

@@ -9,7 +9,10 @@ import { epicCheck } from "./new-epic";
 import type { Check } from "./types";
 
 const MIGRATION = /migrat|schema|column|database|\bdb\b/i;
-const READER = /\b(page|ui|display|show|render|api|endpoint|expose|ios|app)\b/i;
+/** "Confirm ShipFast credential status" is about the blocker, not the order status column. */
+const ORDER_STATUS = /status/i;
+const NOT_ORDER_STATUS = /credential|OPS-112|sandbox|access/i;
+const SERVES = /\b(serve|serves|serializ\w*|switch|expose|show|display)\b|get \/orders/i;
 const VAGUE =
   /\b(nice|nicer|better|smooth(er|ly)?|intuitive|user-friendly|clean(er)?|polish(ed)?|feels?|properly|as expected|looks? good|modern)\b/i;
 const COMPATIBLE =
@@ -54,7 +57,9 @@ export const migrationFirst = epicCheck(
   (e) => {
     const m = new Set(e.tasks.filter((t) => MIGRATION.test(title(t))).map((t) => t.id));
     if (m.size === 0) return fail("no task title names a migration, schema or column change");
-    const readers = e.tasks.filter((t) => !m.has(t.id) && /status/i.test(title(t)));
+    const readers = e.tasks.filter(
+      (t) => !m.has(t.id) && ORDER_STATUS.test(title(t)) && !NOT_ORDER_STATUS.test(title(t)),
+    );
     if (readers.length === 0) return fail("no task title names order status");
     return dependsOnAll(e, readers, m, "migration");
   },
@@ -63,21 +68,22 @@ export const migrationFirst = epicCheck(
 export const backfillBeforeReads = epicCheck(
   "backfill-before-reads",
   "outcome",
-  "existing orders are backfilled, and every task that shows status depends on the backfill",
+  "existing totals are backfilled into the new column before any task serves totals from it",
   (e) => {
+    const totals = (t: TaskDoc) => /total|cents/i.test(title(t));
+    // a totals task that backfills in its own steps serves after its own backfill
     const b = new Set(
       e.tasks
         .filter(
           (t) =>
-            /backfill/i.test(title(t)) || (MIGRATION.test(title(t)) && /backfill/i.test(t.body)),
+            /backfill/i.test(title(t)) ||
+            ((MIGRATION.test(title(t)) || totals(t)) && /backfill/i.test(t.body)),
         )
         .map((t) => t.id),
     );
     if (b.size === 0) return fail("no task backfills existing orders");
-    const readers = e.tasks.filter(
-      (t) => !b.has(t.id) && /status/i.test(title(t)) && READER.test(title(t)),
-    );
-    if (readers.length === 0) return fail("no task title shows status in the API, page or app");
+    const readers = e.tasks.filter((t) => !b.has(t.id) && totals(t) && SERVES.test(title(t)));
+    if (readers.length === 0) return pass(`backfill in ${[...b].join(", ")}`);
     return dependsOnAll(e, readers, b, "backfill");
   },
 );

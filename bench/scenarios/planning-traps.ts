@@ -105,7 +105,7 @@ export async function buildPlanningTrapsFixture(dir: string): Promise<FixtureInf
 export const planningTraps: Scenario = {
   name: "planning-traps",
   task: `Customers keep asking where their orders are, so we want order status (placed, shipped, delivered) on the orders page and in the iOS app. Finance also keeps flagging rounding errors in order totals; totals have to be exact to the cent. And make the orders page feel nicer while we're at it. Plan this as one epic with a plan and tasks the team can start next sprint. I won't be around for questions, note your assumptions. ${CONTRACT_SENTENCE}`,
-  graderVersion: 1,
+  graderVersion: 2,
   buildFixture: buildPlanningTrapsFixture,
   checks: [
     ...commonChecks("spec"),

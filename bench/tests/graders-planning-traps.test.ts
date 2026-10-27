@@ -97,7 +97,12 @@ const TASKS: T[] = [
     milestone: "M1",
     deps: ["T01"],
   },
-  { id: "T03", title: "Expose status in GET /orders", milestone: "M2", deps: ["T02"] },
+  {
+    id: "T03",
+    title: "Serve status and exact totals in GET /orders",
+    milestone: "M2",
+    deps: ["T02"],
+  },
   { id: "T04", title: "Show status on the orders page", milestone: "M2", deps: ["T03"] },
   {
     id: "T05",
@@ -205,6 +210,27 @@ describe("planning-trap checks", () => {
     expect(o["backfill-before-reads"]).toBe(false);
   });
 
+  test("research tasks naming status or totals are not readers", async () => {
+    const { dir, info } = await fixture([
+      ...TASKS,
+      {
+        id: "T07",
+        title: "Confirm ShipFast credential status (OPS-112)",
+        milestone: "M1",
+        deps: [],
+      },
+      {
+        id: "T08",
+        title: "Spike: locate the orders page and the total write path",
+        milestone: "M1",
+        deps: [],
+      },
+    ]);
+    const o = await outcomes(dir, info);
+    expect(o["migration-first"]).toBe(true);
+    expect(o["backfill-before-reads"]).toBe(true);
+  });
+
   test("no migration task fails migration-first", async () => {
     const { dir, info } = await fixture(withTask("T01", { title: "Add order fields" }));
     expect((await outcomes(dir, info))["migration-first"]).toBe(false);
@@ -227,6 +253,31 @@ describe("planning-trap checks", () => {
     );
     const { dir, info } = await fixture(tasks);
     expect((await outcomes(dir, info))["backfill-before-reads"]).toBe(true);
+  });
+
+  test("a totals task that backfills in its own steps passes backfill-before-reads", async () => {
+    const tasks = TASKS.filter((t) => t.id !== "T02").map((t) =>
+      t.id === "T01"
+        ? { ...t, title: "Add status column with default placed" }
+        : t.id === "T03"
+          ? {
+              ...t,
+              deps: ["T01"],
+              body: "Add total_cents, backfill it from total, then serve it.",
+            }
+          : t,
+    );
+    const { dir, info } = await fixture(tasks);
+    expect((await outcomes(dir, info))["backfill-before-reads"]).toBe(true);
+  });
+
+  test("no backfill anywhere fails backfill-before-reads", async () => {
+    const { dir, info } = await fixture(
+      TASKS.filter((t) => t.id !== "T02").map((t) =>
+        t.id === "T03" ? { ...t, deps: ["T01"] } : t,
+      ),
+    );
+    expect((await outcomes(dir, info))["backfill-before-reads"]).toBe(false);
   });
 
   test("shop-ios missing from repos and tasks fails consumer-repo-named", async () => {
