@@ -6,9 +6,35 @@ export interface BundleFile {
 export type BundleResult = { ok: true; files: BundleFile[] } | { ok: false; error: string };
 
 const MARKER = /^<!-- pm:file (.+?) -->\s*$/;
-const FENCE = /^(```|~~~)/;
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+interface Fence {
+  char: string;
+  length: number;
+}
+
+/** CommonMark: a backtick fence's info string has no backtick. */
+function opening(line: string): Fence | null {
+  const m = FENCE.exec(line);
+  const run = m?.[1];
+  if (!run || (run[0] === "`" && m[2]?.includes("`"))) return null;
+  return { char: run[0] ?? "", length: run.length };
+}
+
+/** CommonMark: the same character, at least as long as the opening, nothing after it. */
+function closes(line: string, fence: Fence): boolean {
+  const m = FENCE.exec(line);
+  const run = m?.[1];
+  return !!run && run[0] === fence.char && run.length >= fence.length && m[2]?.trim() === "";
+}
 
 function pathError(path: string, slug: string): string | null {
+  if (path.includes("\\")) return `bundle path ${path} contains a backslash; use /`;
+  if (CONTROL.test(path)) {
+    return `bundle path ${JSON.stringify(path)} contains a control character`;
+  }
   if (path.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) {
     return `bundle path ${path} has an empty, . or .. segment`;
   }
@@ -31,16 +57,14 @@ export function parseBundle(text: string, slug: string): BundleResult {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const sections: { path: string; lines: string[] }[] = [];
   const seen = new Set<string>();
-  let fence: string | null = null;
+  let fence: Fence | null = null;
   let stray = false;
 
   for (const line of lines) {
-    const fenceMark = FENCE.exec(line)?.[1] ?? null;
-    if (fenceMark) {
-      if (fence === null) fence = fenceMark;
-      else if (fence === fenceMark) fence = null;
-    }
-    const path = fence === null && !fenceMark ? MARKER.exec(line)?.[1] : undefined;
+    const inFence = fence !== null;
+    if (fence === null) fence = opening(line);
+    else if (closes(line, fence)) fence = null;
+    const path = inFence || fence !== null ? undefined : MARKER.exec(line)?.[1];
     if (path !== undefined) {
       if (stray) return { ok: false, error: "text before the first pm:file marker" };
       const err = pathError(path, slug);

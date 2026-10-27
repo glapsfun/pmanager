@@ -45,6 +45,37 @@ describe("parseBundle", () => {
     expect(r.ok && r.files.length).toBe(1);
   });
 
+  test("a longer fence holds shorter runs and markers", () => {
+    const r = parseBundle(
+      B(M("s/plan.md"), "````md", "```bash", M("s/x.md"), "```", "````", "after"),
+      "s",
+    );
+    expect(r.ok && r.files.length).toBe(1);
+  });
+
+  test("a fence line with an info string does not close a fence", () => {
+    const r = parseBundle(B(M("s/plan.md"), "```", "```js", M("s/x.md"), "```", "after"), "s");
+    expect(r.ok && r.files.length).toBe(1);
+  });
+
+  test("a fence indented by up to three spaces is recognized", () => {
+    const r = parseBundle(B(M("s/plan.md"), "  ```", M("s/x.md"), "   ```", "after"), "s");
+    expect(r.ok && r.files.length).toBe(1);
+  });
+
+  test("a backtick run with a backtick in its info string opens no fence", () => {
+    const r = parseBundle(B(M("s/plan.md"), "```a`b", M("s/x.md"), "x"), "s");
+    expect(r.ok && r.files.length).toBe(2);
+  });
+
+  test("a marker with trailing text is content", () => {
+    const r = parseBundle(B(M("s/plan.md"), `${M("s/x.md")} trailing`, "after"), "s");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.files).toHaveLength(1);
+    expect(r.files[0]?.content).toContain(`${M("s/x.md")} trailing`);
+  });
+
   const refusals: [string, string, string][] = [
     ["absolute path", B(M("/abs/x.md"), "x"), "/abs/x.md"],
     ["dot-dot segment", B(M("s/../t/plan.md"), "x"), "s/../t/plan.md"],
@@ -64,7 +95,11 @@ describe("parseBundle", () => {
     ["non-md file", B(M("s/notes.txt"), "x"), "s/notes.txt"],
     ["duplicate path", B(M("s/plan.md"), "a", M("s/plan.md"), "b"), "s/plan.md"],
     ["empty section", B(M("s/plan.md"), "", M("s/b.md"), "b"), "s/plan.md"],
-    ["text before first marker", B("hello", M("s/plan.md"), "x"), "before"],
+    ["text before first marker", B("hello", M("s/plan.md"), "x"), "text before"],
+    ["slug prefix", B(M("s2/plan.md"), "x"), "s2/plan.md"],
+    ["backslash", B(M("s\\plan.md"), "x"), "s\\plan.md contains a backslash"],
+    ["control character", B(M("s/a\tb.md"), "x"), '"s/a\\tb.md" contains a control character'],
+    ["delete character", B(M("s/a\u007fb.md"), "x"), "control character"],
     ["no markers", "just text\n", "empty bundle"],
   ];
   test.each(refusals)("refuses %s", (_name, text, needle) => {
