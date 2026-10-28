@@ -4,6 +4,7 @@ import { auditCheck } from "./checks/audit";
 import { commitMsgCheck, commitsCheck } from "./checks/commit-msg";
 import { testCheck } from "./checks/coverage";
 import { manifestCheck } from "./checks/manifest";
+import { lintStagedCheck } from "./checks/staged";
 import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
 import { sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
@@ -43,6 +44,7 @@ async function eachPackage(ctx: Ctx, script: string): Promise<boolean> {
 /** Registry of implemented checks; later tasks add entries. */
 export const CHECKS: Partial<Record<CheckName, Check>> = {
   lint: (ctx) => eachPackage(ctx, "lint"),
+  "lint-staged": lintStagedCheck,
   typecheck: (ctx) => eachPackage(ctx, "typecheck"),
   test: testCheck,
   manifest: manifestCheck,

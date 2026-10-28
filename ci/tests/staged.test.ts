@@ -1,0 +1,52 @@
+import { expect, test } from "bun:test";
+import { lintStagedCheck, stagedByPackage } from "../checks/staged";
+import { PACKAGES, REPO_ROOT } from "../packages";
+
+test("groups staged paths by package and drops the rest", () => {
+  const map = stagedByPackage(
+    [
+      "bench/runner.ts",
+      "README.md",
+      "ci/gate.ts",
+      "plugins/pmanager/skills/pmanager/scripts/pm.ts",
+      ".github/workflows/gate.yml",
+    ],
+    PACKAGES,
+  );
+  expect([...map.keys()].sort()).toEqual(["bench", "ci", "tool"]);
+  expect(map.get("bench")).toEqual(["runner.ts"]);
+  expect(map.get("ci")).toEqual(["gate.ts"]);
+  expect(map.get("tool")).toEqual(["scripts/pm.ts"]);
+});
+
+test("lint-staged spawns nothing when no staged path is in a package", async () => {
+  const spawned: string[][] = [];
+  const ok = await lintStagedCheck(
+    { root: REPO_ROOT, ci: false, args: [] },
+    {
+      capture: async () => ({ code: 0, stdout: "README.md\n", stderr: "" }),
+      sh: async (cmd) => {
+        spawned.push(cmd);
+        return 0;
+      },
+    },
+  );
+  expect(ok).toBe(true);
+  expect(spawned).toEqual([]);
+});
+
+test("lint-staged runs biome per package with package-relative files", async () => {
+  const spawned: { cmd: string[]; cwd: string }[] = [];
+  const ok = await lintStagedCheck(
+    { root: REPO_ROOT, ci: false, args: [] },
+    {
+      capture: async () => ({ code: 0, stdout: "ci/gate.ts\nbench/a.ts\n", stderr: "" }),
+      sh: async (cmd, cwd) => {
+        spawned.push({ cmd, cwd });
+        return cmd.includes("a.ts") ? 1 : 0;
+      },
+    },
+  );
+  expect(ok).toBe(false);
+  expect(spawned.map((s) => s.cmd.at(-1))).toEqual(["gate.ts", "a.ts"]);
+});
