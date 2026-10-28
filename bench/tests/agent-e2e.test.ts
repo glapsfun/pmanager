@@ -109,12 +109,33 @@ describe("cmdAgentE2e", () => {
     return parseArgs(argv);
   }
 
-  function runWith(timedOut: boolean, passed: boolean) {
+  const PASSING = [
+    { id: "run-completed", kind: "diagnostic", passed: true, evidence: "" },
+    { id: "o", kind: "outcome", passed: true, evidence: "" },
+  ];
+
+  function runWith(timedOut: boolean, passed: boolean, completed = true) {
     return (async () => ({
       line: { timedOut },
-      score: { outcomes: [{ id: "o", kind: "outcome", passed, evidence: "" }] },
+      score: {
+        outcomes: [
+          { id: "run-completed", kind: "diagnostic", passed: completed, evidence: "" },
+          { id: "o", kind: "outcome", passed, evidence: "" },
+        ],
+      },
     })) as unknown as typeof import("../runner").runScenario;
   }
+
+  test("a run whose harness did not complete is not a success, whatever its outcomes", async () => {
+    const out: string[] = [];
+    const io = { out: (s: string) => out.push(s), err: () => {} };
+    const code = await cmdAgentE2e(await setup(), io, {
+      adapterFor: (n) => fake(n, n === "claude-code"),
+      run: runWith(false, true, false),
+    });
+    expect(code).toBe(1);
+    expect(out.join("")).toContain("claude-code feature-idea-epic 0/3 FAIL");
+  });
 
   test("a timed-out run is not a success and fails the blocking harness", async () => {
     const out: string[] = [];
@@ -143,7 +164,7 @@ describe("cmdAgentE2e", () => {
       seen.push(process.env.CLAUDE_CODE_MAX_BUDGET_USD);
       return {
         line: { timedOut: false },
-        score: { outcomes: [{ id: "o", kind: "outcome", passed: true, evidence: "" }] },
+        score: { outcomes: PASSING },
       };
     }) as unknown as typeof import("../runner").runScenario;
     const io = { out: () => {}, err: () => {} };
@@ -168,7 +189,7 @@ describe("cmdAgentE2e", () => {
       if (n++ < failures) throw new Error("boom");
       return {
         line: { timedOut: false },
-        score: { outcomes: [{ id: "o", kind: "outcome", passed: true, evidence: "" }] },
+        score: { outcomes: PASSING },
       };
     }) as unknown as typeof import("../runner").runScenario;
   }

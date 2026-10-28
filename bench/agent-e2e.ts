@@ -4,6 +4,7 @@ import { adapterByName } from "./adapters/registry";
 import type { Adapter, Detection, HarnessName } from "./adapters/types";
 import type { Io } from "./bench";
 import type { ParsedArgs } from "./cli-args";
+import { runCompleted } from "./graders/common";
 import { isSuccess } from "./graders/types";
 import { writeReport } from "./report";
 import { repoSha, runScenario } from "./runner";
@@ -198,7 +199,10 @@ async function runAll(a: ParsedArgs, io: Io, deps: AgentE2eDeps): Promise<number
             rawDir: a.rawDir ?? RAW_DIR,
             meta,
           });
-          success = !r.line.timedOut && isSuccess(r.score.outcomes);
+          const completed = r.score.outcomes.some(
+            (o) => o.id === runCompleted.id && o.passed === true,
+          );
+          success = !r.line.timedOut && completed && isSuccess(r.score.outcomes);
         } catch (e) {
           io.err(`${h.name} ${scenario.name} run ${run} threw: ${(e as Error).message}\n`);
         }
