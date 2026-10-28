@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   exists,
   gitOk,
@@ -57,6 +59,11 @@ test("a user's day: draft, record, verify, render, check, status, release", asyn
     `docs(pm): spec ${SLUG}`,
   );
 
+  const onRemote = (path: string) => gitOk(["show", `pm/${SLUG}:docs/pm/${SLUG}/${path}`], bare);
+  expect(await onRemote("epic.md")).toContain(`id: ${SLUG}`);
+  expect(await onRemote("plan.md")).toContain(SLUG);
+  expect(await onRemote("tasks/T01-benchmark-orders.md")).toContain("T01");
+
   const verify = await pm("verify", SLUG, "T01", "--repo", target);
   expect(verify.code).toBe(0);
   expect(verify.stdout.split("\n")[0]).toMatch(/^verify: e2e-epic T01 · /);
@@ -65,9 +72,16 @@ test("a user's day: draft, record, verify, render, check, status, release", asyn
   expect(render.code).toBe(0);
   expect((await pm("check", "--epic", SLUG)).code).toBe(0);
 
+  const row = new RegExp(
+    `\\| \\[${SLUG}\\]\\(${SLUG}/epic\\.md\\) \\|[^\\n]*\\| e2e · 2026-09-28 \\|`,
+  );
+  expect(await readFile(join(worktree, "docs/pm/INDEX.md"), "utf8")).toMatch(row);
+  expect(await gitOk(["show", `pm/${SLUG}:docs/pm/INDEX.md`], bare)).toMatch(row);
+
   const status = await pm("status");
   expect(status.code).toBe(0);
   expect(status.stdout).toContain(SLUG);
+  expect(status.stdout).toContain(`session: e2e · 2026-09-28 · ${sid}`);
 
   const release = await pm("release", SLUG, "--session", sid);
   expect(release.code).toBe(0);

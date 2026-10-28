@@ -310,7 +310,7 @@ describe("two sessions on one repository", () => {
     expect((await pm(a, "claude-code", "release", "csv-export", "--session", id)).code).toBe(0);
   });
 
-  test("two epics recorded at the same moment from two clones: both land, INDEX lists both", async () => {
+  test("two epics recorded at the same moment from two clones: both land, each branch INDEX keeps its own row, status lists both", async () => {
     const { a, b, bare } = await remoteWithClones(await unclaimedSeed());
     const claims = [
       { dir: a, harness: "claude-code", args: CSV, slug: "csv-export" },
@@ -353,6 +353,13 @@ describe("two sessions on one repository", () => {
     for (const r of results) expect(r.code).toBe(0);
     const refs = await gitOk(["ls-remote", bare, "pm/csv-export", "pm/sso-login"], a);
     expect(refs.trim().split("\n")).toHaveLength(2);
+    const index = (slug: string) => gitOk(["show", `pm/${slug}:docs/pm/INDEX.md`], bare);
+    const csvIndex = await index("csv-export");
+    const ssoIndex = await index("sso-login");
+    expect(csvIndex).toContain("[csv-export](csv-export/epic.md)");
+    expect(csvIndex).not.toContain("sso-login");
+    expect(ssoIndex).toContain("[sso-login](sso-login/epic.md)");
+    expect(ssoIndex).not.toContain("csv-export");
     const third = await makeTempDir("ms-third");
     await gitOk(["clone", "-q", bare, third], third);
     const status = await pm(third, "pi", "status");
