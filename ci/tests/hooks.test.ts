@@ -8,7 +8,7 @@ import { capture } from "../proc";
 const SHIMS: Record<string, string> = {
   "pre-commit": 'exec bun "$(dirname "$0")/../gate.ts" pre-commit',
   "commit-msg": 'exec bun "$(dirname "$0")/../gate.ts" commit-msg "$1"',
-  "pre-push": 'exec bun "$(dirname "$0")/../gate.ts" pre-push',
+  "pre-push": 'exec bun "$(dirname "$0")/../gate.ts" pre-push --hook "$@"',
 };
 
 test("hook shims call the gate and are executable", () => {

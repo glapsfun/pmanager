@@ -226,6 +226,8 @@ Run `bun run setup` once after cloning. It installs dependencies for the tool, b
 
 - Commit hook: lints the staged files and typechecks, and checks the commit subject.
 - Push hook: lint, typecheck, manifest, dependency audit, tests and the free e2e.
+  - It needs the `claude` and `codex` CLIs, for `manifest` and the plugin install e2e. `bun ci/gate.ts install-clis` installs the pinned versions.
+  - It checks the working tree, so it requires a clean one. Commit, stash or remove changes before you push.
 - `bun run gate` runs the same checks as the push hook, on demand.
 - `bun run e2e` runs the free end to end tests: a user's day with concurrent sessions, and installing the plugin into Claude Code and Codex in an isolated home.
 - `bun run e2e:agents` runs the paid agent e2e. Run it before a release. It runs 3 runs of each of the 5 scenarios, caps Claude at 10 USD per run, and only `claude-code` blocks; `codex` is reported.

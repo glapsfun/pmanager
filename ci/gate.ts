@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { clearGitEnv } from "../plugins/pmanager/skills/pmanager/tests/git-env";
 import { auditCheck } from "./checks/audit";
 import { commitMsgCheck, commitsCheck } from "./checks/commit-msg";
 import { testCheck } from "./checks/coverage";
 import { manifestCheck } from "./checks/manifest";
 import { lintStagedCheck } from "./checks/staged";
 import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
-import { sh } from "./proc";
+import { prePushGuard } from "./pre-push";
+import { capture, sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
 import toolVersions from "./tool-versions.json";
 
@@ -14,21 +16,11 @@ export interface Ctx {
   root: string;
   ci: boolean;
   args: string[];
+  /** The hook's own git env, cleared from process.env; only lint-staged reads it. */
+  gitEnv?: Record<string, string>;
 }
 
 export type Check = (ctx: Ctx) => Promise<boolean>;
-
-const CHECK_NAMES: readonly CheckName[] = [
-  "lint",
-  "lint-staged",
-  "typecheck",
-  "test",
-  "manifest",
-  "audit",
-  "e2e",
-  "commit-msg",
-  "commits",
-];
 
 /** Checks that run without node_modules installed. */
 const NO_INSTALL: readonly CheckName[] = ["commit-msg", "commits"];
@@ -42,16 +34,20 @@ async function eachPackage(ctx: Ctx, script: string): Promise<boolean> {
   return ok;
 }
 
-/** Registry of implemented checks; later tasks add entries. */
-export const CHECKS: Partial<Record<CheckName, Check>> = {
+/** Runs the free e2e suite in ci/e2e. */
+export async function e2eCheck(ctx: Ctx, run: typeof sh = sh): Promise<boolean> {
+  return (await run(["bun", "test", "./e2e", "--timeout", "60000"], join(ctx.root, "ci"))) === 0;
+}
+
+/** Every check, by name. */
+export const CHECKS: Record<CheckName, Check> = {
   lint: (ctx) => eachPackage(ctx, "lint"),
   "lint-staged": lintStagedCheck,
   typecheck: (ctx) => eachPackage(ctx, "typecheck"),
   test: testCheck,
   manifest: manifestCheck,
   audit: auditCheck,
-  e2e: (ctx) =>
-    sh(["bun", "test", "./e2e", "--timeout", "60000"], join(ctx.root, "ci")).then((c) => c === 0),
+  e2e: e2eCheck,
   "commit-msg": commitMsgCheck,
   commits: commitsCheck,
 };
@@ -73,14 +69,9 @@ export async function runChecks(
     return 2;
   }
   for (const name of names) {
-    const check = CHECKS[name];
-    if (!check) {
-      err(`check not implemented: ${name}`);
-      return 2;
-    }
     console.log(`▶ ${name}`);
     const start = performance.now();
-    if (!(await check(ctx))) {
+    if (!(await CHECKS[name](ctx))) {
       console.log(`✖ ${name}`);
       return 1;
     }
@@ -108,7 +99,13 @@ function warnBunVersion(root: string): void {
 }
 
 function usage(): number {
-  const names = [...Object.keys(STAGES), ...CHECK_NAMES, "install", "install-clis", "setup"];
+  const names = [
+    ...Object.keys(STAGES),
+    ...Object.keys(CHECKS),
+    "install",
+    "install-clis",
+    "setup",
+  ];
   console.error(`usage: bun ci/gate.ts <${names.join("|")}> [args]`);
   return 2;
 }
@@ -126,13 +123,19 @@ export function installClisCommand(
   ];
 }
 
+export interface MainDeps {
+  run?: (cmd: string[], cwd: string) => Promise<number>;
+  root?: string;
+  stdin?: () => Promise<string>;
+  runChecks?: (names: CheckName[], ctx: Ctx) => Promise<number>;
+}
+
 /** CLI entry: dispatches a check, stage, install or setup. */
-export async function main(
-  argv: string[],
-  run: (cmd: string[], cwd: string) => Promise<number> = sh,
-): Promise<number> {
+export async function main(argv: string[], deps: MainDeps = {}): Promise<number> {
+  const gitEnv = clearGitEnv();
   const [name, ...args] = argv;
-  const ctx: Ctx = { root: REPO_ROOT, ci: process.env.CI === "true", args };
+  const ctx: Ctx = { root: deps.root ?? REPO_ROOT, ci: process.env.CI === "true", args, gitEnv };
+  const checks = deps.runChecks ?? runChecks;
   if (name === "install" || name === "setup") {
     warnBunVersion(ctx.root);
     if ((await install(ctx.root)) !== 0) return 1;
@@ -140,15 +143,22 @@ export async function main(
     return (await sh(["git", "config", "core.hooksPath", "ci/hooks"], ctx.root)) === 0 ? 0 : 1;
   }
   if (name === "install-clis") {
-    return run(installClisCommand(), ctx.root);
+    return (deps.run ?? sh)(installClisCommand(), ctx.root);
   }
-  if (name && name in STAGES) {
+  if (name === "pre-push") {
     warnBunVersion(ctx.root);
-    return runChecks(STAGES[name as StageName], ctx);
+    const stdin =
+      args[0] === "--hook" ? await (deps.stdin ?? (() => Bun.stdin.text()))() : undefined;
+    if (!(await prePushGuard((a) => capture(["git", ...a], ctx.root), stdin))) return 1;
+    return checks(STAGES["pre-push"], ctx);
   }
-  if (name && (CHECK_NAMES as readonly string[]).includes(name)) {
+  if (name && Object.hasOwn(STAGES, name)) {
     warnBunVersion(ctx.root);
-    return runChecks([name as CheckName], ctx);
+    return checks(STAGES[name as StageName], ctx);
+  }
+  if (name && Object.hasOwn(CHECKS, name)) {
+    warnBunVersion(ctx.root);
+    return checks([name as CheckName], ctx);
   }
   return usage();
 }

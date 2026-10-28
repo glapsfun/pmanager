@@ -29,6 +29,7 @@ export async function lintStagedCheck(
   const { code, stdout } = await deps.capture(
     ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
     ctx.root,
+    ctx.gitEnv,
   );
   if (code !== 0) return false;
   const staged = stagedByPackage(stdout.split("\n").filter(Boolean), PACKAGES);

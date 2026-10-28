@@ -1,2 +1,2 @@
 #!/bin/sh
-exec bun "$(dirname "$0")/../gate.ts" pre-push
+exec bun "$(dirname "$0")/../gate.ts" pre-push --hook "$@"
