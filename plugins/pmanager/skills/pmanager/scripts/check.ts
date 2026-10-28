@@ -416,6 +416,51 @@ export const stateRules: Rule = (repo) => {
   return out;
 };
 
+const VAGUE =
+  /\b(nice|nicer|better|smooth(er|ly)?|intuitive|user-friendly|polish(ed)?|feels?|properly|as expected|looks? good|modern)\b/i;
+
+/** Unchecked checkbox items of a section, each joined with its indented continuation lines. */
+function openCriteria(body: string, section: string): string[] {
+  const items: string[] = [];
+  let open = false;
+  for (const l of (sectionBody(body, section) ?? "").split("\n")) {
+    const item = l.match(/^\s*- \[ \] (.*)$/);
+    if (item) {
+      items.push((item[1] ?? "").trim());
+      open = true;
+    } else if (open && /^\s+\S/.test(l) && !/^\s*[-*] /.test(l)) {
+      items[items.length - 1] += ` ${l.trim()}`;
+    } else open = false;
+  }
+  return items;
+}
+
+export const acceptanceRules: Rule = (repo) => {
+  const out: Finding[] = [];
+  for (const e of repo.epics) {
+    const docs: Array<[ParsedDoc | null, string]> = [
+      [e.plan, "Milestones"],
+      ...e.tasks.map((t): [ParsedDoc, string] => [t, "Acceptance criteria"]),
+    ];
+    for (const [doc, section] of docs) {
+      if (!doc) continue;
+      for (const c of openCriteria(doc.body, section)) {
+        if (VAGUE.test(c) && !/\d|`/.test(c)) {
+          out.push(
+            warn(
+              doc.path,
+              "W-ACC-001",
+              `criterion "${c}" has no number or command to decide it`,
+              "rewrite it with a number, a command, or a result anyone can observe",
+            ),
+          );
+        }
+      }
+    }
+  }
+  return out;
+};
+
 export const claimRules: Rule = (repo, opts) => {
   const out: Finding[] = [];
   for (const e of repo.epics) {
@@ -498,6 +543,7 @@ export const RULES = [
   "E-ST-002",
   "E-ST-003",
   "E-ST-004",
+  "W-ACC-001",
   "E-CLM-001",
   "W-CLM-001",
   "W-CLM-002",
@@ -510,6 +556,7 @@ const rules: Rule[] = [
   referenceRules,
   derivedViewRules,
   stateRules,
+  acceptanceRules,
   claimRules,
   legacyRules,
 ];

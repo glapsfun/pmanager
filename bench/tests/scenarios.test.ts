@@ -6,12 +6,13 @@ import { SCENARIOS, scenarioByName } from "../scenarios/registry";
 import { CONTRACT_SENTENCE, composePrompt, hasSkill, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
-  test("registry has the four scenarios with skill-naming prompts", () => {
+  test("registry has the five scenarios with skill-naming prompts", () => {
     expect(SCENARIOS.map((s) => s.name)).toEqual([
       "perf-bug-new-epic",
       "feature-idea-epic",
       "tracking-update-memory",
       "two-session-claim-conflict",
+      "planning-traps",
     ]);
     for (const s of SCENARIOS) {
       expect(composePrompt(s, "with-skill").startsWith("Use the pmanager skill.")).toBe(true);
@@ -60,7 +61,7 @@ describe("condition prompts", () => {
       expect(s.task.includes("pmanager")).toBe(false);
       expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
       expect(composePrompt(s, "without-skill")).toBe(s.task);
-      expect(s.graderVersion).toBe(1);
+      expect(s.graderVersion).toBe(s.name === "planning-traps" ? 2 : 1);
     }
   });
 });

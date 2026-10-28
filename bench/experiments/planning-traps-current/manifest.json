@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "planning-traps-current",
+  "createdAt": "2026-10-27T21:30:26.621Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.312",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 900,
+  "repoSha": "67d8c97",
+  "repoDirty": false,
+  "skillVersion": "0.9.0",
+  "skillHash": "sha256:07775e4b0733aeb436297457b030c4c4d5583238e1f41db84bda8b36afd028fb",
+  "contractHash": "sha256:86ca041eefd1e4797212882a9238f330426534a63e1e22f9740eda637d8d34d0",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "planning-traps",
+      "version": 1,
+      "promptHash": "sha256:6e0e9dc14ac886cf5b0cd27a93a443222b1fd76547c9695acfd70a720a9bc80f",
+      "fixtureHash": "sha256:52632b78cfcc98b5a588c0f814dcd3332649c5b6d358a50f6be6b5a9703ae5eb",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "planning-traps-current-p1-planning-traps-with-skill",
+      "pair": 1,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p2-planning-traps-with-skill",
+      "pair": 2,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p3-planning-traps-with-skill",
+      "pair": 3,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p4-planning-traps-with-skill",
+      "pair": 4,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p5-planning-traps-with-skill",
+      "pair": 5,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p6-planning-traps-with-skill",
+      "pair": 6,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p7-planning-traps-with-skill",
+      "pair": 7,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p8-planning-traps-with-skill",
+      "pair": 8,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p9-planning-traps-with-skill",
+      "pair": 9,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "planning-traps-current-p10-planning-traps-with-skill",
+      "pair": 10,
+      "scenario": "planning-traps",
+      "condition": "with-skill",
+      "order": 1
+    }
+  ]
+}

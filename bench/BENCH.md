@@ -33,6 +33,7 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 | m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill | 3 | 67% | — | 72806 | 29234 | $0.86 | 290s | $5.50 |
 | m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill | 3 | 100% | — | 79164 | 31844 | $0.99 | 317s | $5.50 |
 | pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
+| planning-traps-current | claude-code 2.1.312 | claude-sonnet-5 | planning-traps | with-skill | 10 | 20% | — | 83403 | 43988 | $0.96 | 466s | $9.41 |
 
 ## History (last 20 agent runs)
 

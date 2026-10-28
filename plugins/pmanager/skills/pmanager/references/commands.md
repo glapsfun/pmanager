@@ -77,6 +77,8 @@ New epic: `pm record` (SKILL.md Phase 6). The manual order:
 ## Rules the checker enforces
 
 Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…004,
-rendered views E-RND-001…004, state E-ST-001…004, claims E-CLM-001 /
-W-CLM-001…002, legacy W-LEG-001. Each finding prints its fix. Passing means
+rendered views E-RND-001…004, state E-ST-001…004, acceptance W-ACC-001 (an
+unchecked acceptance or exit criterion with a taste word such as "nicer" or
+"properly" and no number or command), claims E-CLM-001 / W-CLM-001…002,
+legacy W-LEG-001. Each finding prints its fix. Passing means
 the documents conform; it does not prove evidence, approval, or outcomes.

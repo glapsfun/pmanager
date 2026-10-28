@@ -28,7 +28,7 @@ function isResult(x: EpicRecord | CheckResult): x is CheckResult {
   return "passed" in x;
 }
 
-function epicCheck(
+export function epicCheck(
   id: string,
   kind: CheckKind,
   description: string,

@@ -1,5 +1,6 @@
 import { featureIdeaEpic } from "./feature-idea-epic";
 import { perfBugNewEpic } from "./perf-bug-new-epic";
+import { planningTraps } from "./planning-traps";
 import { trackingUpdateMemory } from "./tracking-update-memory";
 import { twoSessionClaimConflict } from "./two-session-claim-conflict";
 import type { Scenario } from "./types";
@@ -9,6 +10,7 @@ export const SCENARIOS: Scenario[] = [
   featureIdeaEpic,
   trackingUpdateMemory,
   twoSessionClaimConflict,
+  planningTraps,
 ];
 
 export function scenarioByName(name: string): Scenario | undefined {
