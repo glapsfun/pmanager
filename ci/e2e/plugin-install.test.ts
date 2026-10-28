@@ -61,6 +61,11 @@ test("Claude Code installs and loads pmanager from this repo", async () => {
     expect(existsSync(join(root, rel))).toBe(true);
   }
 
+  // Claude Code lists a command as a skill, so the skill and the pmanager command are two entries.
+  const details = await run("plugin", "details", "pmanager@pmanager");
+  expect(details.code).toBe(0);
+  expect(details.stdout).toMatch(/^\s*Skills \(2\)\s+pmanager, pmanager$/m);
+
   const pm = await capture(
     ["bun", "run", join(root, "skills/pmanager/scripts/pm.ts")],
     tmp,
