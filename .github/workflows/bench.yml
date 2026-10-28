@@ -15,8 +15,6 @@ on:
       runs:
         description: runs per scenario
         default: "1"
-  schedule:
-    - cron: "0 6 * * 1"
   pull_request:
     types: [labeled, synchronize]
 

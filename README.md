@@ -220,6 +220,20 @@ the same orchestration repo:
 - **Checker.** `pm check` validates every document deterministically and
   prints the fix for each finding; the agent runs it before every commit.
 
+## Development
+
+Run `bun run setup` once after cloning. It installs dependencies for the tool, bench and ci packages and points git at the hooks in `ci/hooks`.
+
+- Commit hook: lints the staged files and typechecks, and checks the commit subject.
+- Push hook: lint, typecheck, manifest, dependency audit, tests and the free e2e.
+- `bun run gate` runs the same checks as the push hook, on demand.
+- `bun run e2e` runs the free end to end tests: a user's day with concurrent sessions, and installing the plugin into Claude Code and Codex in an isolated home.
+- `bun run e2e:agents` runs the paid agent e2e. Run it before a release. It runs 3 runs of each of the 5 scenarios, caps Claude at 10 USD per run, and only `claude-code` blocks; `codex` is reported.
+
+Commit subjects are `type(scope): msg` or `type: msg`. The allowed scopes are listed in `ci/commit-scopes.json`.
+
+CI runs one job per check (`lint`, `typecheck`, `test`, `manifest`, `audit`, `e2e`, `commits`), each a single `bun ci/gate.ts <check>` call.
+
 ## Benchmark
 
 `bench/` measures the skill on any harness with a headless mode. Each
@@ -305,8 +319,8 @@ bench/
 ├── microbench/                   # pm tool timings on a synthetic docs/pm
 ├── results/history.jsonl         # append-only run history (committed)
 └── BENCH.md                      # rendered report
-.github/workflows/gate.yml        # CI: bun run gate + tool microbench on every PR
-.github/workflows/bench.yml       # CI: agent benchmark on dispatch, weekly, or the `bench` label
+.github/workflows/gate.yml        # CI: one job per gate check + tool microbench on every PR
+.github/workflows/bench.yml       # CI: agent benchmark on dispatch or the `bench` label
 ```
 
 ## License
