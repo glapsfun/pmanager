@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../packages";
@@ -28,7 +28,12 @@ test("commit-msg hook rejects a bad subject and accepts a good one in a real rep
     await git("config", "user.name", "Test");
     await git("config", "user.email", "test@example.com");
     await git("config", "commit.gpgsign", "false");
-    await git("config", "core.hooksPath", join(REPO_ROOT, "ci", "hooks"));
+    // Only commit-msg: the gate's other hooks act on this repo, not on the temp one.
+    const hooks = join(dir, ".git", "only-commit-msg");
+    mkdirSync(hooks);
+    const shim = join(REPO_ROOT, "ci", "hooks", "commit-msg");
+    writeFileSync(join(hooks, "commit-msg"), `#!/bin/sh\nexec "${shim}" "$@"\n`, { mode: 0o755 });
+    await git("config", "core.hooksPath", hooks);
     const bad = await git("commit", "--allow-empty", "-m", "wip: x");
     expect(bad.code).not.toBe(0);
     expect(bad.stderr).toContain("unknown type");

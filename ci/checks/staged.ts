@@ -26,12 +26,15 @@ export async function lintStagedCheck(
   ctx: Ctx,
   deps: StagedDeps = { capture, sh },
 ): Promise<boolean> {
-  const { code, stdout } = await deps.capture(
+  const { code, stdout, stderr } = await deps.capture(
     ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
     ctx.root,
     ctx.gitEnv,
   );
-  if (code !== 0) return false;
+  if (code !== 0) {
+    console.error(`lint-staged: git diff --cached failed: ${stderr.trim()}`);
+    return false;
+  }
   const staged = stagedByPackage(stdout.split("\n").filter(Boolean), PACKAGES);
   let ok = true;
   for (const [name, files] of staged) {

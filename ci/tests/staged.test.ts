@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import {
   initGitRepo,
@@ -81,4 +81,22 @@ test("lint-staged reads the commit's temporary index from the hook's git env", a
   };
   expect(await linted()).toEqual([]);
   expect(await linted({ GIT_INDEX_FILE: index })).toEqual(["a.ts"]);
+});
+
+test("lint-staged prints why git diff failed", async () => {
+  const lines: string[] = [];
+  const error = spyOn(console, "error").mockImplementation((...a) => void lines.push(a.join(" ")));
+  try {
+    const ok = await lintStagedCheck(
+      { root: REPO_ROOT, ci: false, args: [] },
+      {
+        capture: async () => ({ code: 128, stdout: "", stderr: "fatal: index file open failed\n" }),
+        sh: async () => 0,
+      },
+    );
+    expect(ok).toBe(false);
+    expect(lines).toEqual(["lint-staged: git diff --cached failed: fatal: index file open failed"]);
+  } finally {
+    error.mockRestore();
+  }
 });
