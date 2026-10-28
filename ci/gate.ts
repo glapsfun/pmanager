@@ -5,8 +5,8 @@ import { auditCheck } from "./checks/audit";
 import { commitMsgCheck, commitsCheck } from "./checks/commit-msg";
 import { testCheck } from "./checks/coverage";
 import { manifestCheck } from "./checks/manifest";
-import { lintStagedCheck } from "./checks/staged";
-import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
+import { lintStagedCheck, stagedFiles } from "./checks/staged";
+import { missingInstall, PACKAGES, type Pkg, REPO_ROOT } from "./packages";
 import { prePushGuard } from "./pre-push";
 import { capture, sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
@@ -18,6 +18,8 @@ export interface Ctx {
   args: string[];
   /** The hook's own git env, cleared from process.env; only lint-staged reads it. */
   gitEnv?: Record<string, string>;
+  /** Packages that per-package checks and the install guard cover; all when unset. */
+  packages?: readonly Pkg[];
 }
 
 export type Check = (ctx: Ctx) => Promise<boolean>;
@@ -28,7 +30,7 @@ const NO_INSTALL: readonly CheckName[] = ["commit-msg", "commits"];
 /** Runs a bun script in every package; true when all exit 0. */
 async function eachPackage(ctx: Ctx, script: string): Promise<boolean> {
   let ok = true;
-  for (const p of PACKAGES) {
+  for (const p of ctx.packages ?? PACKAGES) {
     if ((await sh(["bun", "run", script], join(ctx.root, p.dir))) !== 0) ok = false;
   }
   return ok;
@@ -61,7 +63,7 @@ export async function runChecks(
   const err = deps.err ?? ((s: string) => console.error(s));
   const needsInstall = names.some((n) => !NO_INSTALL.includes(n));
   const missing = needsInstall
-    ? await (deps.missingInstall ?? missingInstall)(ctx.root, PACKAGES)
+    ? await (deps.missingInstall ?? missingInstall)(ctx.root, ctx.packages ?? PACKAGES)
     : [];
   if (missing.length > 0) {
     err(`missing node_modules in: ${missing.join(", ")}`);
@@ -149,8 +151,17 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
     warnBunVersion(ctx.root);
     const stdin =
       args[0] === "--hook" ? await (deps.stdin ?? (() => Bun.stdin.text()))() : undefined;
-    if (!(await prePushGuard((a) => capture(["git", ...a], ctx.root), stdin))) return 1;
+    const guard = await prePushGuard((a) => capture(["git", ...a], ctx.root), stdin);
+    if (guard === "fail") return 1;
+    if (guard === "skip") return 0;
     return checks(STAGES["pre-push"], ctx);
+  }
+  if (name === "pre-commit") {
+    warnBunVersion(ctx.root);
+    const staged = await stagedFiles(ctx);
+    if (!staged) return 1;
+    ctx.packages = PACKAGES.filter((p) => staged.some((f) => f.startsWith(`${p.dir}/`)));
+    return checks(STAGES["pre-commit"], ctx);
   }
   if (name && Object.hasOwn(STAGES, name)) {
     warnBunVersion(ctx.root);
