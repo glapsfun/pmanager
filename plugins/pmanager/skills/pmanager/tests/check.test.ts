@@ -230,6 +230,56 @@ describe("claim rules", () => {
   });
 });
 
+describe("acceptance rules", () => {
+  const PAGED = "- [ ] Default response is at most 50 orders";
+
+  async function vague(root: string) {
+    return check(await loadPmRepo(root), OPTS).filter((f) => f.rule === "W-ACC-001");
+  }
+
+  test("W-ACC-001 vague task criterion, as a warning naming the line", async () => {
+    const root = await fixture();
+    await edit(root, T04, PAGED, "- [ ] The orders page feels nicer");
+    const found = await vague(root);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.file).toBe(join(root, T04));
+    expect(found[0]?.severity).toBe("warning");
+    expect(found[0]?.message).toContain("The orders page feels nicer");
+  });
+
+  test("W-ACC-001 vague milestone exit criterion", async () => {
+    const root = await fixture();
+    await edit(root, PLAN, "- [ ] /orders is paginated", "- [ ] Pagination works properly");
+    const found = await vague(root);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.file).toBe(join(root, PLAN));
+  });
+
+  test("a number or code, even on a continuation line, clears W-ACC-001", async () => {
+    const root = await fixture();
+    await edit(root, T04, PAGED, "- [ ] The orders page feels faster: p95 under 300ms");
+    await edit(
+      root,
+      PLAN,
+      "- [ ] /orders is paginated",
+      "- [ ] Paging looks good\n  in `pytest tests/test_pages.py`",
+    );
+    expect(await vague(root)).toEqual([]);
+  });
+
+  test("checked boxes, other sections and concrete wording are not flagged", async () => {
+    const root = await fixture();
+    await edit(
+      root,
+      T04,
+      PAGED,
+      "- [x] The orders page feels nicer\n- [ ] Commas are escaped correctly",
+    );
+    await edit(root, T04, "## Out of scope", "## Out of scope\n\n- [ ] A nicer empty state");
+    expect(await vague(root)).toEqual([]);
+  });
+});
+
 describe("legacy", () => {
   test("W-LEG-001 for v0 docs, no E-STR-003", async () => {
     const root = await fixture();
