@@ -10,24 +10,12 @@ import {
   installPreReceiveHook,
   makeTempDir,
   remoteWithClones,
+  runPm,
   unclaimedSeed,
 } from "./helpers";
 
-const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
-
 async function run(args: string[], cwd: string, env: Record<string, string> = {}) {
-  const proc = Bun.spawn(["bun", "run", PM, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PM_TODAY: "2026-09-15", PM_HARNESS: "test-harness", ...env },
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
+  return runPm(args, cwd, { env: { PM_TODAY: "2026-09-15", PM_HARNESS: "test-harness", ...env } });
 }
 
 const sid = (stdout: string) => /session: ([0-9a-f]{6})/.exec(stdout)?.[1] ?? "missing";

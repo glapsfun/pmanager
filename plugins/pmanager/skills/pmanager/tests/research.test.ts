@@ -20,7 +20,14 @@ import {
   rankFiles,
 } from "../scripts/research";
 import { buildNoisyRepo } from "./fixtures/build-noisy";
-import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
+import {
+  copyFixture,
+  gitOk,
+  initGitRepo,
+  makeTempDir,
+  runPm as runPmInProcess,
+  writeTree,
+} from "./helpers";
 
 async function seededRepo(files: Record<string, string>, message = "seed"): Promise<string> {
   const dir = await makeTempDir("research");
@@ -396,21 +403,8 @@ else console.log(JSON.stringify([{ number: 300, title: "Orders page slow", state
   });
 });
 
-const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
-
 async function runPm(args: string[], cwd: string, env: Record<string, string> = {}) {
-  const proc = Bun.spawn(["bun", "run", PM, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PM_GH: "/nonexistent/gh", ...env },
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
+  return runPmInProcess(args, cwd, { env: { PM_GH: "/nonexistent/gh", ...env } });
 }
 
 async function orchestrationRepo(): Promise<string> {

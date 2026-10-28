@@ -1,6 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { main } from "../scripts/pm";
 
 export async function makeTempDir(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), `${prefix}-`));
@@ -112,5 +113,41 @@ export async function exists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Runs the pm CLI in-process, capturing stdout and stderr. Safe only for sequential calls. */
+export async function runPm(
+  args: string[],
+  cwd: string,
+  opts: { env?: Record<string, string>; stdin?: string } = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  let stdout = "";
+  let stderr = "";
+  const realOut = process.stdout.write;
+  const realErr = process.stderr.write;
+  const saved = new Map<string, string | undefined>();
+  for (const [k, v] of Object.entries(opts.env ?? {})) {
+    saved.set(k, process.env[k]);
+    process.env[k] = v;
+  }
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const code = await main(args, cwd, async () => opts.stdin ?? "");
+    return { code, stdout, stderr };
+  } finally {
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
 }
