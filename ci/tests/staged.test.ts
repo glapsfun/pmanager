@@ -1,6 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
+import { readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  gitOk,
   initGitRepo,
   makeTempDir,
   writeTree,
@@ -31,7 +33,7 @@ test("lint-staged spawns nothing when no staged path is in a package", async () 
   const ok = await lintStagedCheck(
     { root: REPO_ROOT, ci: false, args: [] },
     {
-      capture: async () => ({ code: 0, stdout: "README.md\n", stderr: "" }),
+      capture: async () => ({ code: 0, stdout: "README.md\0", stderr: "" }),
       sh: async (cmd) => {
         spawned.push(cmd);
         return 0;
@@ -47,7 +49,7 @@ test("lint-staged runs biome per package with package-relative files", async () 
   const ok = await lintStagedCheck(
     { root: REPO_ROOT, ci: false, args: [] },
     {
-      capture: async () => ({ code: 0, stdout: "ci/gate.ts\nbench/a.ts\n", stderr: "" }),
+      capture: async () => ({ code: 0, stdout: "ci/gate.ts\0bench/a.ts\0", stderr: "" }),
       sh: async (cmd, cwd) => {
         spawned.push({ cmd, cwd });
         return cmd.includes("a.ts") ? 1 : 0;
@@ -61,9 +63,12 @@ test("lint-staged runs biome per package with package-relative files", async () 
 test("lint-staged reads the commit's temporary index from the hook's git env", async () => {
   const root = await makeTempDir("staged-index");
   await initGitRepo(root);
-  await writeTree(root, { "ci/a.ts": "export {};\n" });
+  await writeTree(root, { "ci/a.ts": "export {};\n", "ci/biome.json": "{}\n" });
   const index = join(root, ".git", "next-index.lock");
-  expect((await capture(["git", "add", "ci/a.ts"], root, { GIT_INDEX_FILE: index })).code).toBe(0);
+  const add = await capture(["git", "add", "ci/a.ts", "ci/biome.json"], root, {
+    GIT_INDEX_FILE: index,
+  });
+  expect(add.code).toBe(0);
   const linted = async (gitEnv?: Record<string, string>) => {
     const files: string[] = [];
     const ok = await lintStagedCheck(
@@ -71,7 +76,7 @@ test("lint-staged reads the commit's temporary index from the hook's git env", a
       {
         capture,
         sh: async (cmd) => {
-          files.push(cmd.at(-1) ?? "");
+          files.push(...cmd.slice(4));
           return 0;
         },
       },
@@ -80,7 +85,7 @@ test("lint-staged reads the commit's temporary index from the hook's git env", a
     return files;
   };
   expect(await linted()).toEqual([]);
-  expect(await linted({ GIT_INDEX_FILE: index })).toEqual(["a.ts"]);
+  expect(await linted({ GIT_INDEX_FILE: index })).toEqual(["a.ts", "biome.json"]);
 });
 
 test("lint-staged prints why git diff failed", async () => {
@@ -99,4 +104,26 @@ test("lint-staged prints why git diff failed", async () => {
   } finally {
     error.mockRestore();
   }
+});
+
+test("lint-staged checks the staged content of a partly staged file, whatever its name", async () => {
+  const root = await makeTempDir("staged-snapshot");
+  await initGitRepo(root);
+  const file = "ci/checks/café.ts";
+  await writeTree(root, {
+    "ci/biome.json": await readFile(join(REPO_ROOT, "ci", "biome.json"), "utf8"),
+    [file]: "export const x=1\n",
+  });
+  await symlink(join(REPO_ROOT, "ci", "node_modules"), join(root, "ci", "node_modules"), "dir");
+  await gitOk(["add", "ci/biome.json", file], root);
+  const quiet = {
+    capture,
+    sh: async (cmd: string[], cwd: string) => (await capture(cmd, cwd)).code,
+  };
+  const ctx = { root, ci: false, args: [] };
+  await writeFile(join(root, file), "export const x = 1;\n");
+  expect(await lintStagedCheck(ctx, quiet)).toBe(false);
+  await gitOk(["add", file], root);
+  await writeFile(join(root, file), "export const x=1\n");
+  expect(await lintStagedCheck(ctx, quiet)).toBe(true);
 });

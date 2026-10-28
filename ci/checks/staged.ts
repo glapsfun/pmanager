@@ -1,3 +1,5 @@
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Ctx } from "../gate";
 import { PACKAGES, type PackageName, type Pkg } from "../packages";
@@ -21,26 +23,55 @@ export interface StagedDeps {
   sh: typeof sh;
 }
 
-/** Runs biome on staged files only, per package; spawns nothing when none are in a package. */
-export async function lintStagedCheck(
+/** Repo-relative paths added, copied, modified or renamed in the index; null when git fails. */
+export async function stagedFiles(
   ctx: Ctx,
-  deps: StagedDeps = { capture, sh },
-): Promise<boolean> {
-  const { code, stdout, stderr } = await deps.capture(
-    ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+  run: typeof capture = capture,
+): Promise<string[] | null> {
+  const { code, stdout, stderr } = await run(
+    ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
     ctx.root,
     ctx.gitEnv,
   );
   if (code !== 0) {
     console.error(`lint-staged: git diff --cached failed: ${stderr.trim()}`);
-    return false;
+    return null;
   }
-  const staged = stagedByPackage(stdout.split("\n").filter(Boolean), PACKAGES);
-  let ok = true;
-  for (const [name, files] of staged) {
-    const pkg = PACKAGES.find((p) => p.name === name) as Pkg;
-    const cmd = ["bunx", "biome", "check", "--no-errors-on-unmatched", ...files];
-    if ((await deps.sh(cmd, join(ctx.root, pkg.dir))) !== 0) ok = false;
+  return stdout.split("\0").filter(Boolean);
+}
+
+/** Runs biome per package on the staged content of staged files, not the working-tree copies. */
+export async function lintStagedCheck(
+  ctx: Ctx,
+  deps: StagedDeps = { capture, sh },
+): Promise<boolean> {
+  const files = await stagedFiles(ctx, deps.capture);
+  if (!files) return false;
+  const staged = stagedByPackage(files, PACKAGES);
+  if (staged.size === 0) return true;
+  const snapshot = await mkdtemp(join(tmpdir(), "lint-staged-"));
+  try {
+    let ok = true;
+    for (const [name, rel] of staged) {
+      const pkg = PACKAGES.find((p) => p.name === name) as Pkg;
+      const paths = new Set([`${pkg.dir}/biome.json`, ...rel.map((f) => `${pkg.dir}/${f}`)]);
+      const out = await deps.capture(
+        ["git", "checkout-index", `--prefix=${snapshot}/`, "--", ...paths],
+        ctx.root,
+        ctx.gitEnv,
+      );
+      if (out.code !== 0) {
+        console.error(`lint-staged: git checkout-index failed: ${out.stderr.trim()}`);
+        return false;
+      }
+      const dir = join(snapshot, pkg.dir);
+      await mkdir(dir, { recursive: true });
+      await symlink(join(ctx.root, pkg.dir, "node_modules"), join(dir, "node_modules"), "dir");
+      const cmd = ["bunx", "biome", "check", "--no-errors-on-unmatched", ...rel];
+      if ((await deps.sh(cmd, dir)) !== 0) ok = false;
+    }
+    return ok;
+  } finally {
+    await rm(snapshot, { recursive: true, force: true });
   }
-  return ok;
 }
