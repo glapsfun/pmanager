@@ -19,6 +19,7 @@ export const TYPES: readonly string[] = [
 
 const SCISSORS = "# ------------------------ >8 ------------------------";
 const HEADER = /^([A-Za-z]+)(?:\(([^)]*)\))?!?:/;
+const AUTOSQUASH = /^(fixup|squash|amend)! /;
 
 /** First non-blank, non-comment line of a commit message, ignoring everything after the scissors line. */
 export function subjectOf(message: string): string {
@@ -30,9 +31,18 @@ export function subjectOf(message: string): string {
   return "";
 }
 
-/** Why a subject breaks the `type(scope): message` format, or null when it is fine. */
-export function subjectProblem(subject: string, scopes: readonly string[]): string | null {
+/** Why a subject breaks the `type(scope): message` format, or null when it is fine. Autosquash subjects pass only when allowed. */
+export function subjectProblem(
+  subject: string,
+  scopes: readonly string[],
+  allowAutosquash = false,
+): string | null {
   if (subject.trim() === "") return "empty subject";
+  if (AUTOSQUASH.test(subject)) {
+    return allowAutosquash
+      ? null
+      : "fixup!, squash! and amend! commits must be squashed before merge";
+  }
   if (subject.startsWith("Merge ") || subject.startsWith('Revert "')) return null;
   const m = HEADER.exec(subject);
   if (!m) return "expected type(scope): message";
@@ -55,7 +65,7 @@ export const commitMsgCheck: Check = async (ctx) => {
     return false;
   }
   const subject = subjectOf(readFileSync(resolve(process.cwd(), file), "utf8"));
-  const problem = subjectProblem(subject, SCOPES);
+  const problem = subjectProblem(subject, SCOPES, true);
   if (problem) console.error(`commit-msg: ${problem}: ${subject}`);
   return problem === null;
 };

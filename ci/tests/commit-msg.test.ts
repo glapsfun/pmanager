@@ -30,6 +30,14 @@ test("accepted subjects", () => {
   }
 });
 
+test("autosquash subjects pass only when allowed", () => {
+  for (const s of ["fixup! fix: y", "squash! feat(pm): x", "amend! fix: y"]) {
+    expect(subjectProblem(s, SCOPES, true)).toBeNull();
+    expect(subjectProblem(s, SCOPES)).toContain("squashed before merge");
+  }
+  expect(subjectProblem("fixup!: y", SCOPES, true)).not.toBeNull();
+});
+
 test("rejected subjects name the reason", () => {
   const cases: [string, string][] = [
     ["pm: record x", "unknown type pm"],
@@ -67,12 +75,14 @@ test("commits check lists every bad commit in the range", async () => {
     ).trim();
     await git(dir, "commit", "-q", "--allow-empty", "-m", "fix: ok");
     await git(dir, "commit", "-q", "--allow-empty", "-m", "wip");
+    await git(dir, "commit", "-q", "--allow-empty", "-m", "fixup! fix: ok");
     process.chdir(dir);
     const code = await main(["commits", `${base}..HEAD`]);
     const out = lines.join("\n");
     expect(code).toBe(1);
     expect(out).toContain("wip");
-    expect(out).not.toContain("fix: ok");
+    expect(out).toContain("fixup! fix: ok: fixup!, squash! and amend! commits must be squashed");
+    expect(out).not.toMatch(/^\w+ fix: ok:/m);
   } finally {
     process.chdir(prev);
     log.mockRestore();
@@ -84,16 +94,20 @@ test("commits check lists every bad commit in the range", async () => {
 test("commit-msg check reads the file and fails on a bad subject", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cm-"));
   const prev = process.cwd();
+  const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
   try {
     await Bun.write(join(dir, "good"), "fix: y\n");
+    await Bun.write(join(dir, "fixup"), "fixup! fix: y\n");
     await Bun.write(join(dir, "bad"), "wip\n");
     process.chdir(dir);
     expect(await main(["commit-msg", "good"])).toBe(0);
+    expect(await main(["commit-msg", "fixup"])).toBe(0);
     expect(await main(["commit-msg", "bad"])).toBe(1);
     expect(await main(["commit-msg"])).toBe(1);
   } finally {
     process.chdir(prev);
+    log.mockRestore();
     error.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   }
