@@ -30,7 +30,7 @@ function requireCli(bin: string, pkg: string, v: string): void {
 
 test("Claude Code installs and loads pmanager from this repo", async () => {
   requireCli("claude", "@anthropic-ai/claude-code", versions["claude-code"]);
-  const run = (...args: string[]) => capture(["claude", ...args], tmp, env);
+  const run = (...args: string[]) => capture(["claude", ...args], tmp, env, false);
 
   const added = await run("plugin", "marketplace", "add", REPO_ROOT, "--json");
   expect(added.code).toBe(0);
@@ -61,14 +61,19 @@ test("Claude Code installs and loads pmanager from this repo", async () => {
     expect(existsSync(join(root, rel))).toBe(true);
   }
 
-  const pm = await capture(["bun", "run", join(root, "skills/pmanager/scripts/pm.ts")], tmp, env);
+  const pm = await capture(
+    ["bun", "run", join(root, "skills/pmanager/scripts/pm.ts")],
+    tmp,
+    env,
+    false,
+  );
   expect(pm.code).toBe(2);
   expect(pm.stdout + pm.stderr).toContain("usage: bun run scripts/pm.ts");
 }, 120000);
 
 test("Codex installs and loads pmanager from this repo", async () => {
   requireCli("codex", "@openai/codex", versions.codex);
-  const run = (...args: string[]) => capture(["codex", ...args], tmp, env);
+  const run = (...args: string[]) => capture(["codex", ...args], tmp, env, false);
 
   expect((await run("plugin", "marketplace", "add", REPO_ROOT)).code).toBe(0);
   expect((await run("plugin", "add", "pmanager@pmanager")).code).toBe(0);

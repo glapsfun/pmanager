@@ -14,15 +14,16 @@ export async function sh(
   return proc.exited;
 }
 
-/** Runs a command and returns its exit code with captured output. */
+/** Runs a command and returns its exit code with captured output. With inherit false, env is the whole environment. */
 export async function capture(
   cmd: string[],
   cwd: string,
   env?: Record<string, string>,
+  inherit = true,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(cmd, {
     cwd,
-    env: { ...process.env, ...env },
+    env: inherit ? { ...process.env, ...env } : env,
     stdout: "pipe",
     stderr: "pipe",
   });
