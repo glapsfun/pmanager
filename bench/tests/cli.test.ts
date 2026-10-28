@@ -74,6 +74,17 @@ describe("cli-args", () => {
     expect(a.iterations).toBe(5);
   });
 
+  test("agent-e2e-only flags throw on every other command", () => {
+    for (const command of [["run"], ["tool"], ["report"], ["experiment", "run"]]) {
+      expect(() => parseArgs([...command, "--max-budget-usd", "2"])).toThrow(
+        "--max-budget-usd applies only to agent-e2e",
+      );
+      expect(() => parseArgs([...command, "--config", "x.json"])).toThrow(
+        "--config applies only to agent-e2e",
+      );
+    }
+  });
+
   test("unknown flag throws", () => {
     expect(() => parseArgs(["run", "--nope"])).toThrow(/unknown flag/);
   });

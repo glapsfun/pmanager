@@ -32,6 +32,8 @@ const COMMANDS = new Set<string>(["run", "tool", "report", "experiment", "agent-
 const SUBS = new Set<string>(["new", "run", "report"]);
 /** Values agent-e2e takes from its config file only. */
 const AGENT_E2E_CONFIG_FLAGS = new Set<string>(["--runs", "--scenario", "--harness", "--model"]);
+/** Flags only agent-e2e reads; any other command would silently ignore them. */
+const AGENT_E2E_ONLY_FLAGS = new Set<string>(["--max-budget-usd", "--config"]);
 
 function int(name: string, v: string | undefined): number {
   const n = Number.parseInt(v ?? "", 10);
@@ -81,6 +83,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const next = () => argv[++i];
     if (a.command === "agent-e2e" && AGENT_E2E_CONFIG_FLAGS.has(flag)) {
       throw new Error(`agent-e2e takes ${flag} from its config file (--config)`);
+    }
+    if (a.command !== "agent-e2e" && AGENT_E2E_ONLY_FLAGS.has(flag)) {
+      throw new Error(`${flag} applies only to agent-e2e`);
     }
     switch (flag) {
       case "--harness":
