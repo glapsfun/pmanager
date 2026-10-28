@@ -1,0 +1,11 @@
+{
+  "name": "pmanager-root",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "bun ci/gate.ts setup",
+    "gate": "bun ci/gate.ts pre-push",
+    "e2e": "bun ci/gate.ts e2e",
+    "e2e:agents": "cd bench && bun run bench.ts agent-e2e"
+  }
+}
