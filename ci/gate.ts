@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { auditCheck } from "./checks/audit";
+import { commitMsgCheck, commitsCheck } from "./checks/commit-msg";
 import { testCheck } from "./checks/coverage";
+import { manifestCheck } from "./checks/manifest";
 import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
 import { sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
@@ -25,6 +28,9 @@ const CHECK_NAMES: readonly CheckName[] = [
   "commits",
 ];
 
+/** Checks that run without node_modules installed. */
+const NO_INSTALL: readonly CheckName[] = ["commit-msg", "commits"];
+
 /** Runs a bun script in every package; true when all exit 0. */
 async function eachPackage(ctx: Ctx, script: string): Promise<boolean> {
   let ok = true;
@@ -39,6 +45,10 @@ export const CHECKS: Partial<Record<CheckName, Check>> = {
   lint: (ctx) => eachPackage(ctx, "lint"),
   typecheck: (ctx) => eachPackage(ctx, "typecheck"),
   test: testCheck,
+  manifest: manifestCheck,
+  audit: auditCheck,
+  "commit-msg": commitMsgCheck,
+  commits: commitsCheck,
 };
 
 /** Runs checks in order, stopping at the first failure. Returns the exit code. */
@@ -48,7 +58,10 @@ export async function runChecks(
   deps: { missingInstall?: typeof missingInstall; err?: (s: string) => void } = {},
 ): Promise<number> {
   const err = deps.err ?? ((s: string) => console.error(s));
-  const missing = await (deps.missingInstall ?? missingInstall)(ctx.root, PACKAGES);
+  const needsInstall = names.some((n) => !NO_INSTALL.includes(n));
+  const missing = needsInstall
+    ? await (deps.missingInstall ?? missingInstall)(ctx.root, PACKAGES)
+    : [];
   if (missing.length > 0) {
     err(`missing node_modules in: ${missing.join(", ")}`);
     err("run: bun run setup");
