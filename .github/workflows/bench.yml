@@ -46,8 +46,8 @@ jobs:
       - name: Install harness
         run: |
           case "$HARNESS" in
-            claude-code) npm install -g @anthropic-ai/claude-code ;;
-            codex) npm install -g @openai/codex ;;
+            claude-code) npm install -g "@anthropic-ai/claude-code@$(jq -r '."claude-code"' ci/tool-versions.json)" ;;
+            codex) npm install -g "@openai/codex@$(jq -r .codex ci/tool-versions.json)" ;;
             pi)
               npm install -g @mariozechner/pi-coding-agent
               mkdir -p ~/.pi/agent
