@@ -8,8 +8,10 @@ import {
   type AgentRunResult,
   agentVerdict,
   cmdAgentE2e,
+  configProblem,
   formatVerdict,
 } from "../agent-e2e";
+import { main } from "../bench";
 import { parseArgs } from "../cli-args";
 import { SCENARIOS } from "../scenarios/registry";
 
@@ -91,10 +93,10 @@ describe("cmdAgentE2e", () => {
   const fake = (name: string, available: boolean) =>
     ({ name, detect: async () => ({ available, version: "1" }) }) as unknown as Adapter;
 
-  async function setup() {
+  async function setup(body: unknown = cfg) {
     const dir = await mkdtemp(join(tmpdir(), "agent-e2e-"));
     const config = join(dir, "c.json");
-    await writeFile(config, JSON.stringify(cfg));
+    await writeFile(config, JSON.stringify(body));
     const argv = [
       "agent-e2e",
       "--config",
@@ -219,4 +221,64 @@ describe("cmdAgentE2e", () => {
     const a = parseArgs(["agent-e2e", "--config", "/nonexistent/x.json"]);
     expect(await cmdAgentE2e(a, { out: () => {}, err: (s) => errs.push(s) })).toBe(2);
   });
+
+  test("a blocking harness that is unavailable stops before any run", async () => {
+    const out: string[] = [];
+    let runs = 0;
+    const run = (async () => {
+      runs++;
+      throw new Error("must not run");
+    }) as unknown as typeof import("../runner").runScenario;
+    const code = await cmdAgentE2e(
+      await setup(),
+      { out: (s) => out.push(s), err: () => {} },
+      { adapterFor: (n) => fake(n, n === "codex"), run },
+    );
+    expect(code).toBe(1);
+    expect(runs).toBe(0);
+    expect(out.join("")).toBe("claude-code unavailable\nagent e2e: FAIL\n");
+  });
+
+  test("a config whose blocking is not a boolean, or with no blocking harness, is a usage error", async () => {
+    const notBool = {
+      ...cfg,
+      harnesses: [{ name: "claude-code", model: "m", blocking: "yes" }],
+    };
+    const noneBlocking = {
+      ...cfg,
+      harnesses: cfg.harnesses.map((h) => ({ ...h, blocking: false })),
+    };
+    for (const [bad, reason] of [
+      [notBool, "claude-code blocking must be true or false"],
+      [noneBlocking, "at least one harness must be blocking"],
+    ] as const) {
+      const errs: string[] = [];
+      const code = await cmdAgentE2e(
+        await setup(bad),
+        { out: () => {}, err: (s) => errs.push(s) },
+        { adapterFor: (n) => fake(n, true), run: runWith(false, true) },
+      );
+      expect(code).toBe(2);
+      expect(errs.join("")).toContain(reason);
+    }
+  });
+});
+
+test("configProblem accepts the shipped config", async () => {
+  const shipped = JSON.parse(await Bun.file(join(import.meta.dir, "..", "agent-e2e.json")).text());
+  expect(configProblem(shipped)).toBeNull();
+});
+
+test("agent-e2e rejects the flags its config file owns", async () => {
+  for (const argv of [
+    ["--runs", "2"],
+    ["--scenario", "feature-idea-epic"],
+    ["--harness", "codex"],
+    ["--model", "m"],
+  ]) {
+    const errs: string[] = [];
+    const code = await main(["agent-e2e", ...argv], { out: () => {}, err: (s) => errs.push(s) });
+    expect(code).toBe(2);
+    expect(errs.join("")).toContain(`agent-e2e takes ${argv[0]} from its config file`);
+  }
 });

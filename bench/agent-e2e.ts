@@ -95,17 +95,28 @@ export function formatVerdict(v: AgentVerdict): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** Why a config cannot run, or null when it can. */
+export function configProblem(cfg: AgentE2eConfig): string | null {
+  if (!Number.isInteger(cfg.runs) || !Number.isInteger(cfg.need)) {
+    return "runs and need must be integers";
+  }
+  if (cfg.need < 1 || cfg.need > cfg.runs) return "need must be between 1 and runs";
+  if (!Array.isArray(cfg.harnesses) || cfg.harnesses.length === 0) {
+    return "harnesses must be a non-empty list";
+  }
+  for (const h of cfg.harnesses) {
+    if (!adapterByName(h.name)) return `unknown harness ${h.name}`;
+    if (!h.model) return `${h.name} needs a model`;
+    if (typeof h.blocking !== "boolean") return `${h.name} blocking must be true or false`;
+  }
+  if (!cfg.harnesses.some((h) => h.blocking)) return "at least one harness must be blocking";
+  return null;
+}
+
 export async function loadConfig(path: string): Promise<AgentE2eConfig> {
   const cfg = JSON.parse(await readFile(path, "utf8")) as AgentE2eConfig;
-  const ok =
-    Number.isInteger(cfg.runs) &&
-    Number.isInteger(cfg.need) &&
-    cfg.need >= 1 &&
-    cfg.need <= cfg.runs &&
-    Array.isArray(cfg.harnesses) &&
-    cfg.harnesses.length > 0 &&
-    cfg.harnesses.every((h) => adapterByName(h.name) && h.model);
-  if (!ok) throw new Error(`invalid agent e2e config: ${path}`);
+  const problem = typeof cfg === "object" && cfg !== null ? configProblem(cfg) : "not an object";
+  if (problem) throw new Error(`invalid agent e2e config ${path}: ${problem}`);
   return cfg;
 }
 
@@ -139,11 +150,8 @@ async function runAll(a: ParsedArgs, io: Io, deps: AgentE2eDeps): Promise<number
     io.err(`${(e as Error).message}\n`);
     return 2;
   }
-  const historyPath = a.historyPath ?? HISTORY_PATH;
-  const results: AgentRunResult[] = [];
+  const ready: { h: AgentHarnessConfig; adapter: Adapter; d: Detection }[] = [];
   const unavailable: string[] = [];
-  const sha = await repoSha();
-  const skillVersion = await readSkillVersion();
   for (const h of cfg.harnesses) {
     const adapter = deps.adapterFor(h.name);
     let d: Detection = { available: false, reason: "no adapter" };
@@ -157,8 +165,18 @@ async function runAll(a: ParsedArgs, io: Io, deps: AgentE2eDeps): Promise<number
     if (!adapter || !d.available) {
       io.err(`${h.name} unavailable: ${d.reason ?? "unknown"}\n`);
       unavailable.push(h.name);
-      continue;
-    }
+    } else ready.push({ h, adapter, d });
+  }
+  if (cfg.harnesses.some((h) => h.blocking && unavailable.includes(h.name))) {
+    const missing = cfg.harnesses.filter((h) => unavailable.includes(h.name));
+    io.out(formatVerdict(agentVerdict([], { ...cfg, harnesses: missing }, unavailable)));
+    return 1;
+  }
+  const historyPath = a.historyPath ?? HISTORY_PATH;
+  const results: AgentRunResult[] = [];
+  const sha = await repoSha();
+  const skillVersion = await readSkillVersion();
+  for (const { h, adapter, d } of ready) {
     const budget = a.maxBudgetUsd ?? h.maxBudgetUsd;
     if (h.name === "claude-code" && budget !== undefined) {
       process.env.CLAUDE_CODE_MAX_BUDGET_USD = String(budget);

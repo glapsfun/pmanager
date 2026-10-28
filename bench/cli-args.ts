@@ -30,6 +30,8 @@ export interface ParsedArgs {
 
 const COMMANDS = new Set<string>(["run", "tool", "report", "experiment", "agent-e2e"]);
 const SUBS = new Set<string>(["new", "run", "report"]);
+/** Values agent-e2e takes from its config file only. */
+const AGENT_E2E_CONFIG_FLAGS = new Set<string>(["--runs", "--scenario", "--harness", "--model"]);
 
 function int(name: string, v: string | undefined): number {
   const n = Number.parseInt(v ?? "", 10);
@@ -77,6 +79,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   for (let i = start; i < argv.length; i++) {
     const flag = argv[i] ?? "";
     const next = () => argv[++i];
+    if (a.command === "agent-e2e" && AGENT_E2E_CONFIG_FLAGS.has(flag)) {
+      throw new Error(`agent-e2e takes ${flag} from its config file (--config)`);
+    }
     switch (flag) {
       case "--harness":
         a.harness = next();
