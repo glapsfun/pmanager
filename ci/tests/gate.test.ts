@@ -40,3 +40,15 @@ test("the e2e check runs bun test over ci/e2e and reports its exit code", async 
   );
   expect(await CHECKS.e2e?.(ctx)).toBe(false);
 });
+
+test("install-clis runs npm install -g with the pinned versions", async () => {
+  const calls: string[][] = [];
+  const code = await main(["install-clis"], async (cmd) => {
+    calls.push(cmd);
+    return 0;
+  });
+  expect(code).toBe(0);
+  expect(calls).toEqual([
+    ["npm", "install", "-g", "@anthropic-ai/claude-code@2.1.312", "@openai/codex@0.165.0"],
+  ]);
+});

@@ -8,6 +8,7 @@ import { lintStagedCheck } from "./checks/staged";
 import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
 import { sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
+import toolVersions from "./tool-versions.json";
 
 export interface Ctx {
   root: string;
@@ -107,13 +108,29 @@ function warnBunVersion(root: string): void {
 }
 
 function usage(): number {
-  const names = [...Object.keys(STAGES), ...CHECK_NAMES, "install", "setup"];
+  const names = [...Object.keys(STAGES), ...CHECK_NAMES, "install", "install-clis", "setup"];
   console.error(`usage: bun ci/gate.ts <${names.join("|")}> [args]`);
   return 2;
 }
 
+/** The npm command that installs the pinned agent CLIs globally. */
+export function installClisCommand(
+  v: { "claude-code": string; codex: string } = toolVersions,
+): string[] {
+  return [
+    "npm",
+    "install",
+    "-g",
+    `@anthropic-ai/claude-code@${v["claude-code"]}`,
+    `@openai/codex@${v.codex}`,
+  ];
+}
+
 /** CLI entry: dispatches a check, stage, install or setup. */
-export async function main(argv: string[]): Promise<number> {
+export async function main(
+  argv: string[],
+  run: (cmd: string[], cwd: string) => Promise<number> = sh,
+): Promise<number> {
   const [name, ...args] = argv;
   const ctx: Ctx = { root: REPO_ROOT, ci: process.env.CI === "true", args };
   if (name === "install" || name === "setup") {
@@ -121,6 +138,9 @@ export async function main(argv: string[]): Promise<number> {
     if ((await install(ctx.root)) !== 0) return 1;
     if (name === "install") return 0;
     return (await sh(["git", "config", "core.hooksPath", "ci/hooks"], ctx.root)) === 0 ? 0 : 1;
+  }
+  if (name === "install-clis") {
+    return run(installClisCommand(), ctx.root);
   }
   if (name && name in STAGES) {
     warnBunVersion(ctx.root);
