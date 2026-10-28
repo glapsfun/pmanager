@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { testCheck } from "./checks/coverage";
 import { missingInstall, PACKAGES, REPO_ROOT } from "./packages";
 import { sh } from "./proc";
 import { type CheckName, STAGES, type StageName } from "./stages";
@@ -37,6 +38,7 @@ async function eachPackage(ctx: Ctx, script: string): Promise<boolean> {
 export const CHECKS: Partial<Record<CheckName, Check>> = {
   lint: (ctx) => eachPackage(ctx, "lint"),
   typecheck: (ctx) => eachPackage(ctx, "typecheck"),
+  test: testCheck,
 };
 
 /** Runs checks in order, stopping at the first failure. Returns the exit code. */
