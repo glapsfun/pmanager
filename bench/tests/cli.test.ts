@@ -14,6 +14,14 @@ function io() {
 }
 
 describe("cli-args", () => {
+  test("parses agent-e2e flags", () => {
+    const a = parseArgs(["agent-e2e", "--max-budget-usd", "5", "--config", "x.json"]);
+    expect(a.command).toBe("agent-e2e");
+    expect(a.maxBudgetUsd).toBe(5);
+    expect(a.configPath).toBe("x.json");
+    expect(() => parseArgs(["agent-e2e", "--max-budget-usd", "0"])).toThrow();
+  });
+
   test("parses run flags with repeated --scenario", () => {
     const a = parseArgs([
       "run",
@@ -53,6 +61,8 @@ describe("cli-args", () => {
       yes: false,
       experimentsDir: undefined,
       baseline: undefined,
+      maxBudgetUsd: undefined,
+      configPath: undefined,
     });
   });
 

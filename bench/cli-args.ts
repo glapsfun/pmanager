@@ -1,4 +1,4 @@
-export type Command = "run" | "tool" | "report" | "experiment";
+export type Command = "run" | "tool" | "report" | "experiment" | "agent-e2e";
 export type ExperimentSub = "new" | "run" | "report";
 export type ConditionArg = "with-skill" | "without-skill" | "both";
 
@@ -24,9 +24,11 @@ export interface ParsedArgs {
   yes: boolean;
   experimentsDir: string | undefined;
   baseline: string | undefined;
+  maxBudgetUsd: number | undefined;
+  configPath: string | undefined;
 }
 
-const COMMANDS = new Set<string>(["run", "tool", "report", "experiment"]);
+const COMMANDS = new Set<string>(["run", "tool", "report", "experiment", "agent-e2e"]);
 const SUBS = new Set<string>(["new", "run", "report"]);
 
 function int(name: string, v: string | undefined): number {
@@ -58,6 +60,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     yes: false,
     experimentsDir: undefined,
     baseline: undefined,
+    maxBudgetUsd: undefined,
+    configPath: undefined,
   };
   const first = argv[0];
   if (first && COMMANDS.has(first)) a.command = first as Command;
@@ -139,6 +143,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--experiments-dir":
         a.experimentsDir = next();
+        break;
+      case "--max-budget-usd": {
+        const n = Number(next());
+        if (!Number.isFinite(n) || n <= 0)
+          throw new Error("--max-budget-usd needs a positive number");
+        a.maxBudgetUsd = n;
+        break;
+      }
+      case "--config":
+        a.configPath = next();
+        if (!a.configPath) throw new Error("--config needs a path");
         break;
       default:
         throw new Error(`unknown flag: ${flag}`);
