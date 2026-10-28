@@ -134,6 +134,86 @@ describe("cmdAgentE2e", () => {
     expect(code).toBe(0);
   });
 
+  test("budget precedence: flag, then config, and the env is restored", async () => {
+    process.env.CLAUDE_CODE_MAX_BUDGET_USD = "99";
+    const seen: (string | undefined)[] = [];
+    const run = (async () => {
+      seen.push(process.env.CLAUDE_CODE_MAX_BUDGET_USD);
+      return {
+        line: { timedOut: false },
+        score: { outcomes: [{ id: "o", kind: "outcome", passed: true, evidence: "" }] },
+      };
+    }) as unknown as typeof import("../runner").runScenario;
+    const io = { out: () => {}, err: () => {} };
+    const deps = { adapterFor: (n: string) => fake(n, n === "claude-code"), run };
+    const base = await setup();
+    await cmdAgentE2e({ ...base, maxBudgetUsd: 5 }, io, deps);
+    expect(seen.every((v) => v === "5")).toBe(true);
+    expect(process.env.CLAUDE_CODE_MAX_BUDGET_USD).toBe("99");
+    seen.length = 0;
+    await cmdAgentE2e(base, io, deps);
+    expect(seen.length).toBe(SCENARIOS.length * 3);
+    expect(seen.every((v) => v === "10")).toBe(true);
+    expect(process.env.CLAUDE_CODE_MAX_BUDGET_USD).toBe("99");
+    delete process.env.CLAUDE_CODE_MAX_BUDGET_USD;
+    await cmdAgentE2e(base, io, deps);
+    expect(process.env.CLAUDE_CODE_MAX_BUDGET_USD).toBeUndefined();
+  });
+
+  function throwing(failures: number) {
+    let n = 0;
+    return (async () => {
+      if (n++ < failures) throw new Error("boom");
+      return {
+        line: { timedOut: false },
+        score: { outcomes: [{ id: "o", kind: "outcome", passed: true, evidence: "" }] },
+      };
+    }) as unknown as typeof import("../runner").runScenario;
+  }
+
+  test("one throwing run counts as a failure; 2 of 3 still passes", async () => {
+    const out: string[] = [];
+    const errs: string[] = [];
+    const io = { out: (s: string) => out.push(s), err: (s: string) => errs.push(s) };
+    const first = SCENARIOS[0]?.name;
+    const code = await cmdAgentE2e(await setup(), io, {
+      adapterFor: (n) => fake(n, n === "claude-code"),
+      run: throwing(1),
+    });
+    expect(code).toBe(0);
+    expect(out.join("")).toContain(`claude-code ${first} 2/3 PASS`);
+    expect(out.join("")).toContain("agent e2e: PASS");
+    expect(errs.join("")).toContain(`claude-code ${first} run 1 threw: boom`);
+  });
+
+  test("two throwing runs of three fail the command", async () => {
+    const out: string[] = [];
+    const io = { out: (s: string) => out.push(s), err: () => {} };
+    const code = await cmdAgentE2e(await setup(), io, {
+      adapterFor: (n) => fake(n, n === "claude-code"),
+      run: throwing(2),
+    });
+    expect(code).toBe(1);
+    expect(out.join("")).toContain("agent e2e: FAIL");
+  });
+
+  test("a throwing detect makes the harness unavailable", async () => {
+    const out: string[] = [];
+    const io = { out: (s: string) => out.push(s), err: () => {} };
+    const bad = {
+      name: "claude-code",
+      detect: async () => {
+        throw new Error("nope");
+      },
+    } as unknown as Adapter;
+    const code = await cmdAgentE2e(await setup(), io, {
+      adapterFor: (n) => (n === "claude-code" ? bad : fake(n, false)),
+      run: throwing(0),
+    });
+    expect(code).toBe(1);
+    expect(out.join("")).toContain("claude-code unavailable");
+  });
+
   test("a missing config is a usage error", async () => {
     const errs: string[] = [];
     const a = parseArgs(["agent-e2e", "--config", "/nonexistent/x.json"]);

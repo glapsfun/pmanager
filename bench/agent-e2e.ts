@@ -122,6 +122,16 @@ export async function cmdAgentE2e(
   io: Io,
   deps: AgentE2eDeps = REAL_DEPS,
 ): Promise<number> {
+  const prior = process.env.CLAUDE_CODE_MAX_BUDGET_USD;
+  try {
+    return await runAll(a, io, deps);
+  } finally {
+    if (prior === undefined) delete process.env.CLAUDE_CODE_MAX_BUDGET_USD;
+    else process.env.CLAUDE_CODE_MAX_BUDGET_USD = prior;
+  }
+}
+
+async function runAll(a: ParsedArgs, io: Io, deps: AgentE2eDeps): Promise<number> {
   let cfg: AgentE2eConfig;
   try {
     cfg = await loadConfig(a.configPath ?? DEFAULT_CONFIG_PATH);
@@ -136,9 +146,14 @@ export async function cmdAgentE2e(
   const skillVersion = await readSkillVersion();
   for (const h of cfg.harnesses) {
     const adapter = deps.adapterFor(h.name);
-    const d: Detection = adapter
-      ? await adapter.detect()
-      : { available: false, reason: "no adapter" };
+    let d: Detection = { available: false, reason: "no adapter" };
+    if (adapter) {
+      try {
+        d = await adapter.detect();
+      } catch (e) {
+        d = { available: false, reason: (e as Error).message };
+      }
+    }
     if (!adapter || !d.available) {
       io.err(`${h.name} unavailable: ${d.reason ?? "unknown"}\n`);
       unavailable.push(h.name);
@@ -152,18 +167,23 @@ export async function cmdAgentE2e(
     for (const scenario of SCENARIOS) {
       for (let run = 1; run <= cfg.runs; run++) {
         io.out(`> ${h.name} ${scenario.name} run ${run}/${cfg.runs}\n`);
-        const r = await deps.run({
-          adapter,
-          scenario,
-          model: h.model,
-          timeoutMs: a.timeoutS * 1000,
-          keep: false,
-          run,
-          historyPath,
-          rawDir: a.rawDir ?? RAW_DIR,
-          meta,
-        });
-        const success = !r.line.timedOut && isSuccess(r.score.outcomes);
+        let success = false;
+        try {
+          const r = await deps.run({
+            adapter,
+            scenario,
+            model: h.model,
+            timeoutMs: a.timeoutS * 1000,
+            keep: false,
+            run,
+            historyPath,
+            rawDir: a.rawDir ?? RAW_DIR,
+            meta,
+          });
+          success = !r.line.timedOut && isSuccess(r.score.outcomes);
+        } catch (e) {
+          io.err(`${h.name} ${scenario.name} run ${run} threw: ${(e as Error).message}\n`);
+        }
         results.push({ harness: h.name, scenario: scenario.name, success });
         io.out(`  ${success ? "success" : "not a success"}\n`);
       }
