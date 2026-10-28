@@ -19,7 +19,13 @@ export async function git(
   args: string[],
   cwd: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  // Bun.spawn without env ignores vars the preload deleted from process.env, such as GIT_DIR
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    env: { ...process.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

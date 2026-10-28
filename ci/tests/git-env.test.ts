@@ -11,7 +11,8 @@ import { type Ctx, main } from "../gate";
 import { REPO_ROOT } from "../packages";
 import { capture } from "../proc";
 
-const SETUP = join(REPO_ROOT, "plugins", "pmanager", "skills", "pmanager", "tests", "setup.ts");
+const TESTS = join(REPO_ROOT, "plugins", "pmanager", "skills", "pmanager", "tests");
+const SETUP = join(TESTS, "setup.ts");
 
 test("the cleared list covers every var git calls repo-local", async () => {
   const listed = (await gitOk(["rev-parse", "--local-env-vars"], REPO_ROOT)).split("\n");
@@ -29,7 +30,7 @@ test("main clears the hook's git env and hands it to the checks", async () => {
   process.env.GIT_INDEX_FILE = "/hook/.git/index.lock";
   let seen: Ctx | undefined;
   try {
-    const code = await main(["pre-commit"], {
+    const code = await main(["typecheck"], {
       runChecks: async (_names, ctx) => {
         seen = ctx;
         return 0;
@@ -52,24 +53,17 @@ test("a test run under the shared preload leaves the hook's repository alone", a
   const dir = await makeTempDir("git-env");
   const hookRepo = join(dir, "hook-repo");
   await writeTree(join(dir, "spec"), {
-    "x.test.ts": `import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+    "x.test.ts": `import { test } from "bun:test";
+import { initGitRepo, makeTempDir } from ${JSON.stringify(join(TESTS, "helpers.ts"))};
 
-test("git in its own temp dir", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "inner-"));
-  const git = (...args: string[]) =>
-    Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env } }).exitCode;
-  expect(git("init", "-q")).toBe(0);
-  const id = ["-c", "user.name=x", "-c", "user.email=x@example.com", "-c", "commit.gpgsign=false"];
-  expect(git(...id, "commit", "-q", "--allow-empty", "-m", "x")).toBe(0);
-  expect(git("config", "user.name", "x")).toBe(0);
+test("the shared helpers make a repo in their own temp dir", async () => {
+  await initGitRepo(await makeTempDir("inner"));
 });
 `,
   });
   await writeTree(hookRepo, { "a.txt": "a\n" });
   await initGitRepo(hookRepo);
+  await gitOk(["config", "user.name", "hook"], hookRepo);
   const head = await gitOk(["rev-parse", "HEAD"], hookRepo);
 
   const run = await capture(["bun", "test", "--preload", SETUP, "./x.test.ts"], join(dir, "spec"), {
@@ -78,5 +72,5 @@ test("git in its own temp dir", () => {
   });
   expect(run.code).toBe(0);
   expect(await gitOk(["rev-parse", "HEAD"], hookRepo)).toBe(head);
-  expect((await gitOk(["config", "user.name"], hookRepo)).trim()).toBe("test");
+  expect((await gitOk(["config", "user.name"], hookRepo)).trim()).toBe("hook");
 }, 30000);

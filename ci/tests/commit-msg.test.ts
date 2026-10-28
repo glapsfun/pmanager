@@ -53,7 +53,8 @@ test("rejected subjects name the reason", () => {
 });
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
-  const p = Bun.spawn(["git", ...args], { cwd, stdout: "ignore", stderr: "ignore" });
+  const env = { ...process.env };
+  const p = Bun.spawn(["git", ...args], { cwd, env, stdout: "ignore", stderr: "ignore" });
   await p.exited;
 }
 
@@ -70,7 +71,11 @@ test("commits check lists every bad commit in the range", async () => {
     await git(dir, "commit", "-q", "--allow-empty", "-m", "init");
     const base = (
       await new Response(
-        Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stdout: "pipe" }).stdout,
+        Bun.spawn(["git", "rev-parse", "HEAD"], {
+          cwd: dir,
+          env: { ...process.env },
+          stdout: "pipe",
+        }).stdout,
       ).text()
     ).trim();
     await git(dir, "commit", "-q", "--allow-empty", "-m", "fix: ok");
