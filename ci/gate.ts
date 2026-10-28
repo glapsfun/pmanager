@@ -49,6 +49,8 @@ export const CHECKS: Partial<Record<CheckName, Check>> = {
   test: testCheck,
   manifest: manifestCheck,
   audit: auditCheck,
+  e2e: (ctx) =>
+    sh(["bun", "test", "./e2e", "--timeout", "60000"], join(ctx.root, "ci")).then((c) => c === 0),
   "commit-msg": commitMsgCheck,
   commits: commitsCheck,
 };

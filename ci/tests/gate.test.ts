@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { main, runChecks } from "../gate";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { CHECKS, main, runChecks } from "../gate";
 import { STAGES } from "../stages";
 
 test("unknown name is usage, exit 2", async () => {
@@ -22,4 +25,18 @@ test("a missing install stops with the setup hint", async () => {
   expect(code).toBe(2);
   expect(out).toContain("run: bun run setup");
   expect(out).not.toContain("tsc");
+});
+
+test("the e2e check runs bun test over ci/e2e and reports its exit code", async () => {
+  const root = await makeTempDir("gate-e2e");
+  await mkdir(join(root, "ci", "e2e"), { recursive: true });
+  const spec = join(root, "ci", "e2e", "x.test.ts");
+  const ctx = { root, ci: false, args: [] };
+  await writeFile(spec, 'import { test } from "bun:test";\ntest("ok", () => {});\n');
+  expect(await CHECKS.e2e?.(ctx)).toBe(true);
+  await writeFile(
+    spec,
+    'import { expect, test } from "bun:test";\ntest("no", () => expect(1).toBe(2));\n',
+  );
+  expect(await CHECKS.e2e?.(ctx)).toBe(false);
 });
