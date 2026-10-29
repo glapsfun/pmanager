@@ -1,4 +1,4 @@
-export type Command = "run" | "tool" | "report" | "experiment";
+export type Command = "run" | "tool" | "report" | "experiment" | "agent-e2e";
 export type ExperimentSub = "new" | "run" | "report";
 export type ConditionArg = "with-skill" | "without-skill" | "both";
 
@@ -24,10 +24,16 @@ export interface ParsedArgs {
   yes: boolean;
   experimentsDir: string | undefined;
   baseline: string | undefined;
+  maxBudgetUsd: number | undefined;
+  configPath: string | undefined;
 }
 
-const COMMANDS = new Set<string>(["run", "tool", "report", "experiment"]);
+const COMMANDS = new Set<string>(["run", "tool", "report", "experiment", "agent-e2e"]);
 const SUBS = new Set<string>(["new", "run", "report"]);
+/** Values agent-e2e takes from its config file only. */
+const AGENT_E2E_CONFIG_FLAGS = new Set<string>(["--runs", "--scenario", "--harness", "--model"]);
+/** Flags only agent-e2e reads; any other command would silently ignore them. */
+const AGENT_E2E_ONLY_FLAGS = new Set<string>(["--max-budget-usd", "--config"]);
 
 function int(name: string, v: string | undefined): number {
   const n = Number.parseInt(v ?? "", 10);
@@ -58,6 +64,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     yes: false,
     experimentsDir: undefined,
     baseline: undefined,
+    maxBudgetUsd: undefined,
+    configPath: undefined,
   };
   const first = argv[0];
   if (first && COMMANDS.has(first)) a.command = first as Command;
@@ -73,6 +81,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
   for (let i = start; i < argv.length; i++) {
     const flag = argv[i] ?? "";
     const next = () => argv[++i];
+    if (a.command === "agent-e2e" && AGENT_E2E_CONFIG_FLAGS.has(flag)) {
+      throw new Error(`agent-e2e takes ${flag} from its config file (--config)`);
+    }
+    if (a.command !== "agent-e2e" && AGENT_E2E_ONLY_FLAGS.has(flag)) {
+      throw new Error(`${flag} applies only to agent-e2e`);
+    }
     switch (flag) {
       case "--harness":
         a.harness = next();
@@ -139,6 +153,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--experiments-dir":
         a.experimentsDir = next();
+        break;
+      case "--max-budget-usd": {
+        const n = Number(next());
+        if (!Number.isFinite(n) || n <= 0)
+          throw new Error("--max-budget-usd needs a positive number");
+        a.maxBudgetUsd = n;
+        break;
+      }
+      case "--config":
+        a.configPath = next();
+        if (!a.configPath) throw new Error("--config needs a path");
         break;
       default:
         throw new Error(`unknown flag: ${flag}`);

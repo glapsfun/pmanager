@@ -1,25 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { gitOk } from "../scripts/git";
-import { listWorktrees, worktreePath } from "../scripts/worktree";
-import { exists, initGitRepo, makeTempDir, remoteWithClones, unclaimedSeed } from "./helpers";
+import {
+  listWorktrees,
+  worktreePath,
+} from "../../plugins/pmanager/skills/pmanager/scripts/worktree";
+import {
+  exists,
+  gitOk,
+  initGitRepo,
+  makeTempDir,
+  remoteWithClones,
+  unclaimedSeed,
+} from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { epicBundle, pmProcess } from "./pm";
 
-const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
-
-async function pm(cwd: string, harness: string, ...args: string[]) {
-  const proc = Bun.spawn(["bun", "run", PM, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PM_TODAY: "2026-09-28", PM_HARNESS: harness, PM_GH: "/nonexistent" },
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
-}
+const pm = (cwd: string, harness: string, ...args: string[]) => pmProcess(cwd, args, { harness });
 
 const sid = (stdout: string) => /session: ([0-9a-f]{6})/.exec(stdout)?.[1] ?? "missing";
 
@@ -313,5 +308,62 @@ describe("two sessions on one repository", () => {
     const owned = await pm(a, "claude-code", "render", "--epic", "csv-export", "--session", id);
     expect(owned.code).toBe(0);
     expect((await pm(a, "claude-code", "release", "csv-export", "--session", id)).code).toBe(0);
+  });
+
+  test("two epics recorded at the same moment from two clones: both land, each branch INDEX keeps its own row, status lists both", async () => {
+    const { a, b, bare } = await remoteWithClones(await unclaimedSeed());
+    const claims = [
+      { dir: a, harness: "claude-code", args: CSV, slug: "csv-export" },
+      { dir: b, harness: "codex", args: SSO, slug: "sso-login" },
+    ];
+    const sids: string[] = [];
+    for (const c of claims) {
+      const r = await pm(c.dir, c.harness, ...c.args);
+      expect(r.code).toBe(0);
+      sids.push(sid(r.stdout));
+    }
+    const results = await Promise.all(
+      claims.map(async (c, i) =>
+        pmProcess(
+          c.dir,
+          [
+            "record",
+            c.slug,
+            "--harness",
+            c.harness,
+            "--session",
+            sids[i] ?? "missing",
+            "--kind",
+            "spec",
+            "-m",
+            `spec ${c.slug}`,
+            "--from",
+            "-",
+          ],
+          {
+            harness: c.harness,
+            stdin: await epicBundle(c.slug, ["epic.md", "plan.md"], {
+              harness: c.harness,
+              id: sids[i] ?? "missing",
+            }),
+          },
+        ),
+      ),
+    );
+    for (const r of results) expect(r.code).toBe(0);
+    const refs = await gitOk(["ls-remote", bare, "pm/csv-export", "pm/sso-login"], a);
+    expect(refs.trim().split("\n")).toHaveLength(2);
+    const index = (slug: string) => gitOk(["show", `pm/${slug}:docs/pm/INDEX.md`], bare);
+    const csvIndex = await index("csv-export");
+    const ssoIndex = await index("sso-login");
+    expect(csvIndex).toContain("[csv-export](csv-export/epic.md)");
+    expect(csvIndex).not.toContain("sso-login");
+    expect(ssoIndex).toContain("[sso-login](sso-login/epic.md)");
+    expect(ssoIndex).not.toContain("csv-export");
+    const third = await makeTempDir("ms-third");
+    await gitOk(["clone", "-q", bare, third], third);
+    const status = await pm(third, "pi", "status");
+    expect(status.stdout).toContain("csv-export");
+    expect(status.stdout).toContain("sso-login");
   });
 });

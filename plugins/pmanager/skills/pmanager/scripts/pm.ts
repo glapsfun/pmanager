@@ -365,7 +365,11 @@ async function epicOwnership(target: string, slug: string, args: Args): Promise<
   return owner ? ownershipProblem(owner, args.harness, args.session) : null;
 }
 
-async function runRecord(cwd: string, args: Args): Promise<number> {
+async function runRecord(
+  cwd: string,
+  args: Args,
+  readStdin: () => Promise<string>,
+): Promise<number> {
   const slug = args.positional[0];
   const kind = args.kind;
   const message = args.message?.trim() ?? "";
@@ -375,7 +379,7 @@ async function runRecord(cwd: string, args: Args): Promise<number> {
   if (args.from !== undefined) {
     let text: string;
     try {
-      text = args.from === "-" ? await Bun.stdin.text() : await readFile(args.from, "utf8");
+      text = args.from === "-" ? await readStdin() : await readFile(args.from, "utf8");
     } catch {
       return fail(`cannot read ${args.from === "-" ? "stdin" : args.from}`);
     }
@@ -410,10 +414,14 @@ async function runRecord(cwd: string, args: Args): Promise<number> {
   return result.ok ? 0 : 1;
 }
 
-export async function main(argv: string[], cwd = process.cwd()): Promise<number> {
+export async function main(
+  argv: string[],
+  cwd = process.cwd(),
+  readStdin: () => Promise<string> = () => Bun.stdin.text(),
+): Promise<number> {
   const args = parseArgs(argv);
   if (!args) return fail(USAGE);
-  if (args.cmd === "record") return runRecord(cwd, args);
+  if (args.cmd === "record") return runRecord(cwd, args, readStdin);
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
   if (args.cmd === "research") return runResearch(root, args);

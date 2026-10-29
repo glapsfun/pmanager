@@ -1,0 +1,8 @@
+{
+  "runs": 3,
+  "need": 2,
+  "harnesses": [
+    { "name": "claude-code", "model": "claude-sonnet-5", "blocking": true, "maxBudgetUsd": 10 },
+    { "name": "codex", "model": "gpt-6-astra", "blocking": false }
+  ]
+}

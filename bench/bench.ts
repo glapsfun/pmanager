@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapterByName, HARNESS_NAMES } from "./adapters/registry";
+import { cmdAgentE2e } from "./agent-e2e";
 import { type ParsedArgs, parseArgs } from "./cli-args";
 import {
   createExperiment,
@@ -38,6 +39,7 @@ const USAGE = `usage:
   bun run bench/bench.ts run --harness <${HARNESS_NAMES.join("|")}> [--model <id>] [--scenario <name>]... [--runs N] [--timeout-s N] [--keep]
   bun run bench/bench.ts tool [--epics N] [--tasks N] [--iterations N]
   bun run bench/bench.ts report
+  bun run bench/bench.ts agent-e2e [--config <path>] [--max-budget-usd N] [--timeout-s N]      (paid; needs the repo owner's yes)
   bun run bench/bench.ts experiment new --id <id> --harness <name> --model <id> [--reasoning <effort>] [--condition with-skill|without-skill|both | --baseline <git-ref>] [--pairs N] [--scenario <name>]... [--timeout-s N]
   bun run bench/bench.ts experiment run --id <id> [--yes]      (without --yes: dry run, exit 3)
   bun run bench/bench.ts experiment report --id <id>
@@ -265,6 +267,8 @@ export async function main(argv: string[], io: Io): Promise<number> {
       return cmdTool(a, io);
     case "experiment":
       return cmdExperiment(a, io);
+    case "agent-e2e":
+      return cmdAgentE2e(a, io);
     case "report":
       await writeReport(
         a.historyPath ?? HISTORY_PATH,

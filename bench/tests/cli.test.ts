@@ -14,6 +14,14 @@ function io() {
 }
 
 describe("cli-args", () => {
+  test("parses agent-e2e flags", () => {
+    const a = parseArgs(["agent-e2e", "--max-budget-usd", "5", "--config", "x.json"]);
+    expect(a.command).toBe("agent-e2e");
+    expect(a.maxBudgetUsd).toBe(5);
+    expect(a.configPath).toBe("x.json");
+    expect(() => parseArgs(["agent-e2e", "--max-budget-usd", "0"])).toThrow();
+  });
+
   test("parses run flags with repeated --scenario", () => {
     const a = parseArgs([
       "run",
@@ -53,6 +61,8 @@ describe("cli-args", () => {
       yes: false,
       experimentsDir: undefined,
       baseline: undefined,
+      maxBudgetUsd: undefined,
+      configPath: undefined,
     });
   });
 
@@ -62,6 +72,17 @@ describe("cli-args", () => {
     expect(a.epics).toBe(3);
     expect(a.tasks).toBe(4);
     expect(a.iterations).toBe(5);
+  });
+
+  test("agent-e2e-only flags throw on every other command", () => {
+    for (const command of [["run"], ["tool"], ["report"], ["experiment", "run"]]) {
+      expect(() => parseArgs([...command, "--max-budget-usd", "2"])).toThrow(
+        "--max-budget-usd applies only to agent-e2e",
+      );
+      expect(() => parseArgs([...command, "--config", "x.json"])).toThrow(
+        "--config applies only to agent-e2e",
+      );
+    }
   });
 
   test("unknown flag throws", () => {

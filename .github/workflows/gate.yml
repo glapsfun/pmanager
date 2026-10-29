@@ -5,35 +5,93 @@ on:
   push:
     branches: [main]
 
-jobs:
-  gate:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: plugins/pmanager/skills/pmanager
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: git config --global user.name ci && git config --global user.email ci@example.com
-      - run: bun run gate
+concurrency:
+  group: gate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-  bench-gate:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: bench
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun ci/gate.ts lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun ci/gate.ts typecheck
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun ci/gate.ts test
+
+  manifest:
+    name: manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
         with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: git config --global user.name ci && git config --global user.email ci@example.com
-      - run: bun run gate
+          clis: "true"
+      - run: bun ci/gate.ts manifest
+
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: bun ci/gate.ts audit
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          clis: "true"
+      - run: bun ci/gate.ts e2e
+
+  commits:
+    name: commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - run: bun ci/gate.ts commits ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
+  microbench:
+    name: microbench
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
       - name: Tool microbench
+        working-directory: bench
         run: |
           bun run bench.ts tool --iterations 3 --history /tmp/h.jsonl --report /tmp/BENCH.md | tee /tmp/tool.txt
           { echo '### Tool microbench (median/max ms)'; echo; echo '```'; cat /tmp/tool.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,25 @@
+name: setup
+description: Install Bun, the package dependencies and a git identity; optionally the agent CLIs.
+
+inputs:
+  clis:
+    description: Install the pinned claude and codex CLIs
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: .bun-version
+    - run: bun ci/gate.ts install
+      shell: bash
+    - run: git config --global user.name ci && git config --global user.email ci@example.com
+      shell: bash
+    - if: inputs.clis == 'true'
+      uses: actions/setup-node@v5
+      with:
+        node-version: 24
+    - if: inputs.clis == 'true'
+      run: bun ci/gate.ts install-clis
+      shell: bash

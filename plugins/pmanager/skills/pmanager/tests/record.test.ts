@@ -7,29 +7,20 @@ import {
   initGitRepo,
   makeTempDir,
   remoteWithClones,
+  runPm,
   unclaimedSeed,
   writeTree,
 } from "./helpers";
 
-const PM = join(import.meta.dir, "..", "scripts", "pm.ts");
 const SLUG = "app-performance";
 const PLAN = `docs/pm/${SLUG}/plan.md`;
 const NEW_LINE = "| 2026-09-15 | recorded | test |";
 
 async function run(args: string[], cwd: string, stdin?: string) {
-  const proc = Bun.spawn(["bun", "run", PM, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: stdin === undefined ? undefined : new Blob([stdin]),
-    env: { ...process.env, PM_TODAY: "2026-09-15", PM_HARNESS: "test-harness" },
+  return runPm(args, cwd, {
+    env: { PM_TODAY: "2026-09-15", PM_HARNESS: "test-harness" },
+    stdin,
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { code, stdout, stderr };
 }
 
 const sid = (stdout: string) => /session: ([0-9a-f]{6})/.exec(stdout)?.[1] ?? "missing";
