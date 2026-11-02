@@ -28,6 +28,7 @@ export async function makeFixture(opts: { tagged?: boolean } = {}): Promise<Fixt
   const files: Record<string, string> = {
     "plugins/pmanager/skills/pmanager/SKILL.md": "skill\n",
     "README.md": "readme\n",
+    ".gitignore": ".release-guru/\n",
   };
   for (const p of [...real.manifests, real.marketplace]) {
     files[p] = readFileSync(join(REPO_ROOT, p), "utf8").replace(
