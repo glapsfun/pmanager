@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { capture } from "../../../../ci/proc";
 import { clearGitEnv } from "../../../../plugins/pmanager/skills/pmanager/tests/git-env";
 import { cmdAbandon } from "./abandon";
+import { cmdBaseline } from "./baseline";
 import { cmdCheck, cmdWait, runChecks } from "./checks";
 import { type Config, defaultConfig } from "./config";
 import type { Ctx, Result } from "./context";
@@ -103,6 +104,10 @@ const COMMANDS: Record<string, { run: Command; locks: boolean }> = {
   wait: { run: (ctx, f) => cmdWait(ctx, { timeout: f.timeout }), locks: false },
   summary: { run: (ctx) => cmdSummary(ctx), locks: false },
   verify: { run: (ctx) => cmdVerify(ctx), locks: true },
+  baseline: {
+    run: (ctx, f) => (f.commit ? cmdBaseline(ctx, { commit: f.commit }) : Promise.resolve(usage())),
+    locks: true,
+  },
   publish: {
     run: (ctx, f) =>
       f.tree ? cmdPublish(ctx, { tree: f.tree, wait: f.wait }) : Promise.resolve(usage()),
