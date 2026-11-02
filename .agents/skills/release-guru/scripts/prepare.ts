@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { draftNotes, previousRelease, proposeVersion, shippedChanges } from "./changes";
 import type { Ctx, Result } from "./context";
 import { preflight } from "./preflight";
-import { compareVersions, formatVersion, parseVersion } from "./semver";
+import { bumpVersion, compareVersions, formatVersion, parseVersion } from "./semver";
 import { clearState, statePaths, writeState } from "./state";
 
 const TOP_LEVEL_VERSION = /^( {2}"version"\s*:\s*")[^"]*(")/m;
@@ -52,18 +52,56 @@ export async function cmdPrepare(ctx: Ctx, opts: { version?: string }): Promise<
     }
     next = wanted;
   }
+  // Versions were once bumped by hand on main; never release one again or step below it.
+  const base = `origin/${ctx.cfg.base}`;
+  const onMain = await Promise.all(
+    ctx.cfg.manifests.map(
+      async (m) =>
+        (JSON.parse(await ctx.git.out(["show", `${base}:${m}`])) as { version?: string }).version ??
+        "",
+    ),
+  );
+  if (new Set(onMain).size > 1)
+    return blocked(`manifest versions on ${base} differ: ${onMain.join(" vs ")}`);
+  const mainVersion = parseVersion(onMain[0] as string);
+  if (mainVersion && compareVersions(next, mainVersion) <= 0) {
+    if (opts.version !== undefined) {
+      return {
+        code: 2,
+        phase: "none",
+        message: `--version ${opts.version} is not above ${base}'s ${onMain[0]}`,
+      };
+    }
+    const suggestion = formatVersion(bumpVersion(mainVersion, "patch"));
+    return blocked(
+      `${base} already says ${onMain[0]} (last tag ${prev.tag}): prepare with --version above it, such as ${suggestion}`,
+    );
+  }
   const version = formatVersion(next);
   const tag = `v${version}`;
   if (await ctx.git.remoteTag(tag)) return blocked(`${tag} already exists on origin`);
 
   const branch = `release/${tag}`;
-  await ctx.git.out(["switch", "-q", "-c", branch, `origin/${ctx.cfg.base}`]);
-  for (const m of ctx.cfg.manifests) {
-    const file = join(ctx.cfg.root, m);
-    await writeFile(file, bumpManifest(await readFile(file, "utf8"), version));
+  const from = (await ctx.git.branch()) || (await ctx.git.head());
+  let switched = false;
+  try {
+    await ctx.git.out(["switch", "-q", "-c", branch, base]);
+    switched = true;
+    for (const m of ctx.cfg.manifests) {
+      const file = join(ctx.cfg.root, m);
+      await writeFile(file, bumpManifest(await readFile(file, "utf8"), version));
+    }
+    await ctx.git.out(["add", "--", ...ctx.cfg.manifests]);
+    await ctx.git.out(["commit", "-q", "-m", `chore(release): ${tag}`]);
+  } catch (e) {
+    // Preflight saw a clean tree, so the reset only drops this command's own edits.
+    if (switched) {
+      await ctx.git.ok(["reset", "-q", "--hard"]);
+      await ctx.git.ok(["checkout", "-q", from]);
+      await ctx.git.ok(["branch", "-q", "-D", branch]);
+    }
+    return blocked(`prepare failed and was undone: ${(e as Error).message.split("\n")[0]}`);
   }
-  await ctx.git.out(["add", "--", ...ctx.cfg.manifests]);
-  await ctx.git.out(["commit", "-q", "-m", `chore(release): ${tag}`]);
 
   const paths = statePaths(ctx.cfg);
   await clearState(ctx.cfg);

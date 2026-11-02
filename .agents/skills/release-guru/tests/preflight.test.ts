@@ -123,3 +123,14 @@ test("baseline refuses when origin already has another release tag", async () =>
     "origin already has release tags (v0.9.0): baseline is only for the first release",
   ]);
 });
+
+test("a stray local release branch blocks prepare unless its version was released", async () => {
+  const f = await makeFixture();
+  await gitOk(["branch", "release/v0.10.1"], f.root);
+  expect(await preflight("prepare", testCtx(f))).toEqual([
+    "local branch release/v0.10.1 exists without a release; abandon it, or delete it with git branch -D release/v0.10.1",
+  ]);
+  const g = await makeFixture();
+  await gitOk(["branch", "release/v0.10.0"], g.root);
+  expect(await preflight("prepare", testCtx(g))).toEqual([]);
+});

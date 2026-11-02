@@ -73,8 +73,20 @@ export function renderSummary(s: ReleaseState, notes: string, dist: string[]): s
 }
 
 /** The release PR's body: what users get, then the evidence that it was checked. */
+const VERDICT_LINE =
+  /^(\S+ \S+ \d+\/\d+ (PASS|FAIL)|\S+ unavailable|agent e2e: (PASS|FAIL))( \[report-only\])?$/;
+
+/** The agent e2e verdict lines, so report-only and unavailable harnesses stay visible. */
+function agentVerdict(s: ReleaseState): string {
+  const detail = freshEvidence(s).agents?.detail ?? "";
+  const lines = detail.split("\n").filter((l) => VERDICT_LINE.test(l));
+  return lines.length > 0
+    ? `\nAgent e2e per harness and scenario:\n\n\`\`\`\n${lines.join("\n")}\n\`\`\`\n`
+    : "";
+}
+
 export function prBody(s: ReleaseState, notes: string): string {
-  return `${notes.trimEnd()}\n\n## Release checks\n\nCommit ${s.commit}, tree ${s.tree}.\n\n${checksTable(s)}\n`;
+  return `${notes.trimEnd()}\n\n## Release checks\n\nCommit ${s.commit}, tree ${s.tree}.\n\n${checksTable(s)}\n${agentVerdict(s)}`;
 }
 
 async function distribution(ctx: Ctx, s: ReleaseState): Promise<string[]> {

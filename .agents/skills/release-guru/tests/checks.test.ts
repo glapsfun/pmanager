@@ -154,3 +154,11 @@ test("writing commands wait while checks run", async () => {
     sleeper.kill();
   }
 });
+
+test("a spawn that fails leaves no running checks behind", async () => {
+  const f = await prepared();
+  const r = await cmdCheck({ ...testCtx(f), spawnDetached: () => -1 }, {});
+  expect(r.code).toBe(1);
+  expect(r.message).toBe(`could not start the checks; see ${statePaths(f.cfg).log}`);
+  expect((await readState(f.cfg))?.checksPid).toBeUndefined();
+});

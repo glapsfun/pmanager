@@ -2,6 +2,7 @@ import type { Ctx, Result } from "./context";
 import { preflight } from "./preflight";
 import { clearState, readState } from "./state";
 
+/** Drops an unpublished candidate, touching only remote work that is this candidate's own. */
 export async function cmdAbandon(ctx: Ctx): Promise<Result> {
   const s = await readState(ctx.cfg);
   if (!s) return { code: 0, phase: "none", message: "no release in progress" };
@@ -9,26 +10,52 @@ export async function cmdAbandon(ctx: Ctx): Promise<Result> {
   if (blockers.length > 0)
     return { code: 1, phase: s.phase, message: "abandon is blocked", blockers };
   const tag = `v${s.version}`;
-  if (await ctx.git.remoteTag(tag)) {
+  const taken = await ctx.git.remoteTag(tag);
+  const releasedCommit = s.kind === "baseline" ? s.commit : s.publish.mergeCommit;
+  if (s.publish.released || (taken !== null && taken === releasedCommit)) {
     return {
       code: 1,
       phase: s.phase,
       message: `${tag} is already published; a correction is a new patch release`,
     };
   }
+  const notes: string[] = [];
+  if (taken)
+    notes.push(
+      `that version is taken on origin by ${taken}, so the next prepare needs --version above it`,
+    );
   if (s.branch) {
     const pr = await ctx.gh.findPr(s.branch);
-    // The version bump is on main once merged, so only publishing can finish it consistently.
-    if (pr?.state === "MERGED") {
-      return {
-        code: 1,
-        phase: s.phase,
-        message: `the release PR #${pr.number} was merged; finish with publish instead`,
-      };
+    if (pr?.state === "MERGED" && pr.mergeCommit) {
+      const sameTree = (await ctx.git.tree(pr.mergeCommit)) === s.tree;
+      // Publish can still tag this merge; abandoning it would strand a good release.
+      if (sameTree && !taken) {
+        return {
+          code: 1,
+          phase: s.phase,
+          message: `the release PR #${pr.number} was merged; finish with publish instead`,
+        };
+      }
+      notes.push(
+        `main carries its version bump from PR #${pr.number} without a tag, so the next prepare needs --version above ${s.version}`,
+      );
     }
-    if (pr?.state === "OPEN") await ctx.gh.closePr(pr.number, "Abandoned by release-guru.");
-    if (await ctx.git.out(["ls-remote", "origin", `refs/heads/${s.branch}`])) {
+    if (pr?.state === "OPEN") {
+      if (pr.headRefOid === s.commit) await ctx.gh.closePr(pr.number, "Abandoned by release-guru.");
+      else
+        notes.push(
+          `PR #${pr.number} points at ${pr.headRefOid}, not this candidate, so it was left alone`,
+        );
+    }
+    const remoteHead = (await ctx.git.out(["ls-remote", "origin", `refs/heads/${s.branch}`])).split(
+      "\t",
+    )[0];
+    if (remoteHead === s.commit) {
       await ctx.git.out(["push", "-q", "origin", "--delete", s.branch]);
+    } else if (remoteHead) {
+      notes.push(
+        `origin/${s.branch} points at ${remoteHead}, not this candidate, so it was left alone`,
+      );
     }
     if ((await ctx.git.branch()) === s.branch) await ctx.git.out(["switch", "-q", ctx.cfg.base]);
     if (await ctx.git.ok(["rev-parse", "--verify", "--quiet", `refs/heads/${s.branch}`])) {
@@ -36,5 +63,10 @@ export async function cmdAbandon(ctx: Ctx): Promise<Result> {
     }
   }
   await clearState(ctx.cfg);
-  return { code: 0, phase: "none", message: `abandoned ${tag}`, next: "run prepare when ready" };
+  return {
+    code: 0,
+    phase: "none",
+    message: [`abandoned ${tag}`, ...notes].join("; "),
+    next: "run prepare when ready",
+  };
 }

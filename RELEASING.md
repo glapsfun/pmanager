@@ -30,7 +30,7 @@ Each commit since the last tag that touches the shipped paths counts, by its sub
 - Below 1.0: a breaking change (`!`, or `BREAKING CHANGE:` in the body) or a `feat` bumps the minor version; anything else bumps the patch.
 - From 1.0: breaking bumps major, `feat` bumps minor, anything else bumps the patch.
 
-`prepare --version X.Y.Z` overrides the proposal; it must be newer than the last tag.
+`prepare --version X.Y.Z` overrides the proposal. It must be newer than the last tag and than the version `origin/main` already carries; `prepare` refuses to release a version again or to lower one.
 
 ## Before you start
 
@@ -45,7 +45,7 @@ Each commit since the last tag that touches the shipped paths counts, by its sub
 2. `bun run release prepare` creates `release/vX.Y.Z` from `origin/main`, bumps both manifests, commits `chore(release): vX.Y.Z`, and drafts notes in `.release-guru/notes.md` from the shipped commits, each citing its PR or commit. Nothing is pushed.
 3. Rewrite the notes for users. Keep the citations; fill the Migration section when something breaks.
 4. `bun run release check` runs, in the background, the full gate (`bun ci/gate.ts pre-push`) and then the paid agent e2e (3 runs of each scenario, Claude Code blocking and capped at 10 USD per run, Codex report-only). The agent e2e writes its history and report into `.release-guru/agent-e2e/`, not into the tracked bench files. `bun run release check --foreground` runs the same in the terminal.
-5. `bun run release wait` returns when the checks finish, or after `--timeout` seconds (default 540) with code 3.
+5. `bun run release wait` returns when the checks finish, or after `--timeout` seconds (default 540) with code 3. `check`, `wait`, `publish` and `verify` can run for minutes, so an agent needs a shell timeout of at least 10 minutes, or smaller `--timeout` and `--wait` values and more reruns.
 6. `bun run release summary` writes `.release-guru/summary.md`: version, previous tag, branch, commit, tree, notes, check results, distribution changes and blockers, ending with the publish command.
 7. Read the summary. Publishing is one yes for the whole of step 8.
 8. `bun run release publish --tree <tree>` pushes the branch, opens the PR (notes plus a "Release checks" section), waits for the required checks, merges with a merge commit, checks that the merge commit's tree equals the checked tree, tags it, creates the GitHub release and runs verify. Code 3 means it is still waiting for CI: run it again.
@@ -61,15 +61,25 @@ Check results are bound to the git tree, not the commit. `main` only takes up-to
 | `blocked` | a check failed or something changed | fix and `check` again, or `abandon` |
 | `checked` | gate and agent e2e passed for this tree | `summary`, then `publish --tree` after a yes |
 | `publishing` | some of the publish steps are done | `publish --tree` again |
-| `published` | tag and release exist and verify passed | done |
+| `published` | tag and release exist; verify passed, or `status` reports `verify has not run` | done, or `verify` |
 | `published-verify-failed` | the release is out, an install route failed | find the cause, `verify` again |
 
 - Every command first compares the saved state (`.release-guru/state.json`, git-ignored) with git and GitHub; what exists wins. A step that is already done and matches is skipped, so reruns never make a second PR, tag or release.
 - A tag or release that exists but does not match stops the run with the reason.
 - Only one command that writes runs at a time (a lock in `.release-guru/`); while checks run, the others wait.
-- `bun run release abandon` drops a candidate that was never published: it closes the PR, deletes the release branch locally and on origin, and clears the state. It refuses once the release PR has merged.
+- `bun run release abandon` drops a candidate that was never published: it closes the PR, deletes the release branch locally and on origin, and clears the state. It leaves alone any PR or branch that points at another commit. It refuses when this candidate is published, or when its merged PR can still be tagged by `publish`.
 - `main` moved during the PR, or a PR check failed: abandon and prepare again, since the tree changes.
 - A published tag never moves; the ruleset enforces it. A mistake is fixed by a new patch release whose notes say what it corrects.
+
+## When a release is stuck
+
+| Message | Cause | Way out |
+| :--- | :--- | :--- |
+| `vX.Y.Z already exists on <commit>` | the version is taken on origin by another commit | `abandon`, then `prepare --version` above it |
+| `the merge commit's tree differs from the checked tree` | the PR merged, but not as checked; main carries the version bump without a tag | `abandon`, then `prepare --version` above it |
+| `origin/main already says X.Y.Z` | the version was bumped by hand on main | `prepare --version` above it |
+| `GitHub blocks the merge although checks passed` | a rule beyond the required checks holds the PR | resolve it on the PR page, or merge it there with a merge commit, then `publish --tree` again |
+| `verify has not run` or `published-verify-failed` | verify was interrupted, or an install route failed | `verify`; a fix to the released files is a new patch release |
 
 ## Baseline
 

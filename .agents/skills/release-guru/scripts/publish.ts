@@ -31,7 +31,10 @@ async function notesOf(ctx: Ctx): Promise<string> {
 export async function pushTag(ctx: Ctx, s: ReleaseState, commit: string): Promise<Result | null> {
   const tag = `v${s.version}`;
   const remote = await ctx.git.remoteTag(tag);
-  if (remote && remote !== commit) return stop(s, `${tag} already exists on ${remote}`);
+  if (remote && remote !== commit)
+    return stop(s, `${tag} already exists on ${remote}`, {
+      next: `run abandon; the next prepare needs --version above ${s.version}`,
+    });
   if (!remote) {
     const local = await ctx.git
       .out(["rev-parse", "--verify", "--quiet", `refs/tags/${tag}^{commit}`])
@@ -154,8 +157,17 @@ export async function cmdPublish(ctx: Ctx, opts: { tree: string; wait?: number }
   if (!s) return { code: 1, phase: "none", message: "no release in progress", next: "run prepare" };
   const tag = `v${s.version}`;
   if (s.kind !== "release") return stop(s, "this is a baseline; run baseline to resume it");
-  if (s.phase === "published" || s.phase === "published-verify-failed") {
-    return { code: 0, phase: s.phase, message: `${tag} is already published`, next: "run verify" };
+  if (s.phase === "published-verify-failed") {
+    return stop(s, `${tag} is published but verification failed`, {
+      blockers: s.verify.filter((r) => !r.ok).map((r) => `${r.route}: ${r.detail}`),
+      next: "investigate; rerun verify after a fix; a corrected release is a new patch version",
+    });
+  }
+  // A verify that never finished leaves "published" with no results; finish it instead of claiming done.
+  if (s.phase === "published") {
+    return s.verify.length > 0 && s.verify.every((r) => r.ok)
+      ? { code: 0, phase: s.phase, message: `${tag} is published and verified` }
+      : cmdVerify(ctx);
   }
   const blockers = await preflight("publish", ctx);
   if (blockers.length > 0) return stop(s, "publish is blocked", { blockers });
@@ -171,7 +183,10 @@ export async function cmdPublish(ctx: Ctx, opts: { tree: string; wait?: number }
     if (notReady.length > 0)
       return stop(s, "the candidate is not ready to publish", { blockers: notReady });
     const remote = await ctx.git.remoteTag(tag);
-    if (remote) return stop(s, `${tag} already exists on ${remote}`);
+    if (remote)
+      return stop(s, `${tag} already exists on ${remote}`, {
+        next: `run abandon; the next prepare needs --version above ${s.version}`,
+      });
   }
   s.approvedTree = opts.tree;
   s.phase = "publishing";
@@ -187,7 +202,9 @@ export async function cmdPublish(ctx: Ctx, opts: { tree: string; wait?: number }
   }
   await ctx.git.out(["fetch", "-q", "origin", "--tags"]);
   if ((await ctx.git.tree(merge)) !== s.tree) {
-    return stop(s, "the merge commit's tree differs from the checked tree; nothing was tagged");
+    return stop(s, "the merge commit's tree differs from the checked tree; nothing was tagged", {
+      next: `run abandon; main now carries the bump, so the next prepare needs --version above ${s.version}`,
+    });
   }
   const tagged = await pushTag(ctx, s, merge);
   if (tagged) return tagged;

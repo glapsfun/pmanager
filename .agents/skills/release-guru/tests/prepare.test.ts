@@ -101,3 +101,49 @@ test("a version already tagged on origin off main is refused", async () => {
   expect(r.message).toBe("v0.10.1 already exists on origin");
   expect((await git(["rev-parse", "--verify", "release/v0.10.1"], f.root)).code).not.toBe(0);
 });
+
+async function bumpOnMain(f: Awaited<ReturnType<typeof makeFixture>>, version: string) {
+  const files: Record<string, string> = { [SKILL]: `${version}\n` };
+  for (const m of f.cfg.manifests) {
+    files[m] = readFileSync(join(f.root, m), "utf8").replace('"0.10.0"', `"${version}"`);
+  }
+  await commitAndPush(f, files, `fix(pm): hand bump; ${version}`);
+}
+
+test("a version main already carries is not prepared again; a higher one is", async () => {
+  const f = await makeFixture();
+  await bumpOnMain(f, "0.10.1");
+  const r = await cmdPrepare(testCtx(f), {});
+  expect(r.code).toBe(1);
+  expect(r.message).toBe(
+    "origin/main already says 0.10.1 (last tag v0.10.0): prepare with --version above it, such as 0.10.2",
+  );
+  expect((await gitOk(["branch", "--show-current"], f.root)).trim()).toBe("main");
+  const ok = await cmdPrepare(testCtx(f), { version: "0.10.2" });
+  expect(ok.code).toBe(0);
+  for (const m of f.cfg.manifests) expect(version(f.root, m)).toBe("0.10.2");
+});
+
+test("a higher hand-set version on main is never lowered", async () => {
+  const f = await makeFixture();
+  await bumpOnMain(f, "0.12.0");
+  const r = await cmdPrepare(testCtx(f), {});
+  expect(r.code).toBe(1);
+  expect(r.message).toContain("origin/main already says 0.12.0");
+  expect((await cmdPrepare(testCtx(f), { version: "0.11.0" })).code).toBe(2);
+  for (const m of f.cfg.manifests) expect(version(f.root, m)).toBe("0.12.0");
+});
+
+test("a commit that fails leaves the checkout as it was", async () => {
+  const f = await makeFixture();
+  await commitAndPush(f, { [SKILL]: "x\n" }, "fix(pm): a fix");
+  const hook = join(f.root, ".git", "hooks", "pre-commit");
+  writeFileSync(hook, "#!/bin/sh\necho refused >&2\nexit 1\n", { mode: 0o755 });
+  const r = await cmdPrepare(testCtx(f), {});
+  expect(r.code).toBe(1);
+  expect(r.message).toStartWith("prepare failed and was undone: ");
+  expect((await gitOk(["branch", "--show-current"], f.root)).trim()).toBe("main");
+  expect((await git(["rev-parse", "--verify", "release/v0.10.1"], f.root)).code).not.toBe(0);
+  expect((await gitOk(["status", "--porcelain"], f.root)).trim()).toBe("");
+  expect(await readState(f.cfg)).toBeNull();
+});

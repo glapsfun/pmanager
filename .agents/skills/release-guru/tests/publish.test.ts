@@ -168,6 +168,9 @@ test("a merge commit whose tree differs is never tagged", async () => {
   expect(r.message).toBe(
     "the merge commit's tree differs from the checked tree; nothing was tagged",
   );
+  expect(r.next).toBe(
+    "run abandon; main now carries the bump, so the next prepare needs --version above 0.10.1",
+  );
   expect(await ctx.git.remoteTag("v0.10.1")).toBeNull();
 });
 
@@ -178,6 +181,7 @@ test("a v0.10.1 tag pushed elsewhere first stops publish before anything is push
   const r = await cmdPublish(ctx, { tree, wait: 0 });
   expect(r.code).toBe(1);
   expect(r.message).toBe(`v0.10.1 already exists on ${other}`);
+  expect(r.next).toBe("run abandon; the next prepare needs --version above 0.10.1");
   expect(gh.calls).not.toContain("createPr");
   expect(gh.calls).not.toContain("createRelease");
 });
@@ -218,4 +222,26 @@ test("a held lock blocks publish", async () => {
     sleeper.kill();
     await releaseLock(f.cfg);
   }
+});
+
+test("a rerun never reports a release whose verify failed or never ran as done", async () => {
+  const { f, gh, ctx, tree } = await checked();
+  gh.setChecks(1, green(f));
+  let calls = 0;
+  const failing = async () => ({ route: "codex" as const, ok: false, detail: "wrong version" });
+  const passing = async () => {
+    calls++;
+    return { route: "github" as const, ok: true, detail: "ok" };
+  };
+  const first = await cmdPublish({ ...ctx, routes: [failing] }, { tree, wait: 0 });
+  expect(first).toMatchObject({ code: 1, phase: "published-verify-failed" });
+  const rerun = await cmdPublish({ ...ctx, routes: [failing] }, { tree, wait: 0 });
+  expect(rerun).toMatchObject({ code: 1, phase: "published-verify-failed" });
+  expect(rerun.blockers).toEqual(["codex: wrong version"]);
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  await writeState(f.cfg, { ...s, phase: "published", verify: [] });
+  const resumed = await cmdPublish({ ...ctx, routes: [passing] }, { tree, wait: 0 });
+  expect(resumed).toMatchObject({ code: 0, phase: "published" });
+  expect(calls).toBe(1);
 });

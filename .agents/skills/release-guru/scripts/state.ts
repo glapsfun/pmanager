@@ -125,7 +125,9 @@ export function freshEvidence(s: ReleaseState): { gate?: Evidence; agents?: Evid
   return out;
 }
 
+/** kill(pid <= 0) signals a process group, which would make a failed spawn look alive. */
 export function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;

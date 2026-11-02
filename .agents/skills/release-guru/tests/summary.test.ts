@@ -74,3 +74,27 @@ test("the PR body is the notes plus the checks table", async () => {
   expect(body).toMatch(/\| gate \| pass \|/);
   expect(body).not.toContain("gate output");
 });
+
+test("the PR body keeps each harness's agent e2e verdict, report-only and unavailable ones included", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const detail = [
+    "run 1 of 3 ...",
+    "claude-code feature-idea-epic 2/3 PASS",
+    "codex feature-idea-epic 0/3 FAIL [report-only]",
+    "codex unavailable [report-only]",
+    "agent e2e: PASS",
+  ].join("\n");
+  const evidence = s.evidence.map((e) => (e.check === "agents" ? { ...e, detail } : e));
+  const body = prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n");
+  expect(body).toContain(
+    [
+      "claude-code feature-idea-epic 2/3 PASS",
+      "codex feature-idea-epic 0/3 FAIL [report-only]",
+      "codex unavailable [report-only]",
+      "agent e2e: PASS",
+    ].join("\n"),
+  );
+  expect(body).not.toContain("run 1 of 3");
+});

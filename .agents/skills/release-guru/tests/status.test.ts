@@ -56,3 +56,21 @@ test("a checks process that died is reported", async () => {
   const r = await cmdStatus(testCtx(f));
   expect(r.blockers).toContain(`checks process ${dead.pid} is gone without a result`);
 });
+
+test("status flags a release whose verify failed or never ran", async () => {
+  const f = await makeFixture();
+  await commitAndPush(f, { [SKILL]: "x\n" }, "fix(pm): a fix");
+  await cmdPrepare(testCtx(f), {});
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const failed = [{ route: "codex" as const, ok: false, detail: "wrong version" }];
+  await writeState(f.cfg, { ...s, phase: "published-verify-failed", verify: failed });
+  const r = await cmdStatus(testCtx(f));
+  expect(r.code).toBe(1);
+  expect(r.blockers).toContain("codex: wrong version");
+  expect(r.data?.verify).toEqual(failed);
+  await writeState(f.cfg, { ...s, phase: "published", verify: [] });
+  const unverified = await cmdStatus(testCtx(f));
+  expect(unverified.code).toBe(1);
+  expect(unverified.blockers).toContain("verify has not run for v0.10.1");
+});

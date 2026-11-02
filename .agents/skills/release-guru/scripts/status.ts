@@ -62,6 +62,11 @@ export async function cmdStatus(ctx: Ctx): Promise<Result> {
   if (s.checksPid !== undefined && !checksRunning) {
     blockers.push(`checks process ${s.checksPid} is gone without a result`);
   }
+  if (s.phase === "published-verify-failed") {
+    blockers.push(...s.verify.filter((r) => !r.ok).map((r) => `${r.route}: ${r.detail}`));
+  }
+  if (s.phase === "published" && s.verify.length === 0)
+    blockers.push(`verify has not run for ${tag}`);
   return {
     code: blockers.length > 0 ? 1 : 0,
     phase: s.phase,
@@ -75,6 +80,7 @@ export async function cmdStatus(ctx: Ctx): Promise<Result> {
       commit: s.commit,
       tree: s.tree,
       publish: s.publish,
+      verify: s.verify,
       reality,
     },
   };

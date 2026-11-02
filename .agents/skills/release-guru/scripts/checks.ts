@@ -66,6 +66,9 @@ export async function cmdCheck(ctx: Ctx, opts: { foreground?: boolean }): Promis
     ctx.cfg.root,
     paths.log,
   );
+  if (pid <= 0) {
+    return { code: 1, phase: s.phase, message: `could not start the checks; see ${paths.log}` };
+  }
   await writeState(ctx.cfg, { ...s, checksPid: pid }, ctx.now());
   return {
     code: 3,

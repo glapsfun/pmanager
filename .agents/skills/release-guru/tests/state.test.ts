@@ -131,3 +131,9 @@ test("a lock held by a dead pid is replaced", async () => {
   );
   expect(await acquireLock(cfg, "prepare")).toEqual({ ok: true });
 });
+
+test("pidAlive is false for the pids a failed spawn reports", () => {
+  expect(pidAlive(-1)).toBe(false);
+  expect(pidAlive(0)).toBe(false);
+  expect(pidAlive(process.pid)).toBe(true);
+});

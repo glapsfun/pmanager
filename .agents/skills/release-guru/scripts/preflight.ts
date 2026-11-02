@@ -47,6 +47,13 @@ async function competitorBlockers(ctx: Ctx): Promise<string[]> {
     );
   }
   const tags = new Set(await remoteRefs(ctx, "--tags", "v*"));
+  const local = await ctx.git.out(["branch", "--list", "release/v*", "--format=%(refname:short)"]);
+  for (const branch of local.split("\n").filter(Boolean)) {
+    if (tags.has(branch.slice("release/".length))) continue;
+    out.push(
+      `local branch ${branch} exists without a release; abandon it, or delete it with git branch -D ${branch}`,
+    );
+  }
   for (const branch of await remoteRefs(ctx, "--heads", "release/v*")) {
     // A branch left behind by a published release is history, not a competitor.
     if (tags.has(branch.slice("release/".length))) continue;

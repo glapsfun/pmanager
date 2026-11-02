@@ -39,3 +39,23 @@ test("the docs use no em dash", () => {
     expect(readFileSync(file, "utf8").includes(EM_DASH), file).toBe(false);
   }
 });
+
+test("SKILL.md tells agents how to stay inside their shell timeout", () => {
+  const text = readFileSync(SKILL, "utf8");
+  expect(text).toContain("bun run release wait --timeout");
+  expect(text).toContain("--wait");
+  expect(text).toContain("shell timeout");
+});
+
+test("RELEASING.md covers the stuck cases", () => {
+  const text = readFileSync(RUNBOOK, "utf8");
+  for (const phrase of [
+    "## When a release is stuck",
+    "taken on origin",
+    "main carries",
+    "GitHub blocks the merge",
+    "verify has not run",
+  ]) {
+    expect(text, phrase).toContain(phrase);
+  }
+});
