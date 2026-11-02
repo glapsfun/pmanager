@@ -36,7 +36,7 @@ test("USAGE names every command", () => {
 
 test("an unknown command or flag is a usage error", async () => {
   const f = await makeFixture();
-  for (const argv of [["nope"], ["status", "--bogus"], ["prepare", "--version"], []]) {
+  for (const argv of [["nope"], ["status", "--bogus"], ["prepare", "--version"], ["publish"], []]) {
     const o = capture();
     expect(await main(argv, { ...testCtx(f), out: o.out })).toBe(2);
     expect(o.json().message).toContain("usage:");

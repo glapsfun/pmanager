@@ -94,10 +94,12 @@ export class FakeGitHub implements GitHub {
       url: `https://github.com/${this.f.cfg.slug}/pull/${number}`,
     });
     this.bodies.set(number, await readFile(bodyFile, "utf8"));
-    this.checks.set(
-      number,
-      this.f.cfg.requiredChecks.map((name) => ({ name, status: "QUEUED", conclusion: null })),
-    );
+    if (!this.checks.has(number)) {
+      this.checks.set(
+        number,
+        this.f.cfg.requiredChecks.map((name) => ({ name, status: "QUEUED", conclusion: null })),
+      );
+    }
     return number;
   }
 

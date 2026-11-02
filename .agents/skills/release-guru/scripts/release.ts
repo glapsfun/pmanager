@@ -10,6 +10,7 @@ import type { Ctx, Result } from "./context";
 import { gitClient } from "./git";
 import { ghGitHub } from "./github";
 import { cmdPrepare } from "./prepare";
+import { cmdPublish } from "./publish";
 import { acquireLock, pidAlive, readState, releaseLock } from "./state";
 import { cmdStatus } from "./status";
 import { cmdSummary } from "./summary";
@@ -100,6 +101,11 @@ const COMMANDS: Record<string, { run: Command; locks: boolean }> = {
   "run-checks": { run: (ctx) => runChecks(ctx), locks: false },
   wait: { run: (ctx, f) => cmdWait(ctx, { timeout: f.timeout }), locks: false },
   summary: { run: (ctx) => cmdSummary(ctx), locks: false },
+  publish: {
+    run: (ctx, f) =>
+      f.tree ? cmdPublish(ctx, { tree: f.tree, wait: f.wait }) : Promise.resolve(usage()),
+    locks: true,
+  },
 };
 
 const usage = (message = USAGE): Result => ({ code: 2, phase: "none", message });
