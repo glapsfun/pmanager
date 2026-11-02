@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitOk } from "../../../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { preflight } from "../scripts/preflight";
+import { cmdPrepare } from "../scripts/prepare";
 import { writeState } from "../scripts/state";
 import { testCtx } from "./ctx";
 import { FakeGitHub } from "./fake-github";
@@ -70,10 +71,10 @@ test("an open release PR or an untagged release branch blocks prepare", async ()
   await gh.createPr("release/v0.11.0", "main", "t", bodyFile);
   const blockers = await preflight("prepare", testCtx(f, gh));
   expect(blockers).toContain(
-    "another release is in progress: PR #1 from release/v0.11.0; abandon it first",
+    "another release is in progress: PR #1 from release/v0.11.0; abandon it where it was prepared, or close it on GitHub if nobody needs it",
   );
   expect(blockers).toContain(
-    "another release is in progress: branch release/v0.11.0 on origin; abandon it first",
+    "another release is in progress: branch release/v0.11.0 on origin; abandon it where it was prepared, or delete it on GitHub if nobody needs it",
   );
 });
 
@@ -106,6 +107,41 @@ test("an unpublished local candidate blocks prepare", async () => {
   ]);
 });
 
+test("a second prepare names only the candidate in progress, not its own branch", async () => {
+  const f = await makeFixture();
+  await commitAndPush(f, { "plugins/pmanager/skills/pmanager/SKILL.md": "x\n" }, "fix(pm): a fix");
+  await cmdPrepare(testCtx(f), {});
+  expect(await preflight("prepare", testCtx(f))).toEqual([
+    "another release is in progress: v0.10.1 (prepared); abandon it first",
+  ]);
+});
+
+test("a published release whose verify never ran blocks prepare until verify runs", async () => {
+  const f = await makeFixture();
+  const s = {
+    schema: 1 as const,
+    repo: f.cfg.slug,
+    kind: "release" as const,
+    version: "0.10.0",
+    previousTag: null,
+    branch: null,
+    commit: "c",
+    tree: "t",
+    phase: "published" as const,
+    blockers: [],
+    evidence: [],
+    publish: {},
+    verify: [],
+    updatedAt: "",
+  };
+  await writeState(f.cfg, s);
+  expect(await preflight("prepare", testCtx(f))).toEqual([
+    "v0.10.0 is published but verify has not run: run verify first",
+  ]);
+  await writeState(f.cfg, { ...s, verify: [{ route: "github", ok: true, detail: "ok" }] });
+  expect(await preflight("prepare", testCtx(f))).toEqual([]);
+});
+
 test("publish and baseline need the tag ruleset", async () => {
   const f = await makeFixture();
   const ctx = testCtx(f, new FakeGitHub(f, { tagRuleset: false }));
@@ -128,7 +164,7 @@ test("a stray local release branch blocks prepare unless its version was release
   const f = await makeFixture();
   await gitOk(["branch", "release/v0.10.1"], f.root);
   expect(await preflight("prepare", testCtx(f))).toEqual([
-    "local branch release/v0.10.1 exists without a release; abandon it, or delete it with git branch -D release/v0.10.1",
+    "local branch release/v0.10.1 exists without a release; delete it with git branch -D release/v0.10.1 if nobody needs it",
   ]);
   const g = await makeFixture();
   await gitOk(["branch", "release/v0.10.0"], g.root);

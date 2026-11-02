@@ -40,11 +40,16 @@ test("the docs use no em dash", () => {
   }
 });
 
-test("SKILL.md tells agents how to stay inside their shell timeout", () => {
-  const text = readFileSync(SKILL, "utf8");
-  expect(text).toContain("bun run release wait --timeout");
-  expect(text).toContain("--wait");
-  expect(text).toContain("shell timeout");
+test("the docs tell agents which steps no flag keeps short", () => {
+  for (const file of [SKILL, RUNBOOK]) {
+    const text = readFileSync(file, "utf8");
+    expect(text, file).toContain(
+      "`publish` and `verify` need a shell timeout of at least 10 minutes",
+    );
+    expect(text, file).toContain("--timeout");
+    expect(text, file).toContain("--wait");
+  }
+  expect(readFileSync(SKILL, "utf8")).not.toContain("wait --timeout 500`");
 });
 
 test("RELEASING.md covers the stuck cases", () => {
@@ -55,6 +60,7 @@ test("RELEASING.md covers the stuck cases", () => {
     "main carries",
     "GitHub blocks the merge",
     "verify has not run",
+    "close it on GitHub",
   ]) {
     expect(text, phrase).toContain(phrase);
   }

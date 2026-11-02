@@ -41,23 +41,29 @@ async function competitorBlockers(ctx: Ctx): Promise<string[]> {
   if (s && s.phase !== "published" && s.phase !== "published-verify-failed") {
     out.push(`another release is in progress: v${s.version} (${s.phase}); abandon it first`);
   }
+  // Prepare clears the state, which is the only record that this verify is still owed.
+  if (s?.phase === "published" && s.verify.length === 0) {
+    out.push(`v${s.version} is published but verify has not run: run verify first`);
+  }
   for (const pr of await ctx.gh.openReleasePrs()) {
     out.push(
-      `another release is in progress: PR #${pr.number} from ${pr.headRefName}; abandon it first`,
+      `another release is in progress: PR #${pr.number} from ${pr.headRefName}; abandon it where it was prepared, or close it on GitHub if nobody needs it`,
     );
   }
   const tags = new Set(await remoteRefs(ctx, "--tags", "v*"));
   const local = await ctx.git.out(["branch", "--list", "release/v*", "--format=%(refname:short)"]);
   for (const branch of local.split("\n").filter(Boolean)) {
-    if (tags.has(branch.slice("release/".length))) continue;
+    if (tags.has(branch.slice("release/".length)) || branch === s?.branch) continue;
     out.push(
-      `local branch ${branch} exists without a release; abandon it, or delete it with git branch -D ${branch}`,
+      `local branch ${branch} exists without a release; delete it with git branch -D ${branch} if nobody needs it`,
     );
   }
   for (const branch of await remoteRefs(ctx, "--heads", "release/v*")) {
     // A branch left behind by a published release is history, not a competitor.
     if (tags.has(branch.slice("release/".length))) continue;
-    out.push(`another release is in progress: branch ${branch} on origin; abandon it first`);
+    out.push(
+      `another release is in progress: branch ${branch} on origin; abandon it where it was prepared, or delete it on GitHub if nobody needs it`,
+    );
   }
   return out;
 }

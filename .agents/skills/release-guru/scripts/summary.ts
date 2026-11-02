@@ -72,7 +72,6 @@ export function renderSummary(s: ReleaseState, notes: string, dist: string[]): s
   ].join("\n");
 }
 
-/** The release PR's body: what users get, then the evidence that it was checked. */
 const VERDICT_LINE =
   /^(\S+ \S+ \d+\/\d+ (PASS|FAIL)|\S+ unavailable|agent e2e: (PASS|FAIL))( \[report-only\])?$/;
 
@@ -85,6 +84,7 @@ function agentVerdict(s: ReleaseState): string {
     : "";
 }
 
+/** The release PR's body: what users get, then the evidence that it was checked. */
 export function prBody(s: ReleaseState, notes: string): string {
   return `${notes.trimEnd()}\n\n## Release checks\n\nCommit ${s.commit}, tree ${s.tree}.\n\n${checksTable(s)}\n${agentVerdict(s)}`;
 }

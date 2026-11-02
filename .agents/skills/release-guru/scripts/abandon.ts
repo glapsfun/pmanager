@@ -40,21 +40,24 @@ export async function cmdAbandon(ctx: Ctx): Promise<Result> {
         `main carries its version bump from PR #${pr.number} without a tag, so the next prepare needs --version above ${s.version}`,
       );
     }
+    // Publish records the PR only after it saw the branch at this candidate's commit, so a PR
+    // with that number stays ours after GitHub's "Update branch" or a push moves its head.
+    const ownPr = pr !== null && (pr.headRefOid === s.commit || pr.number === s.publish.pr);
     if (pr?.state === "OPEN") {
-      if (pr.headRefOid === s.commit) await ctx.gh.closePr(pr.number, "Abandoned by release-guru.");
+      if (ownPr) await ctx.gh.closePr(pr.number, "Abandoned by release-guru.");
       else
         notes.push(
-          `PR #${pr.number} points at ${pr.headRefOid}, not this candidate, so it was left alone`,
+          `PR #${pr.number} points at ${pr.headRefOid}, not this candidate, so it was left alone; close it on GitHub if nobody needs it`,
         );
     }
     const remoteHead = (await ctx.git.out(["ls-remote", "origin", `refs/heads/${s.branch}`])).split(
       "\t",
     )[0];
-    if (remoteHead === s.commit) {
+    if (remoteHead === s.commit || (ownPr && remoteHead === pr?.headRefOid)) {
       await ctx.git.out(["push", "-q", "origin", "--delete", s.branch]);
     } else if (remoteHead) {
       notes.push(
-        `origin/${s.branch} points at ${remoteHead}, not this candidate, so it was left alone`,
+        `origin/${s.branch} points at ${remoteHead}, not this candidate, so it was left alone; delete it on GitHub if nobody needs it`,
       );
     }
     if ((await ctx.git.branch()) === s.branch) await ctx.git.out(["switch", "-q", ctx.cfg.base]);
