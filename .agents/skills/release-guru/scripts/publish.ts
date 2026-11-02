@@ -5,6 +5,7 @@ import type { Ctx, Result } from "./context";
 import { preflight } from "./preflight";
 import { type ReleaseState, readState, statePaths, writeState } from "./state";
 import { prBody, summaryBlockers } from "./summary";
+import { cmdVerify } from "./verify";
 
 const PASSING = ["SUCCESS", "SKIPPED", "NEUTRAL"];
 const MERGEABLE = ["CLEAN", "HAS_HOOKS"];
@@ -194,5 +195,5 @@ export async function cmdPublish(ctx: Ctx, opts: { tree: string; wait?: number }
   if (released) return released;
   s.phase = "published";
   await save(ctx, s);
-  return { code: 0, phase: "published", message: `${tag} is published`, next: "run verify" };
+  return cmdVerify(ctx);
 }

@@ -14,6 +14,7 @@ import { cmdPublish } from "./publish";
 import { acquireLock, pidAlive, readState, releaseLock } from "./state";
 import { cmdStatus } from "./status";
 import { cmdSummary } from "./summary";
+import { cmdVerify } from "./verify";
 
 export const USAGE = `usage: bun run release <command> [flags]
   status                          compare the saved release with git and GitHub
@@ -101,6 +102,7 @@ const COMMANDS: Record<string, { run: Command; locks: boolean }> = {
   "run-checks": { run: (ctx) => runChecks(ctx), locks: false },
   wait: { run: (ctx, f) => cmdWait(ctx, { timeout: f.timeout }), locks: false },
   summary: { run: (ctx) => cmdSummary(ctx), locks: false },
+  verify: { run: (ctx) => cmdVerify(ctx), locks: true },
   publish: {
     run: (ctx, f) =>
       f.tree ? cmdPublish(ctx, { tree: f.tree, wait: f.wait }) : Promise.resolve(usage()),
