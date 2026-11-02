@@ -77,11 +77,16 @@ test("readState refuses another repo's or another schema's state", async () => {
   await expect(readState(cfg)).rejects.toThrow(/schema/);
 });
 
-test("clearState removes the state dir", async () => {
+test("clearState removes everything in the state dir but a held lock", async () => {
   const cfg = await cfgIn();
   await writeState(cfg, state());
+  writeFileSync(statePaths(cfg).notes, "n\n");
   await clearState(cfg);
   expect(existsSync(statePaths(cfg).dir)).toBe(false);
+  await writeState(cfg, state());
+  expect(await acquireLock(cfg, "prepare")).toEqual({ ok: true });
+  await clearState(cfg);
+  expect(readdirSync(statePaths(cfg).dir)).toEqual(["lock"]);
 });
 
 test("freshEvidence takes the newest entry per check for the current tree", () => {

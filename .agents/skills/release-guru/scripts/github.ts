@@ -200,7 +200,7 @@ export function ghGitHub(slug: string, run: Run = capture): GitHub {
     },
 
     closePr: async (n, comment) => {
-      await gh(["pr", "close", String(n), "--repo", slug, "--comment", comment, "--delete-branch"]);
+      await gh(["pr", "close", String(n), "--repo", slug, "--comment", comment]);
     },
 
     release: async (tag) => {

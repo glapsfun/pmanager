@@ -166,10 +166,8 @@ test("mergePr merges with a merge commit against the expected head, never as adm
   expect(cmd).not.toContain("--admin");
 });
 
-test("closePr closes with a comment and deletes the branch", async () => {
-  const run = scripted([
-    [["gh", "pr", "close", "12", "--repo", R, "--comment", "bye", "--delete-branch"], {}],
-  ]);
+test("closePr closes with a comment and leaves branches to git", async () => {
+  const run = scripted([[["gh", "pr", "close", "12", "--repo", R, "--comment", "bye"], {}]]);
   await ghGitHub(R, run).closePr(12, "bye");
   expect(run.left()).toBe(0);
 });

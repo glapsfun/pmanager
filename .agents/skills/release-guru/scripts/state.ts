@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import type { Config } from "./config";
@@ -103,8 +103,16 @@ export async function writeState(
   await rename(`${p.state}.tmp`, p.state);
 }
 
+/** Keeps a held lock, since the command clearing state is usually the one holding it. */
 export async function clearState(cfg: Config): Promise<void> {
-  await rm(statePaths(cfg).dir, { recursive: true, force: true });
+  const p = statePaths(cfg);
+  if (!existsSync(p.lock)) {
+    await rm(p.dir, { recursive: true, force: true });
+    return;
+  }
+  for (const name of await readdir(p.dir)) {
+    if (name !== "lock") await rm(join(p.dir, name), { recursive: true, force: true });
+  }
 }
 
 export function freshEvidence(s: ReleaseState): { gate?: Evidence; agents?: Evidence } {

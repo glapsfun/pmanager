@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { git, gitOk } from "../../../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { git } from "../../../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { CheckState, GitHub, PullRequest, Release } from "../scripts/github";
 import { type Fixture, mergePrIntoMain } from "./fixture";
 
@@ -140,7 +140,6 @@ export class FakeGitHub implements GitHub {
     const pr = this.find(n);
     pr.state = "CLOSED";
     this.comments.set(n, comment);
-    await gitOk(["update-ref", "-d", `refs/heads/${pr.headRefName}`], this.f.bare);
   }
 
   async release(tag: string) {
