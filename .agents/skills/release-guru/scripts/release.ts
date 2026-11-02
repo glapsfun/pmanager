@@ -4,13 +4,15 @@ import { dirname } from "node:path";
 import { capture } from "../../../../ci/proc";
 import { clearGitEnv } from "../../../../plugins/pmanager/skills/pmanager/tests/git-env";
 import { cmdAbandon } from "./abandon";
+import { cmdCheck, cmdWait, runChecks } from "./checks";
 import { type Config, defaultConfig } from "./config";
 import type { Ctx, Result } from "./context";
 import { gitClient } from "./git";
 import { ghGitHub } from "./github";
 import { cmdPrepare } from "./prepare";
-import { acquireLock, readState, releaseLock } from "./state";
+import { acquireLock, pidAlive, readState, releaseLock } from "./state";
 import { cmdStatus } from "./status";
+import { cmdSummary } from "./summary";
 
 export const USAGE = `usage: bun run release <command> [flags]
   status                          compare the saved release with git and GitHub
@@ -93,6 +95,11 @@ const COMMANDS: Record<string, { run: Command; locks: boolean }> = {
   status: { run: (ctx) => cmdStatus(ctx), locks: false },
   prepare: { run: (ctx, f) => cmdPrepare(ctx, { version: f.version }), locks: true },
   abandon: { run: (ctx) => cmdAbandon(ctx), locks: true },
+  check: { run: (ctx, f) => cmdCheck(ctx, { foreground: f.foreground }), locks: true },
+  // The detached runner; check already holds the lock and records its pid.
+  "run-checks": { run: (ctx) => runChecks(ctx), locks: false },
+  wait: { run: (ctx, f) => cmdWait(ctx, { timeout: f.timeout }), locks: false },
+  summary: { run: (ctx) => cmdSummary(ctx), locks: false },
 };
 
 const usage = (message = USAGE): Result => ({ code: 2, phase: "none", message });
@@ -113,6 +120,15 @@ async function dispatch(ctx: Ctx, argv: string[]): Promise<Result> {
     };
   }
   try {
+    const s = await readState(ctx.cfg);
+    if (parsed.command !== "check" && s?.checksPid !== undefined && pidAlive(s.checksPid)) {
+      return {
+        code: 1,
+        phase: s.phase,
+        message: `${parsed.command} is blocked`,
+        blockers: [`checks are running (pid ${s.checksPid}): run wait`],
+      };
+    }
     return await entry.run(ctx, parsed.flags);
   } finally {
     await releaseLock(ctx.cfg);
