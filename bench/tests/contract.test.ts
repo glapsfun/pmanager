@@ -20,6 +20,13 @@ import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests
 import { CONTRACT_REL, installContract, renderContract } from "../contract";
 
 describe("neutral contract", () => {
+  test("describes the optional History section and its two line forms", () => {
+    const c = renderContract();
+    expect(c).toContain("## History");
+    expect(c).toContain("- YYYY-MM-DD status <from> -> <to>");
+    expect(c).toContain("- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>");
+  });
+
   test("names every required field, section and marker, and no workflow vocabulary", () => {
     const c = renderContract();
     for (const f of [...EPIC_REQUIRED_FIELDS, ...EPIC_V1_FIELDS, ...TASK_REQUIRED_FIELDS]) {

@@ -1,6 +1,10 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   getList,
   getString,
+  type HistoryEntry,
+  parseHistory,
   sectionBody,
 } from "../../plugins/pmanager/skills/pmanager/scripts/contract";
 import { TASKS_END, TASKS_START } from "../../plugins/pmanager/skills/pmanager/scripts/render";
@@ -208,4 +212,107 @@ export function trackingChecks(): Check[] {
     verifiedEvidence,
     toolVerifyUsed,
   ];
+}
+
+// Mirrors FIXTURE_SECRET in scenarios/tracking-update-memory.ts; importing it would make graders depend on a scenario.
+const ATTEMPT_SECRET = "s3cr3t-fixture-value";
+const TRACEBACK = "Traceback (most recent call last)";
+
+function describeEntry(h: HistoryEntry): string {
+  return h.kind === "status" ? `${h.from} -> ${h.to}` : "attempt";
+}
+
+export const t01HistoryAttempt = taskCheck(
+  "t01-history-attempt",
+  "outcome",
+  "T01 History records the failed attempt with its evidence path",
+  "T01",
+  (t) => {
+    const h = parseHistory(t.body);
+    if (!h) return fail("T01 has no ## History section");
+    if (h.invalid.length > 0) return fail(`invalid History line(s): ${h.invalid.join(" | ")}`);
+    const hit = h.entries.find(
+      (e) =>
+        e.kind === "attempt" &&
+        /lock/i.test(`${e.tried} ${e.got}`) &&
+        /attempt-1\.log/.test(e.evidence),
+    );
+    return hit
+      ? pass("attempt line names the lock and docs/attempt-1.log")
+      : fail("no attempt line about the lock with docs/attempt-1.log");
+  },
+);
+
+export const t01HistorySequence = taskCheck(
+  "t01-history-sequence",
+  "outcome",
+  "T01 History goes to in-progress, records the attempt, then done with fixed by",
+  "T01",
+  (t) => {
+    const h = parseHistory(t.body);
+    if (!h) return fail("T01 has no ## History section");
+    const seq = h.entries.map(describeEntry).join(", ");
+    const statuses = h.entries.filter((e) => e.kind === "status");
+    const targets = statuses.map((e) => e.to);
+    if (targets.join(",") !== "in-progress,done") return fail(`status lines: ${seq || "(none)"}`);
+    const attempt = h.entries.findIndex((e) => e.kind === "attempt");
+    const start = h.entries.indexOf(statuses[0] as HistoryEntry);
+    const end = h.entries.indexOf(statuses[1] as HistoryEntry);
+    if (attempt < start || attempt > end)
+      return fail(`attempt not between the status lines: ${seq}`);
+    const done = statuses[1];
+    return done?.kind === "status" && /transaction/i.test(done.fixedBy ?? "")
+      ? pass(seq)
+      : fail(`done line lacks "fixed by ... transaction": ${seq}`);
+  },
+);
+
+export const t02HistoryBlocked = taskCheck(
+  "t02-history-blocked",
+  "outcome",
+  "T02 History records todo -> blocked",
+  "T02",
+  (t) => {
+    const h = parseHistory(t.body);
+    if (!h) return fail("T02 has no ## History section");
+    if (h.invalid.length > 0) return fail(`invalid History line(s): ${h.invalid.join(" | ")}`);
+    const hit = h.entries.some(
+      (e) => e.kind === "status" && e.from === "todo" && e.to === "blocked",
+    );
+    return hit
+      ? pass("todo -> blocked recorded")
+      : fail(`entries: ${h.entries.map(describeEntry).join(", ") || "(none)"}`);
+  },
+);
+
+export const noRawLog: Check = {
+  id: "no-raw-log",
+  kind: "outcome",
+  description: "no document under docs/pm copies the attempt log or its secret",
+  async run(ctx) {
+    const root = join(ctx.fixtureDir, "docs", "pm");
+    let names: string[];
+    try {
+      names = await readdir(root, { recursive: true });
+    } catch {
+      return fail("docs/pm is missing or unreadable");
+    }
+    const leaked: string[] = [];
+    for (const name of names) {
+      let text: string;
+      try {
+        text = await readFile(join(root, name), "utf8");
+      } catch {
+        continue;
+      }
+      if (text.includes(ATTEMPT_SECRET) || text.includes(TRACEBACK)) leaked.push(`docs/pm/${name}`);
+    }
+    return leaked.length === 0
+      ? pass("no log output in docs/pm")
+      : fail(`log output in ${leaked.join(", ")}`);
+  },
+};
+
+export function attemptChecks(): Check[] {
+  return [t01HistoryAttempt, t01HistorySequence, t02HistoryBlocked, noRawLog];
 }

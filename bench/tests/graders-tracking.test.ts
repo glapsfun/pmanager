@@ -10,6 +10,7 @@ import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
 import { trackingChecks } from "../graders/tracking";
 import { runChecks } from "../graders/types";
+import { ATTEMPT_LOG, trackingUpdateMemory } from "../scenarios/tracking-update-memory";
 
 const T01 = "docs/pm/app-performance/tasks/T01-benchmark-orders.md";
 const T02 = "docs/pm/app-performance/tasks/T02-add-order-items-index.md";
@@ -119,5 +120,90 @@ describe("tracking checks", () => {
       "| T01 | Benchmark orders endpoint | M1 | must | — | todo |",
     );
     expect((await outcomes(dir, info))["table-mirrors"]).toBe(false);
+  });
+});
+
+describe("attempt checks", () => {
+  const HISTORY_T01 = [
+    "- 2026-09-15 status todo -> in-progress",
+    "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked after about 200 orders; evidence docs/attempt-1.log",
+    "- 2026-09-15 status in-progress -> done; fixed by seeding all orders inside one transaction",
+  ];
+
+  async function scenarioFixture() {
+    const dir = await makeTempDir("bench-attempt");
+    const info = await trackingUpdateMemory.buildFixture(dir);
+    return { dir, info };
+  }
+
+  async function append(dir: string, rel: string, text: string) {
+    const p = join(dir, rel);
+    await writeFile(p, `${(await readFile(p, "utf8")).trimEnd()}\n\n${text}\n`);
+  }
+
+  async function historyUpdate(dir: string, t01: string[] = HISTORY_T01) {
+    await goodUpdate(dir);
+    await append(dir, T01, `## History\n\n${t01.join("\n")}`);
+    await append(dir, T02, "## History\n\n- 2026-09-15 status todo -> blocked");
+    await applyRender(await loadPmRepo(dir));
+  }
+
+  async function scenarioOutcomes(dir: string, info: FixtureInfo) {
+    const ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
+    const res = await runChecks(trackingUpdateMemory.checks, ctx);
+    return Object.fromEntries(res.map((r) => [r.id, r.passed]));
+  }
+
+  test("a correct update passes every check that does not need telemetry", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(true);
+    expect(o["t01-history-sequence"]).toBe(true);
+    expect(o["t02-history-blocked"]).toBe(true);
+    expect(o["no-raw-log"]).toBe(true);
+    expect(o["check-no-errors"]).toBe(true);
+    expect(o["t01-done"]).toBe(true);
+    expect(o["t02-blocked-noted"]).toBe(true);
+  });
+
+  test("no History fails the History checks", async () => {
+    const { dir, info } = await scenarioFixture();
+    await goodUpdate(dir);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+    expect(o["t01-history-sequence"]).toBe(false);
+    expect(o["t02-history-blocked"]).toBe(false);
+    expect(o["no-raw-log"]).toBe(true);
+  });
+
+  test("an attempt that marks T01 blocked fails the sequence check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      "- 2026-09-15 status todo -> blocked",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status blocked -> done; fixed by seeding all orders inside one transaction",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-sequence"]).toBe(false);
+  });
+
+  test("a malformed History line fails the attempt check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      "- 2026-09-15 tried again, it broke",
+      HISTORY_T01[2] ?? "",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+  });
+
+  test("pasting the log into Notes fails no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(dir, T01, "## Notes\n", `## Notes\n\n${ATTEMPT_LOG}\n`);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(false);
   });
 });

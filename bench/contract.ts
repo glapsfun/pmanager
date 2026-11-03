@@ -81,6 +81,8 @@ ${sections(TASK_REQUIRED_SECTIONS)}
 
 Acceptance criteria are checkbox lines (\`- [ ]\`). A criterion is checked (\`- [x]\`) only when it was verified against the repository; a completion claim that cannot be verified is recorded with the line \`**unverified** — <why>\` under Acceptance criteria instead.
 
+An optional \`## History\` section, last in the file, holds one dated line per status change or failed attempt, in exactly one of two forms: \`- YYYY-MM-DD status <from> -> <to>\`, optionally ending \`; fixed by <what>\`, or \`- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>\`.
+
 ## pmanager-memo.md
 
 Hand-written sections for product context, goals, stakeholders, conventions, and a changelog section whose content is regenerated between:

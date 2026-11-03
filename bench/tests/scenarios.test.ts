@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { SCENARIOS, scenarioByName } from "../scenarios/registry";
+import { FIXTURE_SECRET } from "../scenarios/tracking-update-memory";
 import { CONTRACT_SENTENCE, composePrompt, hasSkill, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
@@ -36,8 +37,13 @@ describe("scenarios", () => {
   test("tracking fixture has the uncommitted profile artifact and ignores it", async () => {
     const dir = await makeTempDir("bench-scn");
     const info = await scenarioByName("tracking-update-memory")?.buildFixture(dir);
-    expect(Object.keys(info?.initialDirty ?? {})).toEqual(["docs/profile-results.txt"]);
+    expect(Object.keys(info?.initialDirty ?? {}).sort()).toEqual([
+      "docs/attempt-1.log",
+      "docs/profile-results.txt",
+    ]);
     expect(await Bun.file(join(dir, "docs", "profile-results.txt")).text()).toContain("85%");
+    expect(await Bun.file(join(dir, "docs", "attempt-1.log")).text()).toContain(FIXTURE_SECRET);
+    expect(scenarioByName("tracking-update-memory")?.graderVersion).toBe(2);
     expect(info?.epicSlugsBefore).toEqual(["app-performance"]);
   });
 
@@ -61,7 +67,8 @@ describe("condition prompts", () => {
       expect(s.task.includes("pmanager")).toBe(false);
       expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
       expect(composePrompt(s, "without-skill")).toBe(s.task);
-      expect(s.graderVersion).toBe(s.name === "planning-traps" ? 2 : 1);
+      const bumped = ["planning-traps", "tracking-update-memory"];
+      expect(s.graderVersion).toBe(bumped.includes(s.name) ? 2 : 1);
     }
   });
 });
