@@ -14,6 +14,8 @@ Fixed before the run. An attempt is graded unless the harness or API failed (cra
 
 If all three traps pass, post the results on #15 and suggest closing it, as with #13.
 
+Added before the run, at the user's request on 2026-11-03: when the rule above gives the memo lesson or the prior-epic lesson "no build", but 3 or more of its graded attempts are "handled, source unclear" (see Trace to memory below), that trap is inconclusive instead, and the next step is the control run from the design: the same fixture with the three lessons removed, still only with the user's go-ahead. The superseded fact is exempt, because there "handled" means the stale line did not mislead, whatever the source.
+
 In the bench's attempt statuses (`bench/execute.ts`): `completed` is graded; `harness-error` and `setup-error` are excluded; `timeout` is graded and counts as not handled for every trap.
 
 ## Handled, per trap
