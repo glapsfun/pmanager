@@ -19,7 +19,7 @@ import { runMicrobench, toToolLine } from "./microbench/run";
 import { writeReport } from "./report";
 import { writeExperimentReport } from "./report-experiment";
 import { buildEnv, repoSha, runScenario } from "./runner";
-import { SCENARIOS, scenarioByName } from "./scenarios/registry";
+import { MEASUREMENT_SCENARIOS, SCENARIOS, scenarioByName } from "./scenarios/registry";
 import { BASELINE_CONDITIONS, CONDITIONS } from "./scenarios/types";
 import {
   EXPERIMENTS_DIR,
@@ -44,7 +44,7 @@ const USAGE = `usage:
   bun run bench/bench.ts experiment run --id <id> [--yes]      (without --yes: dry run, exit 3)
   bun run bench/bench.ts experiment report --id <id>
 common: [--history <path>] [--report <path>] [--raw-dir <dir>] [--experiments-dir <dir>]
-scenarios: ${SCENARIOS.map((s) => s.name).join(", ")}
+scenarios: ${SCENARIOS.map((s) => s.name).join(", ")}; measurement only: ${MEASUREMENT_SCENARIOS.map((s) => s.name).join(", ")}
 `;
 
 /** The root README is refreshed only from the committed history, never from overridden paths. */

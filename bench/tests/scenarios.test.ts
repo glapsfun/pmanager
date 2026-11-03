@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
-import { SCENARIOS, scenarioByName } from "../scenarios/registry";
+import { memoryRecall } from "../scenarios/memory-recall";
+import { MEASUREMENT_SCENARIOS, SCENARIOS, scenarioByName } from "../scenarios/registry";
 import { CONTRACT_SENTENCE, composePrompt, hasSkill, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
@@ -64,6 +65,18 @@ describe("condition prompts", () => {
       expect(s.graderVersion).toBe(s.name === "planning-traps" ? 2 : 1);
     }
   });
+});
+
+test("memory-recall is measurement only: found by name, never in the release set", () => {
+  expect(MEASUREMENT_SCENARIOS.map((s) => s.name)).toEqual(["memory-recall"]);
+  expect(scenarioByName("memory-recall")).toBe(memoryRecall);
+  expect(SCENARIOS.map((s) => s.name)).not.toContain("memory-recall");
+  for (const s of MEASUREMENT_SCENARIOS) {
+    expect(s.task.endsWith(CONTRACT_SENTENCE)).toBe(true);
+    expect(s.task.includes("pmanager")).toBe(false);
+    expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
+    expect(s.graderVersion).toBe(1);
+  }
 });
 
 test("the contract sentence pins --no-worktree so graders read the fixture tree", () => {

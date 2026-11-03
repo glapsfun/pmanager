@@ -7,6 +7,7 @@ import { buildStatus, formatStatus } from "../../plugins/pmanager/skills/pmanage
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { FixtureInfo } from "../fixture";
 import { CHECK_OPTS } from "../graders/context";
+import { memoryRecall } from "../scenarios/memory-recall";
 import {
   buildMemoryRecallFixture,
   LESSON_EPIC,
@@ -101,5 +102,37 @@ describe("memory-recall fixture", () => {
       expect({ kw, hit: lesson.includes(kw) }).toEqual({ kw, hit: false });
     }
     expect(indexRow(index, NEAR_MISS_EPIC).toLowerCase()).toContain("restock");
+  });
+});
+
+describe("memory-recall request", () => {
+  test("the request names neither a trap nor the skill", () => {
+    for (const word of [
+      "legal",
+      "legal-review",
+      "bulk",
+      "transactional",
+      "stream",
+      "launchdarkly",
+      "flag",
+      "deals-newsletter",
+      "newsletter",
+      "flags-in-repo",
+      "pmanager",
+    ]) {
+      expect({ word, hit: memoryRecall.task.toLowerCase().includes(word) }).toEqual({
+        word,
+        hit: false,
+      });
+    }
+  });
+
+  test("the lesson epic's INDEX row shares no word with the request", async () => {
+    // title and primary metric only: the link cell holds "epic.md", and the request says "epic"
+    const cells = indexRow((await loadPmRepo(dir)).index ?? "", LESSON_EPIC).split("|");
+    const words = `${cells[2]} ${cells[9]}`.toLowerCase().match(/[a-z]{4,}/g) ?? [];
+    expect(words.length).toBeGreaterThan(3);
+    const task = memoryRecall.task.toLowerCase();
+    for (const w of words) expect({ w, hit: task.includes(w) }).toEqual({ w, hit: false });
   });
 });
