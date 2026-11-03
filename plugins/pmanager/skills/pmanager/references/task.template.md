@@ -74,6 +74,10 @@ is excluded from INDEX task counts and next-task suggestions. Status changes
 go through the tracking flow (`tracking.md`), which also updates the plan's
 task table and INDEX.md.
 
+An optional `## History` section, last in the file, records each status
+change and failed attempt; only update mode writes it, and its format is in
+`tracking.md`.
+
 A `done` task must have every acceptance criterion checked, or the line
 `**unverified** — <why>` under Acceptance criteria (rule E-ST-003). A
 `blocked` task must name the blocker under Notes (rule E-ST-001). A

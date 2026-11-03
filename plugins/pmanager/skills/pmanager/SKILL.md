@@ -107,12 +107,13 @@ continue.
 **Route the request** into one of three modes:
 
 - **New epic** — a problem/idea not covered by an existing epic → Phase 1.
-- **Update** — the request references tracked work ("T02 is done", "add a
-  task to app-performance", "we descoped X", "the epic looks good —
-  approved") → read `references/tracking.md` and follow it (done claims are
-  verified with `pm verify`, never by repo-wide search); skip Phases 1–5. A
-  claimed epic's documents live in the worktree on the `worktree:` line of
-  its `pm status` row; read and edit them there.
+- **Update** — the request references tracked work ("T02 is done", "T03
+  attempt failed", "add a task to app-performance", "we descoped X", "the
+  epic looks good — approved") → read `references/tracking.md` and follow
+  it (done claims are verified with `pm verify`, never by repo-wide
+  search); skip Phases 1–5. A claimed epic's documents live in the
+  worktree on the `worktree:` line of its `pm status` row; read and edit
+  them there.
 - **Status query** — "where are we on…", "what's next" → answer from
   `pm status` + the epic's plan/tasks; write nothing unless asked.
 - **Claim management** — "release the argocd epic", "take over

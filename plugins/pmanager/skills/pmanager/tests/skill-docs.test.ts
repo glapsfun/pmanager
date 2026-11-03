@@ -137,3 +137,24 @@ test("memory.md Write-back names pm record", () => {
   const s = between(read("references/memory.md"), "## Write-back", "## Edge cases");
   expect(s).toContain("`pm record`");
 });
+
+test("update routing names a failed attempt", () => {
+  expect(flat(SKILL)).toContain('"T03 attempt failed"');
+});
+
+test("tracking.md carries both History forms and the date meaning", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("- YYYY-MM-DD status <from> -> <to>");
+  expect(t).toContain("; fixed by <what>");
+  expect(t).toContain("- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>");
+  expect(t).toContain("the day the planning session recorded the report");
+  expect(t).toContain("never paste log output");
+});
+
+test("the task template points at History but its skeleton has none", () => {
+  const raw = read("references/task.template.md");
+  const block = /```markdown\n([\s\S]*?)```/.exec(raw)?.[1] ?? "";
+  expect(block).not.toContain("## History");
+  expect(flat(raw)).toContain("`## History`");
+  expect(flat(raw)).toContain("tracking.md");
+});
