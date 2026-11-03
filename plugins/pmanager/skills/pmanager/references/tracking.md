@@ -74,6 +74,19 @@ update mode writes History; `pm check` reports a line in neither form
 (E-HIS-001) and a last status line that disagrees with the frontmatter
 (W-HIS-002).
 
+A report holding several events gets one line per event, in the order the
+events happened. For a `todo` task, its `status todo -> in-progress` line
+comes before its first attempt line. A failed attempt followed by a done
+report that names its fix reads:
+
+```markdown
+## History
+
+- 2026-11-03 status todo -> in-progress
+- 2026-11-03 attempt failed: tried <what>; got <result>; evidence <path>
+- 2026-11-04 status in-progress -> done; fixed by <what>
+```
+
 **Scope changes** (add/split/descope tasks, shift a milestone):
 
 1. Create/edit task files per `task.template.md` (INVEST still applies —

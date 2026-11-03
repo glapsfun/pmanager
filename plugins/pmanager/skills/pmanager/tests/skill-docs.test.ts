@@ -163,3 +163,19 @@ test("done claims pass only the done report's evidence to pm verify", () => {
   const t = flat(read("references/tracking.md"));
   expect(t).toContain("never a failed attempt's evidence path");
 });
+
+test("tracking.md shows a multi-event History in event order", () => {
+  const raw = read("references/tracking.md");
+  expect(raw).toContain(
+    [
+      "## History",
+      "",
+      "- 2026-11-03 status todo -> in-progress",
+      "- 2026-11-03 attempt failed: tried <what>; got <result>; evidence <path>",
+      "- 2026-11-04 status in-progress -> done; fixed by <what>",
+    ].join("\n"),
+  );
+  const t = flat(raw);
+  expect(t).toContain("one line per event, in the order the events happened");
+  expect(t).toContain("`status todo -> in-progress` line comes before its first attempt line");
+});
