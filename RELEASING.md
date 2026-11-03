@@ -89,8 +89,9 @@ The first tag marks a version that already shipped. `bun run release baseline --
 ## What is validated, and how
 
 - **Deterministic tests**, in the gate (`.agents/skills/release-guru/tests`). They use local git repositories in place of GitHub and an in-memory stand-in for `gh`. They cover version rules, notes, preflight, prepare, abandon, checks, summary, publish with every interruption and conflict, verify, and baseline.
-- **Live harness check**, run once by hand: prepare in Claude Code, resume in Codex, stop before publishing. Its result is recorded here after it runs.
+- **Live releases** against real GitHub, both on 2026-11-03. `v0.10.0` was the baseline. `v0.10.1` was prepared, checked and published from one Claude Code session that loaded the skill through `.claude/skills`, with the agent e2e skipped; publish merged PR #32 on its first run. Both passed verify on all four routes.
+- **Live harness check**: not run. The planned walkthrough (prepare in Claude Code, resume in Codex, stop before publishing) was skipped, so a Codex session following the skill, and the handoff between harnesses, are covered only by the deterministic tests.
 - **Report-only**: the Codex agent e2e results are shown but do not block.
-- **Not validated**: the release flow against real GitHub before the baseline; whether Codex refreshes marketplaces on its own at startup; the `npx skills` route.
+- **Not validated**: whether Codex refreshes marketplaces on its own at startup; the `npx skills` route.
 
 `gskill` finds skills anywhere in a repository, so `gskill add github.com/glapsfun/pmanager --skill release-guru` would install this skill. It is a maintainer tool for this repository and is not part of the plugin.
