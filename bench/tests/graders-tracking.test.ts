@@ -225,6 +225,23 @@ describe("attempt checks", () => {
     expect(o["no-raw-log"]).toBe(false);
   });
 
+  test("a broken status chain fails the sequence check", async () => {
+    const gap = await scenarioFixture();
+    await historyUpdate(gap.dir, [
+      HISTORY_T01[0] ?? "",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status todo -> done; fixed by seeding all orders inside one transaction",
+    ]);
+    expect((await scenarioOutcomes(gap.dir, gap.info))["t01-history-sequence"]).toBe(false);
+    const start = await scenarioFixture();
+    await historyUpdate(start.dir, [
+      "- 2026-09-15 status blocked -> in-progress",
+      HISTORY_T01[1] ?? "",
+      HISTORY_T01[2] ?? "",
+    ]);
+    expect((await scenarioOutcomes(start.dir, start.info))["t01-history-sequence"]).toBe(false);
+  });
+
   test("a done line without the transaction fix fails the sequence check", async () => {
     const { dir, info } = await scenarioFixture();
     await historyUpdate(dir, [

@@ -263,16 +263,24 @@ export const t01HistorySequence = taskCheck(
     const h = parseHistory(t.body);
     if (!h) return fail("T01 has no ## History section");
     const seq = h.entries.map(describeEntry).join(", ");
-    const statuses = h.entries.filter((e) => e.kind === "status");
+    const statuses = h.entries.filter(
+      (e): e is Extract<HistoryEntry, { kind: "status" }> => e.kind === "status",
+    );
     const targets = statuses.map((e) => e.to);
     if (targets.join(",") !== "in-progress,done") return fail(`status lines: ${seq || "(none)"}`);
+    // T01 starts as todo in the fixture; each line must pick up where the last one left off.
+    let at = "todo";
+    for (const e of statuses) {
+      if (e.from !== at) return fail(`status chain breaks: ${seq}`);
+      at = e.to;
+    }
     const attempt = h.entries.findIndex((e) => e.kind === "attempt");
-    const start = h.entries.indexOf(statuses[0] as HistoryEntry);
-    const end = h.entries.indexOf(statuses[1] as HistoryEntry);
+    const [first, done] = statuses;
+    const start = first ? h.entries.indexOf(first) : -1;
+    const end = done ? h.entries.indexOf(done) : -1;
     if (attempt < start || attempt > end)
       return fail(`attempt not between the status lines: ${seq}`);
-    const done = statuses[1];
-    return done?.kind === "status" && /transaction/i.test(done.fixedBy ?? "")
+    return /transaction/i.test(done?.fixedBy ?? "")
       ? pass(seq)
       : fail(`done line lacks "fixed by ... transaction": ${seq}`);
   },
