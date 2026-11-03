@@ -179,3 +179,13 @@ test("tracking.md shows a multi-event History in event order", () => {
   expect(t).toContain("one line per event, in the order the events happened");
   expect(t).toContain("`status todo -> in-progress` line comes before its first attempt line");
 });
+
+test("several reports in one request render and check once", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("apply all their edits first, then render and check once");
+});
+
+test("each History event stays on one line", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("Each event is one line, never wrapped");
+});

@@ -75,9 +75,11 @@ update mode writes History; `pm check` reports a line in neither form
 (W-HIS-002).
 
 A report holding several events gets one line per event, in the order the
-events happened. For a `todo` task, its `status todo -> in-progress` line
-comes before its first attempt line. A failed attempt followed by a done
-report that names its fix reads:
+events happened. Each event is one line, never wrapped, however long. For a
+`todo` task, its `status todo -> in-progress` line comes before its first
+attempt line. When one request carries several reports, apply all their
+edits first, then render and check once. A failed attempt followed by a
+done report that names its fix reads:
 
 ```markdown
 ## History
