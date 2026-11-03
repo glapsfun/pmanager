@@ -141,10 +141,14 @@ describe("attempt checks", () => {
     await writeFile(p, `${(await readFile(p, "utf8")).trimEnd()}\n\n${text}\n`);
   }
 
-  async function historyUpdate(dir: string, t01: string[] = HISTORY_T01) {
+  async function historyUpdate(
+    dir: string,
+    t01: string[] = HISTORY_T01,
+    t02: string[] = ["- 2026-09-15 status todo -> blocked"],
+  ) {
     await goodUpdate(dir);
     await append(dir, T01, `## History\n\n${t01.join("\n")}`);
-    await append(dir, T02, "## History\n\n- 2026-09-15 status todo -> blocked");
+    await append(dir, T02, `## History\n\n${t02.join("\n")}`);
     await applyRender(await loadPmRepo(dir));
   }
 
@@ -219,6 +223,38 @@ describe("attempt checks", () => {
     await edit(dir, T01, "## Notes\n", `## Notes\n\nPassword was ${FIXTURE_SECRET}\n`);
     const o = await scenarioOutcomes(dir, info);
     expect(o["no-raw-log"]).toBe(false);
+  });
+
+  test("a done line without the transaction fix fails the sequence check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status in-progress -> done",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-sequence"]).toBe(false);
+    expect(o["t01-history-attempt"]).toBe(true);
+  });
+
+  test("an attempt line with the wrong evidence path fails the attempt check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked; evidence docs/profile-results.txt",
+      HISTORY_T01[2] ?? "",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+    expect(o["t01-history-sequence"]).toBe(true);
+  });
+
+  test("T02 History without todo -> blocked fails its check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, HISTORY_T01, ["- 2026-09-15 status todo -> in-progress"]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t02-history-blocked"]).toBe(false);
+    expect(o["t01-history-attempt"]).toBe(true);
   });
 
   test("pasting the log into Notes fails no-raw-log", async () => {
