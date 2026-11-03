@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { missingInstall, PACKAGES, REPO_ROOT } from "../packages";
 
-test("PACKAGES lists tool, bench, ci with existing dirs", () => {
-  expect(PACKAGES.map((p) => p.name)).toEqual(["tool", "bench", "ci"]);
+test("PACKAGES lists tool, bench, ci, release with existing dirs", () => {
+  expect(PACKAGES.map((p) => p.name)).toEqual(["tool", "bench", "ci", "release"]);
   for (const p of PACKAGES) {
     expect(existsSync(join(REPO_ROOT, p.dir, "package.json"))).toBe(true);
   }

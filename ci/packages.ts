@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export type PackageName = "tool" | "bench" | "ci";
+export type PackageName = "tool" | "bench" | "ci" | "release";
 
 export interface Pkg {
   name: PackageName;
@@ -14,6 +14,7 @@ export const PACKAGES: readonly Pkg[] = [
   { name: "tool", dir: "plugins/pmanager/skills/pmanager" },
   { name: "bench", dir: "bench" },
   { name: "ci", dir: "ci" },
+  { name: "release", dir: ".agents/skills/release-guru" },
 ];
 
 /** Names of packages whose directory has no node_modules. */

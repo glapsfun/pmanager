@@ -8,6 +8,7 @@
 
 # Local agent/tooling state
 .claude/settings.local.json
+.release-guru/
 
 # Ai
 .docs

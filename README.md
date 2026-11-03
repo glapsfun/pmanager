@@ -153,7 +153,21 @@ standard, so the `/pmanager` slash command comes only from the Claude Code
 plugin install. The skill itself is fully functional standalone: it triggers
 on planning and scoping language without the explicit command.
 
+It installs from `main`, not from a release, and releases do not verify this route.
+
 </details>
+
+### Pin a version
+
+Releases are git tags `vX.Y.Z`, listed on the [Releases page](https://github.com/glapsfun/pmanager/releases). Without a pin, Codex and fresh Claude Code installs take whatever is on `main`. To stay on a release:
+
+```bash
+gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude --version X.Y.Z
+claude plugin marketplace add glapsfun/pmanager@vX.Y.Z
+codex plugin marketplace add https://github.com/glapsfun/pmanager --ref vX.Y.Z
+```
+
+Inside a Claude Code session the same pin is `/plugin marketplace add glapsfun/pmanager@vX.Y.Z`.
 
 ### Local / development install
 
@@ -222,7 +236,7 @@ the same orchestration repo:
 
 ## Development
 
-Run `bun run setup` once after cloning. It installs dependencies for the tool, bench and ci packages and points git at the hooks in `ci/hooks`.
+Run `bun run setup` once after cloning. It installs dependencies for the tool, bench, ci and release packages and points git at the hooks in `ci/hooks`.
 
 - Commit hook: lints the staged files and typechecks, and checks the commit subject.
 - Push hook: lint, typecheck, manifest, dependency audit, tests and the free e2e.
@@ -231,6 +245,8 @@ Run `bun run setup` once after cloning. It installs dependencies for the tool, b
 - `bun run gate` runs the same checks as the push hook, on demand.
 - `bun run e2e` runs the free end to end tests: a user's day with concurrent sessions, and installing the plugin into Claude Code and Codex in an isolated home.
 - `bun run e2e:agents` runs the paid agent e2e. Run it before a release. It runs 3 runs of each of the 5 scenarios, caps Claude at 10 USD per run, and only `claude-code` blocks; `codex` is reported.
+
+Releases: `bun run release status`, then the steps in [RELEASING.md](RELEASING.md). The `release-guru` skill runs them from Claude Code or Codex.
 
 Commit subjects are `type(scope): msg` or `type: msg`. The allowed scopes are listed in `ci/commit-scopes.json`.
 
@@ -321,6 +337,8 @@ bench/
 ├── microbench/                   # pm tool timings on a synthetic docs/pm
 ├── results/history.jsonl         # append-only run history (committed)
 └── BENCH.md                      # rendered report
+.agents/skills/release-guru/      # maintainer skill + helper for releases (linked from .claude/skills/)
+RELEASING.md                      # release runbook
 .github/workflows/gate.yml        # CI: one job per gate check + tool microbench on every PR
 .github/workflows/bench.yml       # CI: agent benchmark on dispatch or the `bench` label
 ```
