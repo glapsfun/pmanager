@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "memory-recall-current",
+  "createdAt": "2026-11-03T17:19:58.362Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.317",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 900,
+  "repoSha": "071bd22",
+  "repoDirty": false,
+  "skillVersion": "0.10.1",
+  "skillHash": "sha256:8d079e260a8f2c2cd4ba9a1aed0925649a134aea2738ad31d143d2f397243e23",
+  "contractHash": "sha256:86ca041eefd1e4797212882a9238f330426534a63e1e22f9740eda637d8d34d0",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "memory-recall",
+      "version": 1,
+      "promptHash": "sha256:4411933b926aed0f25b527e2247cf13e1f9cc006b4c7e13f38eb11e47a4faf96",
+      "fixtureHash": "sha256:4656ea7967a76d60019f67c2f1036563855fd168448d1cf4a86318215f95ba5c",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "memory-recall-current-p1-memory-recall-with-skill",
+      "pair": 1,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p2-memory-recall-with-skill",
+      "pair": 2,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p3-memory-recall-with-skill",
+      "pair": 3,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p4-memory-recall-with-skill",
+      "pair": 4,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p5-memory-recall-with-skill",
+      "pair": 5,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p6-memory-recall-with-skill",
+      "pair": 6,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p7-memory-recall-with-skill",
+      "pair": 7,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p8-memory-recall-with-skill",
+      "pair": 8,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p9-memory-recall-with-skill",
+      "pair": 9,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "memory-recall-current-p10-memory-recall-with-skill",
+      "pair": 10,
+      "scenario": "memory-recall",
+      "condition": "with-skill",
+      "order": 1
+    }
+  ]
+}
