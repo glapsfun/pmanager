@@ -283,6 +283,7 @@ and [bench/BENCH.md](bench/BENCH.md).
 
 | Experiment | Harness | Model | Scenario | Conditions (A / B) | Pairs (excluded) | Success A / B | Score diff median (A minus B) | Fresh tokens A / B | Pre-framing context A / B | Cost per run A / B | Duration A / B | Cost |
 | :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| attempt-capture-1 (preliminary) | claude-code 2.1.317 | claude-sonnet-5 | tracking-update-memory | with-skill | 3 | 67% | — | 47297 | 24286 | $0.53 | 136s | $1.65 |
 | codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | with-skill / without-skill | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — / — | — / — | 541s / 327s | — |
 | fewer-steps | claude-code 2.1.311 | claude-sonnet-5 | perf-bug-new-epic | with-skill / baseline-skill | 10 (0) | 90% / 90% | +0.00 | 70414 / 75771 | 34939 / 35819 | $0.66 / $1.01 | 255s / 265s | $31.97 |
 | fewer-steps | claude-code 2.1.311 | claude-sonnet-5 | feature-idea-epic | with-skill / baseline-skill | 10 (0) | 60% / 90% | +0.00 | 69412 / 73431 | 27458 / 31306 | $0.60 / $0.90 | 247s / 268s | $31.97 |
