@@ -56,6 +56,20 @@ describe("buildHandoff", () => {
     expect(brief).toContain("## Out of scope\n\n- Pagination (T04).");
     expect(brief).toContain('"T03 of app-performance is done, evidence at <path>"');
   });
+  test("report back offers done with fixed by, a failed attempt, and blocked", async () => {
+    const { repo } = await fixture();
+    const brief = buildHandoff(repo, "app-performance", "T03", {});
+    expect(brief).toContain(
+      '"T03 of app-performance is done, evidence at <path>"; after a failed attempt, end it with "; fixed by <what changed>"',
+    );
+    expect(brief).toContain(
+      'If an attempt failed: "T03 of app-performance attempt failed: tried <what>; got <result>; evidence at <path>"',
+    );
+    expect(brief).toContain('If blocked: "T03 of app-performance is blocked on <reason>"');
+    expect(brief).toContain(
+      "Keep each field to a short summary and point at evidence by path or URL; never paste log output.",
+    );
+  });
   test("unmapped repo is reported, not resolved", async () => {
     const { repo } = await fixture();
     const brief = buildHandoff(repo, "app-performance", "T01", {});
