@@ -23,12 +23,28 @@ function checksTable(s: ReleaseState): string {
   ].join("\n");
 }
 
+/** The newest paid run on this tree; a later check that skipped it does not clear its result. */
+function lastAgentRun(s: ReleaseState): Evidence | undefined {
+  let last: Evidence | undefined;
+  for (const e of s.evidence) {
+    if (e.check !== "agents" || e.tree !== s.tree || e.result === "skipped") continue;
+    if (!last || e.finishedAt > last.finishedAt) last = e;
+  }
+  return last;
+}
+
 /** Blockers a reader must see before saying yes. */
 export function summaryBlockers(s: ReleaseState, notes: string): string[] {
   const fresh = freshEvidence(s);
   const out = [...s.blockers, ...notesProblems(notes)];
-  for (const c of ["gate", "agents"] as const) {
-    if (fresh[c]?.result !== "pass") out.push(`${CHECK_LABEL[c]} has not passed for this tree`);
+  if (fresh.gate?.result !== "pass") out.push(`${CHECK_LABEL.gate} has not passed for this tree`);
+  const run = lastAgentRun(s);
+  if (run && run.result !== "pass") {
+    out.push(
+      `${CHECK_LABEL.agents} did not pass for this tree: run check --agent-e2e until it passes, or abandon and prepare again`,
+    );
+  } else if (!run && fresh.agents?.result !== "skipped") {
+    out.push(`${CHECK_LABEL.agents} has not passed for this tree`);
   }
   return [...new Set(out)];
 }

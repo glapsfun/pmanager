@@ -65,6 +65,68 @@ test("a TODO in the notes and missing checks show as blockers", async () => {
   expect(String(r.data?.summary)).toContain("| gate | not run |");
 });
 
+test("a skipped agent e2e shows in the summary and the PR body and does not block", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const evidence = s.evidence.map((e) =>
+    e.check === "agents" ? { ...e, result: "skipped" as const } : e,
+  );
+  await writeState(f.cfg, { ...s, evidence });
+  const r = await cmdSummary(testCtx(f));
+  expect(r.code).toBe(0);
+  expect(r.blockers).toBeUndefined();
+  expect(String(r.data?.summary)).toMatch(/\| agents \| skipped \| [0-9a-f]{7} \|/);
+  expect(prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n")).toContain(
+    "| agents | skipped |",
+  );
+});
+
+test("a failed agent e2e still blocks", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const evidence = s.evidence.map((e) =>
+    e.check === "agents" ? { ...e, result: "fail" as const } : e,
+  );
+  await writeState(f.cfg, { ...s, evidence });
+  expect((await cmdSummary(testCtx(f))).blockers).toEqual([
+    "agent e2e did not pass for this tree: run check --agent-e2e until it passes, or abandon and prepare again",
+  ]);
+});
+
+test("a later check without --agent-e2e does not hide a failed paid run on the same tree", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const failed = s.evidence.find((e) => e.check === "agents");
+  if (!failed) throw new Error("no agents evidence");
+  const skipped = {
+    ...failed,
+    result: "skipped" as const,
+    finishedAt: "2026-11-02T11:00:00Z",
+  };
+  const evidence = [
+    ...s.evidence.filter((e) => e !== failed),
+    { ...failed, result: "fail" as const },
+    skipped,
+  ];
+  await writeState(f.cfg, { ...s, evidence });
+  expect((await cmdSummary(testCtx(f))).blockers).toEqual([
+    "agent e2e did not pass for this tree: run check --agent-e2e until it passes, or abandon and prepare again",
+  ]);
+  const passedLater = [
+    ...evidence,
+    { ...failed, finishedAt: "2026-11-02T12:00:00Z" },
+    {
+      ...skipped,
+      finishedAt: "2026-11-02T13:00:00Z",
+    },
+  ];
+  await writeState(f.cfg, { ...s, evidence: passedLater });
+  expect((await cmdSummary(testCtx(f))).code).toBe(0);
+});
+
 test("the PR body is the notes plus the checks table", async () => {
   const { f } = await checked();
   const s = await readState(f.cfg);

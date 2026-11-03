@@ -5,7 +5,7 @@ import { gitOk } from "../../../../plugins/pmanager/skills/pmanager/tests/helper
 import { agentsCmd, cmdCheck, cmdWait, GATE_CMD, runChecks } from "../scripts/checks";
 import type { Run } from "../scripts/git";
 import { cmdPrepare } from "../scripts/prepare";
-import { main } from "../scripts/release";
+import { main, parseArgs, USAGE } from "../scripts/release";
 import { readState, statePaths, writeState } from "../scripts/state";
 import { testCtx } from "./ctx";
 import { commitAndPush, makeFixture } from "./fixture";
@@ -37,10 +37,25 @@ function fakeRun(
   return { run, calls };
 }
 
-test("passing gate and agent e2e mark the candidate checked, tracked files untouched", async () => {
+test("without --agent-e2e only the gate runs and the agent e2e is recorded as skipped", async () => {
   const f = await prepared();
   const { run, calls } = fakeRun(() => ok("gate ok\n"));
   const r = await runChecks({ ...testCtx(f), run });
+  expect(r).toMatchObject({ code: 0, phase: "checked" });
+  expect(calls.some((c) => c.cmd.includes("agent-e2e"))).toBe(false);
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  expect(s.evidence.map((e) => [e.check, e.result, e.tree])).toEqual([
+    ["gate", "pass", s.tree],
+    ["agents", "skipped", s.tree],
+  ]);
+  expect(s.evidence[1]?.detail).toBe("not run: check ran without --agent-e2e");
+});
+
+test("passing gate and agent e2e mark the candidate checked, tracked files untouched", async () => {
+  const f = await prepared();
+  const { run, calls } = fakeRun(() => ok("gate ok\n"));
+  const r = await runChecks({ ...testCtx(f), run }, { agentE2e: true });
   expect(r).toMatchObject({ code: 0, phase: "checked" });
   const s = await readState(f.cfg);
   if (!s) throw new Error("no state");
@@ -59,7 +74,7 @@ test("passing gate and agent e2e mark the candidate checked, tracked files untou
 test("a failing gate stops before the paid run", async () => {
   const f = await prepared();
   const { run, calls } = fakeRun(() => ({ code: 1, stdout: "✖ test\n", stderr: "" }));
-  const r = await runChecks({ ...testCtx(f), run });
+  const r = await runChecks({ ...testCtx(f), run }, { agentE2e: true });
   expect(r.code).toBe(1);
   expect(r.phase).toBe("blocked");
   expect(calls.some((c) => c.cmd.includes("agent-e2e"))).toBe(false);
@@ -72,7 +87,7 @@ test("an unavailable blocking harness is recorded as unavailable and blocks", as
     () => ok(),
     () => ({ code: 1, stdout: "claude-code unavailable\nagent e2e: FAIL\n", stderr: "" }),
   );
-  const r = await runChecks({ ...testCtx(f), run });
+  const r = await runChecks({ ...testCtx(f), run }, { agentE2e: true });
   expect(r.phase).toBe("blocked");
   const s = await readState(f.cfg);
   expect(s?.evidence.find((e) => e.check === "agents")?.result).toBe("unavailable");
@@ -86,12 +101,28 @@ test("a tree that changes during the checks fails both", async () => {
     await gitOk(["commit", "-qam", "docs: sneaky"], f.root);
     return ok();
   });
-  const r = await runChecks({ ...testCtx(f), run });
+  const r = await runChecks({ ...testCtx(f), run }, { agentE2e: true });
   expect(r.phase).toBe("blocked");
   const s = await readState(f.cfg);
   expect(s?.evidence.map((e) => [e.result, e.detail])).toEqual([
     ["fail", "tree changed during checks"],
     ["fail", "tree changed during checks"],
+  ]);
+});
+
+test("a tree change fails the gate but leaves a skipped paid run skipped", async () => {
+  const f = await prepared();
+  const { run } = fakeRun(async () => {
+    writeFileSync(join(f.root, "README.md"), "sneaky\n");
+    await gitOk(["commit", "-qam", "docs: sneaky"], f.root);
+    return ok();
+  });
+  const r = await runChecks({ ...testCtx(f), run });
+  expect(r.phase).toBe("blocked");
+  const s = await readState(f.cfg);
+  expect(s?.evidence.map((e) => [e.check, e.result])).toEqual([
+    ["gate", "fail"],
+    ["agents", "skipped"],
   ]);
 });
 
@@ -111,6 +142,7 @@ test("check starts the detached runner and wait reports on it", async () => {
     expect(r).toMatchObject({ code: 3, next: "run wait" });
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.at(-1)).toBe("run-checks");
+    expect(r.message).toContain("gate only; add --agent-e2e for the paid agent e2e");
     expect((await readState(f.cfg))?.checksPid).toBe(sleeper.pid);
     expect((await cmdWait(ctx, { timeout: 1 })).code).toBe(3);
     const s = await readState(f.cfg);
@@ -122,11 +154,43 @@ test("check starts the detached runner and wait reports on it", async () => {
   }
 });
 
+test("check --agent-e2e hands the flag to the detached runner", async () => {
+  const f = await prepared();
+  const spawned: string[][] = [];
+  const ctx = {
+    ...testCtx(f),
+    spawnDetached: (cmd: string[]) => {
+      spawned.push(cmd);
+      return -1;
+    },
+  };
+  await cmdCheck(ctx, { agentE2e: true });
+  expect(spawned[0]?.slice(-2)).toEqual(["run-checks", "--agent-e2e"]);
+});
+
 test("check --foreground runs the checks inline", async () => {
   const f = await prepared();
-  const { run } = fakeRun(() => ok());
+  const { run, calls } = fakeRun(() => ok());
   const r = await cmdCheck({ ...testCtx(f), run }, { foreground: true });
   expect(r.phase).toBe("checked");
+  expect(calls.some((c) => c.cmd.includes("agent-e2e"))).toBe(false);
+});
+
+test("check --foreground --agent-e2e runs the paid run inline", async () => {
+  const f = await prepared();
+  const { run, calls } = fakeRun(() => ok());
+  const r = await cmdCheck({ ...testCtx(f), run }, { foreground: true, agentE2e: true });
+  expect(r.phase).toBe("checked");
+  expect(calls.some((c) => c.cmd.includes("agent-e2e"))).toBe(true);
+});
+
+test("the command line passes --agent-e2e to check and to the runner", () => {
+  expect(parseArgs(["check", "--agent-e2e", "--foreground"])?.flags).toEqual({
+    agentE2e: true,
+    foreground: true,
+  });
+  expect(parseArgs(["run-checks", "--agent-e2e"])?.flags).toEqual({ agentE2e: true });
+  expect(USAGE).toContain("check [--agent-e2e] [--foreground]");
 });
 
 test("check refuses when HEAD is not the prepared candidate", async () => {

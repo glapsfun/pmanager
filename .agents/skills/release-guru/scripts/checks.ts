@@ -42,7 +42,15 @@ async function toolVersions(ctx: Ctx): Promise<Record<string, string>> {
   return out;
 }
 
-export async function cmdCheck(ctx: Ctx, opts: { foreground?: boolean }): Promise<Result> {
+export interface CheckOpts {
+  /** The paid agent e2e can take hours, so it runs only when asked for. */
+  agentE2e?: boolean;
+}
+
+export async function cmdCheck(
+  ctx: Ctx,
+  opts: CheckOpts & { foreground?: boolean },
+): Promise<Result> {
   const s = await readState(ctx.cfg);
   if (!s) return { code: 1, phase: "none", message: "no release in progress", next: "run prepare" };
   if (s.kind !== "release" || !CHECKABLE.includes(s.phase)) {
@@ -59,10 +67,10 @@ export async function cmdCheck(ctx: Ctx, opts: { foreground?: boolean }): Promis
       next: `switch to ${s.branch} and remove other changes, or abandon and prepare again`,
     };
   }
-  if (opts.foreground) return runChecks(ctx);
+  if (opts.foreground) return runChecks(ctx, opts);
   const paths = statePaths(ctx.cfg);
   const pid = ctx.spawnDetached(
-    [process.execPath, RELEASE_SCRIPT, "run-checks"],
+    [process.execPath, RELEASE_SCRIPT, "run-checks", ...(opts.agentE2e ? ["--agent-e2e"] : [])],
     ctx.cfg.root,
     paths.log,
   );
@@ -70,10 +78,13 @@ export async function cmdCheck(ctx: Ctx, opts: { foreground?: boolean }): Promis
     return { code: 1, phase: s.phase, message: `could not start the checks; see ${paths.log}` };
   }
   await writeState(ctx.cfg, { ...s, checksPid: pid }, ctx.now());
+  const scope = opts.agentE2e
+    ? "gate and paid agent e2e"
+    : "gate only; add --agent-e2e for the paid agent e2e";
   return {
     code: 3,
     phase: s.phase,
-    message: `checks started (pid ${pid}); log: ${paths.log}`,
+    message: `checks started (${scope}, pid ${pid}); log: ${paths.log}`,
     next: "run wait",
   };
 }
@@ -102,7 +113,7 @@ function evidence(
 }
 
 /** The checks themselves; the detached runner and --foreground both end here. */
-export async function runChecks(ctx: Ctx): Promise<Result> {
+export async function runChecks(ctx: Ctx, opts: CheckOpts = {}): Promise<Result> {
   const start = await readState(ctx.cfg);
   if (!start) return { code: 1, phase: "none", message: "no release in progress" };
   const paths = statePaths(ctx.cfg);
@@ -129,6 +140,21 @@ export async function runChecks(ctx: Ctx): Promise<Result> {
   );
   if (gate.code !== 0) {
     blockers.push(`gate failed for tree ${short(start.tree)}: see ${paths.log}`);
+  } else if (!opts.agentE2e) {
+    // A record, not a gap: the summary and the PR show that this tree skipped the paid run.
+    const now = ctx.now().toISOString();
+    ran.push(
+      evidence(
+        start,
+        "agents",
+        [],
+        tools,
+        now,
+        now,
+        "skipped",
+        "not run: check ran without --agent-e2e",
+      ),
+    );
   } else {
     const cmd = agentsCmd(paths);
     const agentsStart = ctx.now().toISOString();
@@ -159,7 +185,11 @@ export async function runChecks(ctx: Ctx): Promise<Result> {
     (await ctx.git.tree("HEAD")) !== start.tree ||
     (await ctx.git.dirty()).length > 0;
   if (moved) {
-    for (const e of ran) Object.assign(e, { result: "fail", detail: "tree changed during checks" });
+    // A skipped run never ran, and marking it failed would demand a paid run on this tree.
+    for (const e of ran) {
+      if (e.result !== "skipped")
+        Object.assign(e, { result: "fail", detail: "tree changed during checks" });
+    }
     blockers.unshift("the tree changed during checks; check again on an unchanged candidate");
   }
 

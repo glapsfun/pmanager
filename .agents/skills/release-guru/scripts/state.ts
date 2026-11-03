@@ -19,7 +19,7 @@ export interface Evidence {
   commit: string;
   tree: string;
   tools: Record<string, string>;
-  result: "pass" | "fail" | "unavailable";
+  result: "pass" | "fail" | "unavailable" | "skipped";
   detail: string;
   startedAt: string;
   finishedAt: string;

@@ -20,7 +20,7 @@ import { cmdVerify } from "./verify";
 export const USAGE = `usage: bun run release <command> [flags]
   status                          compare the saved release with git and GitHub
   prepare [--version X.Y.Z]       create release/vX.Y.Z, bump both manifests, draft notes
-  check [--foreground]            run the gate and the paid agent e2e on the candidate
+  check [--agent-e2e] [--foreground]  run the gate on the candidate; --agent-e2e adds the paid agent e2e
   wait [--timeout S]              wait up to S seconds (default 540) for running checks
   summary                         write and print the release summary
   publish --tree <hash> [--wait S]  publish the approved candidate; rerun to resume
@@ -35,9 +35,14 @@ export interface Flags {
   timeout?: number;
   wait?: number;
   foreground?: boolean;
+  agentE2e?: boolean;
 }
 
 const VALUE_FLAGS = new Set(["--version", "--tree", "--commit", "--timeout", "--wait"]);
+const BOOL_FLAGS: Record<string, "foreground" | "agentE2e"> = {
+  "--foreground": "foreground",
+  "--agent-e2e": "agentE2e",
+};
 
 export function parseArgs(argv: string[]): { command: string; flags: Flags } | null {
   const [command, ...rest] = argv;
@@ -45,8 +50,9 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } | n
   const flags: Flags = {};
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] as string;
-    if (arg === "--foreground") {
-      flags.foreground = true;
+    const bool = Object.hasOwn(BOOL_FLAGS, arg) ? BOOL_FLAGS[arg] : undefined;
+    if (bool) {
+      flags[bool] = true;
       continue;
     }
     const value = rest[i + 1];
@@ -98,9 +104,12 @@ const COMMANDS: Record<string, { run: Command; locks: boolean }> = {
   status: { run: (ctx) => cmdStatus(ctx), locks: false },
   prepare: { run: (ctx, f) => cmdPrepare(ctx, { version: f.version }), locks: true },
   abandon: { run: (ctx) => cmdAbandon(ctx), locks: true },
-  check: { run: (ctx, f) => cmdCheck(ctx, { foreground: f.foreground }), locks: true },
+  check: {
+    run: (ctx, f) => cmdCheck(ctx, { foreground: f.foreground, agentE2e: f.agentE2e }),
+    locks: true,
+  },
   // The detached runner; check already holds the lock and records its pid.
-  "run-checks": { run: (ctx) => runChecks(ctx), locks: false },
+  "run-checks": { run: (ctx, f) => runChecks(ctx, { agentE2e: f.agentE2e }), locks: false },
   wait: { run: (ctx, f) => cmdWait(ctx, { timeout: f.timeout }), locks: false },
   summary: { run: (ctx) => cmdSummary(ctx), locks: false },
   verify: { run: (ctx) => cmdVerify(ctx), locks: true },
