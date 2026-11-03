@@ -82,5 +82,5 @@ unchecked acceptance or exit criterion with a taste word such as "nicer" or
 "properly" and no number or command), history E-HIS-001 (a History line in
 neither form) / W-HIS-002 (the last History status differs from
 frontmatter), claims E-CLM-001 / W-CLM-001…002, legacy W-LEG-001. Each
-finding prints its fix. Passing means
-the documents conform; it does not prove evidence, approval, or outcomes.
+finding prints its fix. Passing means the documents conform; it does not
+prove evidence, approval, or outcomes.
