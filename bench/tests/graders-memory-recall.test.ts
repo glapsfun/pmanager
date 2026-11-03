@@ -421,3 +421,110 @@ describe("memory-recall checks on reviewer wordings", () => {
     expect(newSpecLog.kind).toBe("contract");
   });
 });
+
+describe("memory-recall checks on final-review wordings", () => {
+  test("prep tasks need no Legal edge", async () => {
+    for (const title of [
+      "Add a restock_notifications table",
+      "Back-in-stock notification signup on sold-out pages",
+      "Notification subscription API and model",
+      "Enable shoppers to subscribe on sold-out pages",
+      "Add one-click unsubscribe to restock notifications",
+      "Monitor deliverability on the bulk stream",
+      "Remove the LaunchDarkly SDK leftovers",
+    ]) {
+      const tasks = [...GOOD_TASKS, { id: "T05", title, deps: [] }];
+      expect({ title, ok: (await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"] }).toEqual({
+        title,
+        ok: true,
+      });
+    }
+  });
+
+  test("sends named by audience or rollout must wait for Legal", async () => {
+    const email: T = {
+      id: "T05",
+      title: "Email subscribers when the item is restocked",
+      deps: [],
+      body: 'Call `send(to, "restock", stream="bulk")` in app/mailer.py.',
+    };
+    expect(
+      (await outcomes({ ...GOOD, tasks: [...GOOD_TASKS, email] }))["memo-lesson-applied"],
+    ).toBe(false);
+    const waits = { ...email, deps: ["T01"] };
+    expect(
+      (await outcomes({ ...GOOD, tasks: [...GOOD_TASKS, waits] }))["memo-lesson-applied"],
+    ).toBe(true);
+    const ramp: T = { id: "T05", title: "Turn it on for 5% of shoppers, then everyone", deps: [] };
+    expect((await outcomes({ ...GOOD, tasks: [...GOOD_TASKS, ramp] }))["memo-lesson-applied"]).toBe(
+      false,
+    );
+  });
+
+  test("Legal counts only on a positive review phrase", async () => {
+    const loose = withTask(GOOD_TASKS, "T03", { deps: ["T02"] });
+    const none = { ...GOOD, tasks: loose, planDeps: "| none (no legal dependencies) | | | |" };
+    expect((await outcomes(none))["memo-lesson-applied"]).toBe(false);
+    const selfWaived = withTask(
+      GOOD_TASKS.filter((t) => t.id !== "T01"),
+      "T03",
+      { deps: ["T02"], body: `No legal review is needed for this template. ${BULK_SEND}` },
+    );
+    expect((await outcomes({ ...GOOD, tasks: selfWaived }))["memo-lesson-applied"]).toBe(false);
+  });
+
+  test("negated or default mentions of the transactional stream are not sends", async () => {
+    for (const extra of [
+      "No restock email is sent on the transactional stream.",
+      "Zero restock emails sent via the transactional stream.",
+      'mailer.send defaults to stream="transactional"; pass stream="bulk" explicitly.',
+      'Don\'t change the default stream="transactional".',
+    ]) {
+      const tasks = line("T03", `${BULK_SEND}\n\n${extra}`);
+      expect({ extra, ok: (await outcomes({ ...GOOD, tasks }))["prior-lesson-applied"] }).toEqual({
+        extra,
+        ok: true,
+      });
+    }
+  });
+
+  test("lines that discuss LaunchDarkly without building on it are not reliance", async () => {
+    for (const extra of [
+      "Flags moved from LaunchDarkly to config/flags.yaml.",
+      "flags-in-repo migrated off LaunchDarkly.",
+      "The memo's LaunchDarkly line is out-of-date.",
+      "LaunchDarkly (memo) vs config/flags.yaml (code): the code wins.",
+      "Update the memo line that still names LaunchDarkly.",
+    ]) {
+      const tasks = line("T02", extra);
+      expect({ extra, ok: (await outcomes({ ...GOOD, tasks }))["stale-not-followed"] }).toEqual({
+        extra,
+        ok: true,
+      });
+    }
+    const milestone = [
+      "",
+      "## Risk register",
+      "",
+      "| Risk | Likelihood | Impact | Mitigation |",
+      "| :--- | :--- | :--- | :--- |",
+      "| The memo says flags live in LaunchDarkly; someone follows it | med | med | point at config/flags.yaml |",
+      "",
+      "## Changelog",
+      "",
+      "| 2026-09-15 | Memo corrected: flags live in config/flags.yaml, not LaunchDarkly | flags-in-repo |",
+      "",
+    ].join("\n");
+    expect((await outcomes({ ...GOOD, milestone }))["stale-not-followed"]).toBe(true);
+  });
+
+  test("a bare flags.py and a spaced deals newsletter citation count", async () => {
+    const tasks = withTask(GOOD_TASKS, "T04", {
+      title: "Gate the alerts with is_flag_on in flags.py at 10% of shoppers",
+    });
+    expect((await outcomes({ ...GOOD, tasks }))["stale-not-followed"]).toBe(true);
+    const related =
+      "- The deals newsletter epic: mail the shopper's order did not trigger goes on the bulk stream.";
+    expect((await outcomes({ ...GOOD, related }))["prior-epic-cited"]).toBe(true);
+  });
+});

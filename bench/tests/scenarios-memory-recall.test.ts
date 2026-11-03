@@ -96,6 +96,70 @@ describe("memory-recall fixture", () => {
     expect(schema).not.toMatch(/\btotal REAL\b/);
   });
 
+  test("the code shows both streams and the default, and nothing about which mail goes where", async () => {
+    const mailer = await Bun.file(join(dir, "app", "mailer.py")).text();
+    expect(mailer).toContain('STREAMS = ("transactional", "bulk")');
+    expect(mailer).toContain('stream="transactional"');
+    expect(mailer).not.toMatch(/orders@|news@/);
+    const files = (await gitOk(["ls-files"], dir))
+      .split("\n")
+      .filter((p) => p !== "" && !p.startsWith("docs/pm/") && p !== "app/mailer.py");
+    for (const p of files) {
+      const text = await Bun.file(join(dir, p)).text();
+      expect({ p, hint: /mailer|order-confirmation|confirm_order/.test(text) }).toEqual({
+        p,
+        hint: false,
+      });
+    }
+    const lesson = (await loadPmRepo(dir)).epics.find((e) => e.slug === LESSON_EPIC);
+    expect(lesson?.epic?.body ?? "").not.toContain("@shop.example");
+  });
+
+  test("the Legal rule postdates deals-newsletter, and Legal appears only in the memo", async () => {
+    const ruleDate = /\[user, (\d{4}-\d{2}-\d{2})\]$/.exec(MEMO_LESSON_LINE)?.[1] ?? "";
+    const repo = await loadPmRepo(dir);
+    const lesson = repo.epics.find((e) => e.slug === LESSON_EPIC);
+    expect(ruleDate > (getString(lesson?.epic?.frontmatter ?? {}, "updated") ?? "")).toBe(true);
+    expect(ruleDate < "2026-09-10").toBe(true);
+    const pm = (await gitOk(["ls-files", "docs/pm"], dir)).split("\n").filter((p) => p !== "");
+    for (const p of pm.filter((f) => f !== "docs/pm/pmanager-memo.md")) {
+      const text = await Bun.file(join(dir, p)).text();
+      expect({ p, legal: /legal/i.test(text) }).toEqual({ p, legal: false });
+    }
+    for (const e of repo.epics) {
+      if ((getString(e.epic?.frontmatter ?? {}, "updated") ?? "") <= ruleDate) continue;
+      const text = [e.epic?.raw, e.plan?.raw, ...e.tasks.map((t) => t.raw)].join("\n");
+      expect({ slug: e.slug, mail: /e-?mail|newsletter|mailer/i.test(text) }).toEqual({
+        slug: e.slug,
+        mail: false,
+      });
+    }
+  });
+
+  test("jobs, migrations, flags and copy agree with the memo and the epics", async () => {
+    const cron = await Bun.file(join(dir, "deploy", "cron.yaml")).text();
+    const modules = [...cron.matchAll(/python -m ([\w.]+)/g)].map((m) => m[1] as string);
+    expect(modules.length).toBeGreaterThan(0);
+    for (const m of modules) {
+      const path = `${m.replaceAll(".", "/")}.py`;
+      expect({ path, exists: await Bun.file(join(dir, path)).exists() }).toEqual({
+        path,
+        exists: true,
+      });
+    }
+    const migrations = (await gitOk(["ls-files", "migrations"], dir)).split("\n").filter(Boolean);
+    const sql = (await Promise.all(migrations.map((p) => Bun.file(join(dir, p)).text()))).join(
+      "\n",
+    );
+    expect(sql).toContain("ADD COLUMN total_cents");
+    expect(sql).toContain("DROP COLUMN total");
+    const flags = await Bun.file(join(dir, "config", "flags.yaml")).text();
+    expect(flags).toMatch(/review_moderation:\n {2}enabled: true\n {2}rollout_percent: 100/);
+    const memo = (await loadPmRepo(dir)).memo?.raw ?? "";
+    expect(memo).not.toContain("not straight to code");
+    expect(sectionBody(memo, "3. Stakeholders") ?? "").toMatch(/^\| legal \|/im);
+  });
+
   test("every repo path the memo names exists", async () => {
     const memo = (await loadPmRepo(dir)).memo?.raw ?? "";
     const named = [

@@ -15,29 +15,41 @@ import { fail, pass } from "./common";
 import { epicCheck } from "./new-epic";
 import type { Check, CheckResult } from "./types";
 
-const LEGAL = /\blegal\b|LEGAL-REVIEW/i;
-/** Work that puts mail in front of shoppers; "notify me" names the opt-in button, not a send. */
-const SEND_TITLE =
-  /\bsend|dispatch|deliver|notification|\bnotify\b(?![- ]me)|roll\s?-?out|enable|launch/i;
-const SEND_BODY = /mailer\.send/;
-/** Writing a template or copy, or capturing opt-ins, ships nothing to shoppers by itself. */
-const PREP_TITLE = /\btemplate\b|\bcopy\b|\bcapture\b/i;
-const SEND_VERB = /\b(send|dispatch|deliver)/i;
+const LEGAL_TITLE = /\blegal\b|LEGAL-REVIEW/i;
+const LEGAL_REVIEW = /LEGAL-REVIEW|\blegal\s+(review|sign-?off|approval)/i;
+const LEGAL_NEGATION = /\b(no|not|none|never|without|skip\w*|waive\w*)\b|n't\b/i;
 
-const BULK = /stream\s*[=:]\s*["'`]?bulk|["'`]?\bbulk["'`]?\s+(mail\s+)?stream|news@/i;
+// A task ships mail or ramps the flag only when it says so; data model, UI, signup,
+// template and monitoring work ships nothing to shoppers by itself.
+const SEND_VERB = /\b(send\w*|e-?mail\w*|notify\w*)\b/i;
+const AUDIENCE = /\b(shoppers?|subscribers?|customers?)\b/i;
+const SEND_WORD = /\bsend\w*\b/i;
+const MAIL_OBJECT = /\b(e-?mails?|alerts?|notifications?|messages?|mail)\b/i;
+const ROLLOUT =
+  /\broll(ing|s|ed)?[\s-]?out\b|\brollout\b|\bramp\w*|\bturn(s|ed|ing)?\s+(\w+\s+)?on\b|\bgo(es|ing)?[\s-]live\b|\d+\s*%\s*(of\s+)?(the\s+)?(shoppers|users|customers|subscribers)/i;
+const PREP =
+  /\b(tables?|models?|schema|migrations?|api|ui|pages?|buttons?|forms?|sign-?ups?|subscribe|subscriptions?|unsubscribe|templates?|copy|monitor\w*|measur\w*|metrics?|dashboards?|deliverability)\b/i;
+const BODY_SEND = /mailer\.send|\bsend\(|stream\s*=/;
+
+const BULK = /stream\s*[=:]\s*["'`]?bulk|["'`]?\bbulk["'`]?\s+(mail\s+)?stream/i;
 const TRANSACTIONAL_SEND =
   /stream\s*[=:]\s*["'`]?transactional|\b(send\w*|sent|use[sd]?|using|on|via)\s+(the\s+)?["'`]?transactional["'`]?\s+(mail\s+)?stream/i;
 /** Retelling the deals-newsletter incident, or keeping order mail where it is, is not a send instruction. */
 const STREAM_HISTORY =
   /newsletter|deals|spam|reverted|order mail|order confirmation|confirm_order/i;
 const NEGATION =
-  /\b(not|never|instead|avoid|reserved|removed|retired|no longer|stale|outdated|superseded|replac\w*)\b/i;
+  /\b(not|never|no|zero|instead|avoid|reserved|removed|retired|no longer|stale|outdated|superseded|replac\w*|default\w*)\b|n't\b/i;
 const STREAM_NEGATION = /\b(only|keeps?|kept|stays?|unchanged)\b|reserved for/i;
-const LD_NEGATION =
-  /\b(gone|dropped|deprecated|decommissioned|obsolete)\b|out of date|rather than|no launch\s?darkly|contract ended|\bmoved\b.*\bout of\b/i;
 
-const FLAGS_CURRENT = /\bflags\.ya?ml\b|app\/flags\.py|rollout_percent|is_enabled/i;
 const LAUNCHDARKLY = /launch\s?darkly/i;
+/** Building on LaunchDarkly, as opposed to naming it while explaining the move away from it. */
+const LD_BUILD =
+  /\b(creat\w*|add\w*|set\w*|configur\w*|roll(ing|s|ed)?[\s-]?out|rollout)\b.*\blaunch\s?darkly|\blaunch\s?darkly\b.*\b(creat\w*|configur\w*|set up|roll(ing|s|ed)?[\s-]?out|rollout)\b|\blaunch\s?darkly\s+(flags?|rollouts?|dashboard|segments?|toggles?|targeting|percentages?)\b/i;
+const LD_NEGATION =
+  /\b(gone|dropped|deprecated|decommissioned|obsolete|migrated off)\b|out[- ]of[- ]date|rather than|no launch\s?darkly|contract ended|\bmoved\b.*\b(out of|from)\b/i;
+const LD_CONTEXT = /\bmemo\b|flags-in-repo|flags\.(ya?ml|py)|in-repo flags?|\bwrong\b/i;
+const FLAGS_CURRENT = /\bflags\.(ya?ml|py)\b|rollout_percent|is_enabled/i;
+const LESSON_PHRASE = /deals[\s-]newsletter/i;
 
 function title(t: TaskDoc): string {
   return getString(t.frontmatter, "title") ?? "";
@@ -51,8 +63,12 @@ function planLines(e: EpicRecord): string[] {
   return (e.plan?.body ?? "").split("\n");
 }
 
-function ruledOutLd(l: string): boolean {
-  return NEGATION.test(l) || LD_NEGATION.test(l);
+function discussesLd(l: string): boolean {
+  return NEGATION.test(l) || LD_NEGATION.test(l) || LD_CONTEXT.test(l);
+}
+
+function reliesOnLd(l: string): boolean {
+  return LAUNCHDARKLY.test(l) && LD_BUILD.test(l) && !discussesLd(l);
 }
 
 /** Copied from planning-traps.ts, whose grader version is pinned by a finished experiment. */
@@ -76,24 +92,43 @@ function related(e: EpicRecord): string {
 
 function citesLesson(e: EpicRecord): boolean {
   const r = related(e);
-  return r.includes(LESSON_EPIC) || r.toLowerCase().includes(LESSON_TITLE.toLowerCase());
+  return (
+    r.includes(LESSON_EPIC) ||
+    r.toLowerCase().includes(LESSON_TITLE.toLowerCase()) ||
+    LESSON_PHRASE.test(r)
+  );
 }
 
 function isSendTask(t: TaskDoc): boolean {
   const name = title(t);
-  if (PREP_TITLE.test(name) && !SEND_VERB.test(name)) return false;
-  return SEND_TITLE.test(name) || SEND_BODY.test(t.body);
+  if (
+    (SEND_VERB.test(name) && AUDIENCE.test(name)) ||
+    (SEND_WORD.test(name) && MAIL_OBJECT.test(name)) ||
+    ROLLOUT.test(name)
+  ) {
+    return true;
+  }
+  if (PREP.test(name)) return false;
+  return BODY_SEND.test(t.body);
+}
+
+/** "none (no legal dependencies)" or "no legal review needed" must not count as planning one. */
+function namesReview(text: string): boolean {
+  return text.split("\n").some((l) => LEGAL_REVIEW.test(l) && !LEGAL_NEGATION.test(l));
+}
+
+function isLegalTask(t: TaskDoc): boolean {
+  const name = title(t);
+  return (LEGAL_TITLE.test(name) && !LEGAL_NEGATION.test(name)) || namesReview(t.body);
 }
 
 function memoLesson(e: EpicRecord): CheckResult {
-  if (LEGAL.test(sectionBody(e.plan?.body ?? "", "Dependencies") ?? "")) {
+  if (namesReview(sectionBody(e.plan?.body ?? "", "Dependencies") ?? "")) {
     return pass("the plan's Dependencies section names the Legal review");
   }
   const send = e.tasks.filter(isSendTask);
-  if (send.length === 0) return fail("no task sends, notifies or rolls out to shoppers");
-  const legal = new Set(
-    e.tasks.filter((t) => LEGAL.test(title(t)) || LEGAL.test(t.body)).map((t) => t.id),
-  );
+  if (send.length === 0) return fail("no task sends mail to shoppers or rolls the feature out");
+  const legal = new Set(e.tasks.filter(isLegalTask).map((t) => t.id));
   const loose = send.filter((t) => !legal.has(t.id) && !reaches(e, t.id, legal));
   return loose.length === 0
     ? pass(`${send.map((t) => t.id).join(", ")} wait for the Legal review`)
@@ -105,7 +140,7 @@ function memoLesson(e: EpicRecord): CheckResult {
 export const memoLessonApplied = epicCheck(
   "memo-lesson-applied",
   "outcome",
-  "every task that sends to shoppers waits for the Legal sign-off the memo requires",
+  "every task that sends to shoppers or rolls out waits for the Legal sign-off the memo requires",
   memoLesson,
 );
 
@@ -128,6 +163,7 @@ export const priorLessonApplied = epicCheck(
     const wrong = lines.find(
       (l) =>
         TRANSACTIONAL_SEND.test(l) &&
+        !BULK.test(l) &&
         !STREAM_HISTORY.test(l) &&
         !NEGATION.test(l) &&
         !STREAM_NEGATION.test(l),
@@ -141,12 +177,10 @@ export const priorLessonApplied = epicCheck(
 export const staleNotFollowed = epicCheck(
   "stale-not-followed",
   "outcome",
-  "a task uses the in-repo flags and neither the tasks nor the plan rely on LaunchDarkly",
+  "a task uses the in-repo flags and neither the tasks nor the plan build on LaunchDarkly",
   (e) => {
-    const wrong = [...taskLines(e), ...planLines(e)].find(
-      (l) => LAUNCHDARKLY.test(l) && !ruledOutLd(l),
-    );
-    if (wrong) return fail(`relies on LaunchDarkly: "${wrong.trim()}"`);
+    const wrong = [...taskLines(e), ...planLines(e)].find(reliesOnLd);
+    if (wrong) return fail(`builds on LaunchDarkly: "${wrong.trim()}"`);
     const right = taskLines(e).find((l) => FLAGS_CURRENT.test(l));
     return right ? pass(`"${right.trim()}"`) : fail("no task uses the in-repo flags");
   },
@@ -158,7 +192,7 @@ export const staleFlagged = epicCheck(
   "the run notes that LaunchDarkly is gone, or corrects the memo line",
   (e, ctx) => {
     const lines = [...(e.epic?.body ?? "").split("\n"), ...planLines(e), ...taskLines(e)];
-    const note = lines.find((l) => LAUNCHDARKLY.test(l) && ruledOutLd(l));
+    const note = lines.find((l) => LAUNCHDARKLY.test(l) && discussesLd(l));
     if (note) return pass(`"${note.trim()}"`);
     const memo = ctx.repo?.memo?.raw ?? "";
     return memo !== "" && !memo.includes(STALE_MEMO_LINE)

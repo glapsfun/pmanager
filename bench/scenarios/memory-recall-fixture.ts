@@ -13,7 +13,7 @@ const SUPERSEDING_EPIC = "flags-in-repo";
 export const NEAR_MISS_EPIC = "restock-forecast";
 
 export const MEMO_LESSON_LINE =
-  "Every new or changed customer-facing email template needs Legal sign-off on consent and unsubscribe wording; file a LEGAL-REVIEW ticket and allow 5 business days. [user, 2026-04-14]";
+  "Every new or changed customer-facing email template needs Legal sign-off on consent and unsubscribe wording; file a LEGAL-REVIEW ticket and allow 5 business days. [user, 2026-06-02]";
 export const STALE_MEMO_LINE =
   "Feature flags live in LaunchDarkly (project `webshop`); percentage rollouts are set in the LaunchDarkly dashboard. [user, 2026-02-03]";
 
@@ -60,7 +60,7 @@ const EPICS: PriorEpic[] = [
     target: ">= 3%",
     nonGoal: "Personalized recommendations; one deals list for everyone.",
     outcome:
-      'Hypothesis failed. The newsletter went out on the default `stream="transactional"` (sender `orders@shop.example`), landed in Gmail spam, and order-confirmation delivery dropped for three days; reverted 2026-05-20. Learned: any email the shopper\'s own order did not trigger (newsletters, alerts, reminders) goes out on `stream="bulk"` (sender `news@shop.example`); the transactional stream is for order mail only. Click-through was 0.4% before the revert.',
+      'Hypothesis failed. The newsletter went out on the default `stream="transactional"`, landed in Gmail spam, and order-confirmation delivery dropped for three days; reverted 2026-05-20. Learned: any email the shopper\'s own order did not trigger (newsletters, alerts, reminders) goes out on `stream="bulk"`; the transactional stream is for order mail only. Click-through was 0.4% before the revert.',
     tasks: [
       {
         title: "Design the weekly deals template",
@@ -499,7 +499,7 @@ const CONVENTIONS = [
   "Page weight budget for product pages is 1.5 MB on first load. [image-cdn, 2026-03-30]",
   "Breaking API changes keep the old field for one release before removal. [user, 2026-05-06]",
   "Database migrations are numbered SQL files applied by `scripts/migrate.py` before the app starts. [user, 2026-01-12]",
-  "Shopper-facing copy changes go through the content editor, not straight to code. [user, 2026-05-12]",
+  "Shopper-facing copy changes are reviewed by the content editor before merge. [user, 2026-05-12]",
   "Each epic's validation window is at least one week of production traffic. [user, 2026-06-01]",
   "Work in an area nobody has touched for six months starts with a spike task. [user, 2026-06-01]",
 ];
@@ -524,6 +524,7 @@ A web shop selling home goods in Germany and Austria. Shoppers browse the catalo
 | Who | Cares about | Consulted via |
 | :--- | :--- | :--- |
 | web team | shopper-facing pages, API | PR review |
+| legal | customer-facing terms and consent | review ticket |
 | support | refunds, complaints | weekly sync |
 | finance | totals, refunds | monthly report |
 
@@ -539,24 +540,18 @@ ${CONVENTIONS.map((c) => `- ${c}`).join("\n")}
 
 const CODE_FILES: Record<string, string> = {
   "app/mailer.py": `STREAMS = ("transactional", "bulk")
-SENDERS = {"transactional": "orders@shop.example", "bulk": "news@shop.example"}
+SENDER = "shop@shop.example"
 
 
 def send(to, template, *, stream="transactional", **context):
     if stream not in STREAMS:
         raise ValueError(f"unknown stream {stream}")
-    _deliver(SENDERS[stream], to, template, context)
+    _deliver(SENDER, stream, to, template, context)
 
 
-def _deliver(sender, to, template, context):
+def _deliver(sender, stream, to, template, context):
     # the provider client is configured per environment
     raise NotImplementedError
-`,
-  "app/checkout.py": `from app import mailer
-
-
-def confirm_order(order_id, shopper_email):
-    mailer.send(shopper_email, "order-confirmation", order_id=order_id)
 `,
   "app/catalog.py": `import sqlite3
 
@@ -644,6 +639,51 @@ CREATE TABLE products (
   "migrations/001_total_cents.sql": `ALTER TABLE orders ADD COLUMN total_cents INTEGER NOT NULL DEFAULT 0;
 UPDATE orders SET total_cents = CAST(ROUND(total * 100) AS INTEGER);
 `,
+  "migrations/002_drop_total.sql": `ALTER TABLE orders DROP COLUMN total;
+`,
+  "app/jobs/__init__.py": "",
+  "app/jobs/reorder_points.py": `import sqlite3
+
+
+def main():
+    conn = sqlite3.connect("webshop.db")
+    conn.execute(
+        "UPDATE products SET reorder_point = ("
+        " SELECT CAST(AVG(daily_sales) * AVG(lead_days) AS INTEGER) FROM supplier_stats"
+        " WHERE supplier_stats.product_id = products.id)"
+    )
+    conn.commit()
+
+
+if __name__ == "__main__":
+    main()
+`,
+  "app/jobs/cart_cleanup.py": `import sqlite3
+
+
+def main():
+    conn = sqlite3.connect("webshop.db")
+    conn.execute("DELETE FROM carts WHERE updated_at < datetime('now', '-30 days')")
+    conn.commit()
+
+
+if __name__ == "__main__":
+    main()
+`,
+  "app/jobs/retention.py": `import sqlite3
+
+
+def main():
+    conn = sqlite3.connect("webshop.db")
+    conn.execute(
+        "DELETE FROM customers WHERE last_order_at < datetime('now', '-24 months')"
+    )
+    conn.commit()
+
+
+if __name__ == "__main__":
+    main()
+`,
   "scripts/migrate.py": `import pathlib
 import sqlite3
 
@@ -727,7 +767,7 @@ def is_enabled(name, user_id):
   rollout_percent: 100
 review_moderation:
   enabled: true
-  rollout_percent: 25
+  rollout_percent: 100
 `,
 };
 
