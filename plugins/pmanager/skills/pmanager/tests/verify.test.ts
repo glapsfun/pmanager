@@ -513,6 +513,23 @@ describe("buildVerify", () => {
     expect(facts.filter((f) => f.includes("attempt-1.log"))).toEqual([]);
     expect(facts.filter((f) => f.includes("LOG-ONLY-LINE"))).toEqual([]);
   });
+  test("a failed attempt's log stays out of scope when Notes names it too", async () => {
+    const { dir } = await webshopWithMigration();
+    await writeFile(join(dir, "docs", "attempt-1.log"), "LOG-ONLY-LINE secret-value\n");
+    await edit(
+      dir,
+      T02,
+      "## Notes\n",
+      "## Notes\n\nThe first try failed, see docs/attempt-1.log and `docs/attempt-1.log`.\n\n## History\n\n- 2026-09-15 attempt failed: tried the migration; got a lock; evidence at `docs/attempt-1.log`\n",
+    );
+    const r = await verifyT02(dir);
+    const facts = [...r.unattributed, ...r.criteria.flatMap((c) => c.evidence)].map(
+      (e) => `[${e.source}] ${e.fact}`,
+    );
+    expect(facts.filter((f) => f.includes("attempt-1.log"))).toEqual([]);
+    expect(facts.filter((f) => f.includes("LOG-ONLY-LINE"))).toEqual([]);
+  });
+
   test("a bad --since yields no evidence for that repo, not a widened window", async () => {
     const { dir } = await webshopWithMigration();
     const r = await verifyT02(dir, { sinceRef: "nope" });
