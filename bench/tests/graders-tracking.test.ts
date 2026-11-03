@@ -199,6 +199,20 @@ describe("attempt checks", () => {
     expect(o["t01-history-attempt"]).toBe(false);
   });
 
+  test("an attempt line copied from the request's own wording passes", async () => {
+    const task = trackingUpdateMemory.task;
+    const start = task.indexOf("attempt failed: ");
+    const end = task.indexOf("docs/attempt-1.log") + "docs/attempt-1.log".length;
+    const copied = `- 2026-09-15 ${task.slice(start, end)}`;
+    expect(copied).toContain("; evidence at docs/attempt-1.log");
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [HISTORY_T01[0] ?? "", copied, HISTORY_T01[2] ?? ""]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(true);
+    expect(o["t01-history-sequence"]).toBe(true);
+    expect(o["check-no-errors"]).toBe(true);
+  });
+
   test("pasting the log into Notes fails no-raw-log", async () => {
     const { dir, info } = await scenarioFixture();
     await historyUpdate(dir);

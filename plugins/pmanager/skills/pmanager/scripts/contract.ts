@@ -314,8 +314,9 @@ export interface History {
 }
 
 const HISTORY_STATUS = /^- (\d{4}-\d{2}-\d{2}) status (\S+) -> (\S+)(?:; fixed by (.+))?$/;
+// "evidence at <path>" is how the handoff brief words it, so a copied report line still parses.
 const HISTORY_ATTEMPT =
-  /^- (\d{4}-\d{2}-\d{2}) attempt failed: tried (.+?); got (.+?); evidence (.+)$/;
+  /^- (\d{4}-\d{2}-\d{2}) attempt failed: tried (.+?); got (.+?); evidence (?:at )?(.+)$/;
 const KNOWN_STATUSES: readonly string[] = TASK_STATUSES;
 
 // A regex alone accepts 2026-02-30; History dates are read back later, so they must be real days.
