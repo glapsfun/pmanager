@@ -41,7 +41,8 @@ export interface GitHub {
   commitChecks(sha: string): Promise<CheckState[]>;
 }
 
-const LIST_FIELDS = "number,state,headRefName,headRefOid,url";
+// A fork's PR can share a release branch name; it is never this repo's release.
+const LIST_FIELDS = "number,state,headRefName,headRefOid,url,isCrossRepository";
 const VIEW_FIELDS =
   "number,state,headRefName,headRefOid,mergeCommit,mergeStateStatus,statusCheckRollup,url";
 const NOT_FOUND = /Not Found|HTTP 404/;
@@ -129,7 +130,7 @@ export function ghGitHub(slug: string, run: Run = capture): GitHub {
     },
 
     findPr: async (head) => {
-      const found = await json<{ number: number }[]>([
+      const found = await json<{ number: number; isCrossRepository?: boolean }[]>([
         "pr",
         "list",
         "--repo",
@@ -141,27 +142,26 @@ export function ghGitHub(slug: string, run: Run = capture): GitHub {
         "--json",
         LIST_FIELDS,
         "--limit",
-        "1",
+        "20",
       ]);
-      return found[0] ? prView(found[0].number) : null;
+      const own = found.find((p) => !p.isCrossRepository);
+      return own ? prView(own.number) : null;
     },
 
     openReleasePrs: async () => {
-      const list = await json<Omit<PullRequest, "mergeCommit" | "mergeStateStatus" | "checks">[]>([
-        "pr",
-        "list",
-        "--repo",
-        slug,
-        "--state",
-        "open",
-        "--json",
-        LIST_FIELDS,
-        "--limit",
-        "100",
-      ]);
+      const list = await json<
+        (Omit<PullRequest, "mergeCommit" | "mergeStateStatus" | "checks"> & {
+          isCrossRepository?: boolean;
+        })[]
+      >(["pr", "list", "--repo", slug, "--state", "open", "--json", LIST_FIELDS, "--limit", "100"]);
       return list
-        .filter((p) => p.headRefName.startsWith("release/v"))
-        .map((p) => ({ ...p, mergeCommit: null, mergeStateStatus: "", checks: [] }));
+        .filter((p) => !p.isCrossRepository && p.headRefName.startsWith("release/v"))
+        .map(({ isCrossRepository: _, ...p }) => ({
+          ...p,
+          mergeCommit: null,
+          mergeStateStatus: "",
+          checks: [],
+        }));
     },
 
     createPr: async (head, base, title, bodyFile) => {

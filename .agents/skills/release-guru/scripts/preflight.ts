@@ -38,14 +38,18 @@ async function manifestBlocker(ctx: Ctx): Promise<string[]> {
 async function competitorBlockers(ctx: Ctx): Promise<string[]> {
   const out: string[] = [];
   const s = await readState(ctx.cfg);
-  if (s && s.phase !== "published" && s.phase !== "published-verify-failed") {
+  const inProgress = s !== null && s.phase !== "published" && s.phase !== "published-verify-failed";
+  if (inProgress) {
     out.push(`another release is in progress: v${s.version} (${s.phase}); abandon it first`);
   }
+  // That blocker already covers the candidate's own PR and branches.
+  const own = (branch: string) => inProgress && branch === s.branch;
   // Prepare clears the state, which is the only record that this verify is still owed.
   if (s?.phase === "published" && s.verify.length === 0) {
     out.push(`v${s.version} is published but verify has not run: run verify first`);
   }
   for (const pr of await ctx.gh.openReleasePrs()) {
+    if (own(pr.headRefName)) continue;
     out.push(
       `another release is in progress: PR #${pr.number} from ${pr.headRefName}; abandon it where it was prepared, or close it on GitHub if nobody needs it`,
     );
@@ -53,14 +57,14 @@ async function competitorBlockers(ctx: Ctx): Promise<string[]> {
   const tags = new Set(await remoteRefs(ctx, "--tags", "v*"));
   const local = await ctx.git.out(["branch", "--list", "release/v*", "--format=%(refname:short)"]);
   for (const branch of local.split("\n").filter(Boolean)) {
-    if (tags.has(branch.slice("release/".length)) || branch === s?.branch) continue;
+    if (tags.has(branch.slice("release/".length)) || own(branch)) continue;
     out.push(
       `local branch ${branch} exists without a release; delete it with git branch -D ${branch} if nobody needs it`,
     );
   }
   for (const branch of await remoteRefs(ctx, "--heads", "release/v*")) {
     // A branch left behind by a published release is history, not a competitor.
-    if (tags.has(branch.slice("release/".length))) continue;
+    if (tags.has(branch.slice("release/".length)) || own(branch)) continue;
     out.push(
       `another release is in progress: branch ${branch} on origin; abandon it where it was prepared, or delete it on GitHub if nobody needs it`,
     );

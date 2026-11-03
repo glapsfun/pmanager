@@ -44,7 +44,7 @@ test("the docs tell agents which steps no flag keeps short", () => {
   for (const file of [SKILL, RUNBOOK]) {
     const text = readFileSync(file, "utf8");
     expect(text, file).toContain(
-      "`publish` and `verify` need a shell timeout of at least 10 minutes",
+      "`publish`, `baseline` and `verify` need a shell timeout of at least 10 minutes",
     );
     expect(text, file).toContain("--timeout");
     expect(text, file).toContain("--wait");

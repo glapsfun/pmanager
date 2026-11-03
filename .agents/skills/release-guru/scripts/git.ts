@@ -5,6 +5,7 @@ export type Run = (
   cwd: string,
   env?: Record<string, string>,
   inherit?: boolean,
+  timeoutMs?: number,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export class GitError extends Error {}

@@ -12,6 +12,7 @@ import {
   compareToTag,
   githubRoute,
   gskillRoute,
+  STEP_TIMEOUT_MS,
 } from "../scripts/verify";
 import { testCtx } from "./ctx";
 import { FakeGitHub } from "./fake-github";
@@ -59,23 +60,26 @@ async function extractPlugin(f: Fixture, dir: string) {
   expect(await p.exited).toBe(0);
 }
 
-type Step = [
-  string[],
-  (cwd: string) => { code?: number; stdout?: string } | Promise<{ code?: number; stdout?: string }>,
-];
+type Reply = { code?: number; stdout?: string; stderr?: string };
+type Step = [string[], (cwd: string) => Reply | Promise<Reply>];
 
 /** A Run that expects these commands in order and records each call's cwd and env. */
 function script(steps: Step[]) {
-  const seen: { cmd: string[]; cwd: string; env?: Record<string, string>; inherit?: boolean }[] =
-    [];
+  const seen: {
+    cmd: string[];
+    cwd: string;
+    env?: Record<string, string>;
+    inherit?: boolean;
+    timeoutMs?: number;
+  }[] = [];
   const queue = [...steps];
-  const run: Run = async (cmd, cwd, env, inherit) => {
-    seen.push({ cmd, cwd, env, inherit });
+  const run: Run = async (cmd, cwd, env, inherit, timeoutMs) => {
+    seen.push({ cmd, cwd, env, inherit, timeoutMs });
     const step = queue.shift();
     if (!step) throw new Error(`unexpected ${cmd.join(" ")}`);
     expect(cmd).toEqual(step[0]);
     const r = await step[1](cwd);
-    return { code: r.code ?? 0, stdout: r.stdout ?? "", stderr: "" };
+    return { code: r.code ?? 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
   };
   return { run, seen };
 }
@@ -136,6 +140,7 @@ test("claudeRoute installs the tag in an isolated config and compares files", as
   });
   for (const call of seen) {
     expect(call.inherit).toBe(false);
+    expect(call.timeoutMs).toBe(STEP_TIMEOUT_MS);
     expect(call.env?.HOME).toBe(join(tmp, "home"));
     expect(call.env?.CLAUDE_CONFIG_DIR).toBe(join(tmp, "claude"));
     expect(Object.keys(call.env ?? {}).some((k) => k.startsWith("ANTHROPIC"))).toBe(false);
@@ -251,4 +256,20 @@ test("verify refuses before anything is published", async () => {
   const { f, s, ctx } = await published();
   await writeState(f.cfg, { ...s, phase: "checked" });
   expect((await cmdVerify(ctx)).code).toBe(1);
+});
+
+test("a verify step that runs out of time fails its route with the reason", async () => {
+  const { s, ctx } = await published();
+  const tmp = await makeTempDir("v");
+  const { run } = script([
+    [
+      ["claude", "plugin", "marketplace", "add", "acme/demo@v0.10.0", "--json"],
+      () => ({ code: 124, stderr: "timed out after 300s" }),
+    ],
+  ]);
+  expect(await claudeRoute({ ...ctx, run }, s, tmp)).toEqual({
+    route: "claude-code",
+    ok: false,
+    detail: "marketplace add failed: timed out after 300s",
+  });
 });

@@ -116,6 +116,20 @@ test("a second prepare names only the candidate in progress, not its own branch"
   ]);
 });
 
+test("a second prepare skips the pushed candidate's own PR and branch", async () => {
+  const f = await makeFixture();
+  await commitAndPush(f, { "plugins/pmanager/skills/pmanager/SKILL.md": "x\n" }, "fix(pm): a fix");
+  const gh = new FakeGitHub(f);
+  await cmdPrepare(testCtx(f, gh), {});
+  await gitOk(["push", "-q", "origin", "release/v0.10.1"], f.root);
+  const bodyFile = join(f.root, "..", "b.md");
+  writeFileSync(bodyFile, "b\n");
+  await gh.createPr("release/v0.10.1", "main", "t", bodyFile);
+  expect(await preflight("prepare", testCtx(f, gh))).toEqual([
+    "another release is in progress: v0.10.1 (prepared); abandon it first",
+  ]);
+});
+
 test("a published release whose verify never ran blocks prepare until verify runs", async () => {
   const f = await makeFixture();
   const s = {

@@ -15,3 +15,11 @@ test("capture with inherit false passes only the given environment", async () =>
     else process.env.ANTHROPIC_API_KEY = saved;
   }
 });
+
+test("capture kills a command that runs past its time limit", async () => {
+  const started = Date.now();
+  const r = await capture(["sleep", "5"], "/tmp", undefined, true, 200);
+  expect(r).toEqual({ code: 124, stdout: "", stderr: "timed out after 0.2s" });
+  expect(Date.now() - started).toBeLessThan(2000);
+  expect((await capture(["true"], "/tmp", undefined, true, 2000)).code).toBe(0);
+});

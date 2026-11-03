@@ -35,6 +35,13 @@ export async function cmdBaseline(ctx: Ctx, opts: { commit: string }): Promise<R
     .out(["rev-parse", "--verify", `${opts.commit}^{commit}`])
     .catch(() => "");
   if (!sha) return stop(`unknown commit ${opts.commit}`);
+  // Another commit would overwrite the state, and with it a verify that may still be owed.
+  if (existing?.kind === "baseline" && existing.commit !== sha) {
+    const first = existing.commit.slice(0, 7);
+    return stop(
+      `a baseline for v${existing.version} on ${first} already exists: rerun baseline --commit ${first} to finish or verify it`,
+    );
+  }
   const short = sha.slice(0, 7);
   const versions = await Promise.all(
     ctx.cfg.manifests.map(

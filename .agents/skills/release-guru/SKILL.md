@@ -14,7 +14,7 @@ Releases pmanager from this repository. Run `bun run release <command>` from the
 - Never use `--admin`, `--no-verify` or `--force`. Never move or delete a tag. Never edit `.release-guru/state.json` by hand.
 - Report the helper's outcome as it is: `blocked` is not done, and `published-verify-failed` is published but not successful.
 - The steps are the same in Claude Code and Codex, so one session can prepare and another can finish.
-- `wait`, `publish`, `verify` and `check --foreground` can run for minutes. `publish` and `verify` need a shell timeout of at least 10 minutes: `publish` ends by running verify, and no flag keeps verify short. Keep `wait` inside your shell timeout with `bun run release wait --timeout <seconds>`, and leave room for verify in `bun run release publish --tree <tree> --wait <seconds>`. Running a step again is always safe.
+- `wait`, `publish`, `baseline`, `verify` and `check --foreground` can run for minutes. `publish`, `baseline` and `verify` need a shell timeout of at least 10 minutes: `publish` and `baseline` end by running verify, and no flag keeps verify short. Keep `wait` inside your shell timeout with `bun run release wait --timeout <seconds>`, and leave room for verify in `bun run release publish --tree <tree> --wait <seconds>`. Running a step again is always safe.
 
 ## Steps
 

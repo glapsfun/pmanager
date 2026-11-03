@@ -129,6 +129,29 @@ test("abandon closes its own PR and branch after the branch moved on", async () 
   expect(await hasBranch(f.bare, "refs/heads/release/v0.10.1")).toBe(false);
 });
 
+test("abandon leaves a branch pushed past its own closed PR alone", async () => {
+  const { f, ctx } = await prepared();
+  await gitOk(["push", "-q", "origin", "release/v0.10.1"], f.root);
+  const body = join(f.root, "..", "b.md");
+  await Bun.write(body, "b\n");
+  const n = await ctx.gh.createPr("release/v0.10.1", "main", "t", body);
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  await writeState(f.cfg, { ...s, publish: { pushed: true, pr: n } });
+  await ctx.gh.closePr(n, "closed by hand");
+  const dir = await scratchClone(f);
+  await gitOk(["switch", "-q", "release/v0.10.1"], dir);
+  writeFileSync(join(dir, "later.txt"), "later\n");
+  await gitOk(["add", "-A"], dir);
+  await gitOk(["commit", "-qm", "fix: pushed after the PR closed"], dir);
+  await gitOk(["push", "-q", "origin", "release/v0.10.1"], dir);
+  const later = (await gitOk(["rev-parse", "HEAD"], dir)).trim();
+  const r = await cmdAbandon(ctx);
+  expect(r.code).toBe(0);
+  expect(r.message).toContain(`origin/release/v0.10.1 points at ${later}, not this candidate`);
+  expect((await gitOk(["rev-parse", "refs/heads/release/v0.10.1"], f.bare)).trim()).toBe(later);
+});
+
 test("abandon frees a candidate tagged by hand on its own commit", async () => {
   const { f, ctx } = await prepared();
   const head = (await gitOk(["rev-parse", "HEAD"], f.root)).trim();

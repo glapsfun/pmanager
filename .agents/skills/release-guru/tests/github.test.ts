@@ -90,11 +90,21 @@ test("prView maps check runs and status contexts", async () => {
   });
 });
 
-test("findPr lists the head's newest PR, then views it; none is null", async () => {
+test("findPr views the head's newest PR from this repo, skipping forks; none is null", async () => {
   const list = ["gh", "pr", "list", "--repo", R, "--head", "release/v0.10.1", "--state", "all"];
-  const json = ["--json", "number,state,headRefName,headRefOid,url", "--limit", "1"];
+  const json = [
+    "--json",
+    "number,state,headRefName,headRefOid,url,isCrossRepository",
+    "--limit",
+    "20",
+  ];
   const run = scripted([
-    [[...list, ...json], { stdout: '[{"number":12}]' }],
+    [
+      [...list, ...json],
+      {
+        stdout: '[{"number":13,"isCrossRepository":true},{"number":12,"isCrossRepository":false}]',
+      },
+    ],
     [["gh", "pr", "view", "12", "--repo", R, "--json", VIEW_FIELDS], { stdout: viewJson }],
     [[...list, ...json], { stdout: "[]" }],
   ]);
@@ -103,7 +113,7 @@ test("findPr lists the head's newest PR, then views it; none is null", async () 
   expect(await gh.findPr("release/v0.10.1")).toBeNull();
 });
 
-test("openReleasePrs keeps open PRs from release branches", async () => {
+test("openReleasePrs keeps open PRs from this repo's release branches", async () => {
   const run = scripted([
     [
       [
@@ -115,7 +125,7 @@ test("openReleasePrs keeps open PRs from release branches", async () => {
         "--state",
         "open",
         "--json",
-        "number,state,headRefName,headRefOid,url",
+        "number,state,headRefName,headRefOid,url,isCrossRepository",
         "--limit",
         "100",
       ],
@@ -123,6 +133,14 @@ test("openReleasePrs keeps open PRs from release branches", async () => {
         stdout: JSON.stringify([
           { number: 3, state: "OPEN", headRefName: "feat/x", headRefOid: "a", url: "u3" },
           { number: 4, state: "OPEN", headRefName: "release/v0.11.0", headRefOid: "b", url: "u4" },
+          {
+            number: 5,
+            state: "OPEN",
+            headRefName: "release/v0.12.0",
+            headRefOid: "c",
+            url: "u5",
+            isCrossRepository: true,
+          },
         ]),
       },
     ],

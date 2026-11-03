@@ -42,10 +42,13 @@ const tagOf = (s: ReleaseState) => `v${s.version}`;
 const releaseCommit = (s: ReleaseState) =>
   s.kind === "baseline" ? s.commit : s.publish.mergeCommit;
 
+/** A hung install would otherwise block verify, and with it the next prepare, for good. */
+export const STEP_TIMEOUT_MS = 300_000;
+
 /** Runs one CLI step in the isolated env; a thrown spawn means the binary is not installed. */
 async function step(ctx: Ctx, cmd: string[], cwd: string, env: Record<string, string>) {
   try {
-    return await ctx.run(cmd, cwd, env, false);
+    return await ctx.run(cmd, cwd, env, false, STEP_TIMEOUT_MS);
   } catch {
     throw new Unavailable(cmd[0] as string);
   }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { gitOk } from "../../../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { baselineNotes, cmdBaseline } from "../scripts/baseline";
 import { main } from "../scripts/release";
-import { readState, statePaths } from "../scripts/state";
+import { readState, statePaths, writeState } from "../scripts/state";
 import { testCtx } from "./ctx";
 import { FakeGitHub } from "./fake-github";
 import { commitAndPush, commitOnBranch, type Fixture, makeFixture, scratchClone } from "./fixture";
@@ -58,6 +58,22 @@ test("an interrupted baseline resumes to one tag and one release", async () => {
   await expect(cmdBaseline(ctx, { commit: head })).rejects.toThrow();
   expect((await cmdBaseline(ctx, { commit: head })).code).toBe(0);
   expect(gh.releases).toHaveLength(1);
+});
+
+test("a baseline on another commit keeps the first baseline and its owed verify", async () => {
+  const { f, gh, ctx, head } = await untagged();
+  expect((await cmdBaseline(ctx, { commit: head })).code).toBe(0);
+  const first = await readState(f.cfg);
+  if (!first) throw new Error("no state");
+  await writeState(f.cfg, { ...first, verify: [] });
+  const later = await commitAndPush(f, { "README.md": "later\n" }, "docs: later");
+  gh.setCommitChecks(later, OK);
+  const r = await cmdBaseline(ctx, { commit: later });
+  expect(r.code).toBe(1);
+  expect(r.message).toBe(
+    `a baseline for v0.10.0 on ${head.slice(0, 7)} already exists: rerun baseline --commit ${head.slice(0, 7)} to finish or verify it`,
+  );
+  expect(await readState(f.cfg)).toMatchObject({ commit: head, verify: [] });
 });
 
 test("baseline refuses a repo that already has release tags", async () => {
