@@ -256,6 +256,12 @@ describe("parseHistory", () => {
       },
     ]);
   });
+  test("a bare 'evidence at' with no path is invalid", () => {
+    const line =
+      "- 2026-11-03 attempt failed: tried one insert per commit; got a lock; evidence at";
+    expect(parseHistory(`## History\n\n${line}\n`)).toEqual({ entries: [], invalid: [line] });
+    expect(parseHistory(`## History\n\n${line}   \n`)).toEqual({ entries: [], invalid: [line] });
+  });
   test("CRLF, trailing spaces and blank lines are accepted", () => {
     const h = parseHistory("## History\r\n\r\n- 2026-11-03 status todo -> blocked   \r\n\r\n");
     expect(h?.entries).toHaveLength(1);
