@@ -14,6 +14,7 @@ import {
   sessionOf,
   setFrontmatterKey,
   splitFrontmatter,
+  withoutSection,
 } from "../scripts/contract";
 
 const EPIC = `---
@@ -191,6 +192,14 @@ describe("sections", () => {
     expect(sectionBody(body, "Acceptance criteria")?.trim()).toBe("- [ ] a\n- [x] b");
     expect(sectionBody(body, "Missing")).toBeNull();
     expect(sectionBody(body, "Notes")?.trim()).toBe("");
+  });
+  test("withoutSection drops one section and keeps the rest", () => {
+    const doc = "## Notes\n\nkeep\n\n## History\n\n- drop\n\n## Out of scope\n\nalso keep\n";
+    expect(withoutSection(doc, "History")).toBe(
+      "## Notes\n\nkeep\n\n## Out of scope\n\nalso keep\n",
+    );
+    expect(withoutSection(doc, "Missing")).toBe(doc);
+    expect(withoutSection("## History\n\n- drop\n", "History")).toBe("");
   });
   test("ignores (required) suffix in the document", () => {
     expect(hasSection("## Problem statement (required)\n\ntext\n", "Problem statement")).toBe(true);

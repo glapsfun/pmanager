@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getList, getString, sectionBody } from "./contract";
+import { getList, getString, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
 import type { EpicRecord, TaskDoc } from "./repo";
 import { classifyPath, failure } from "./research";
@@ -674,7 +674,8 @@ export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
   const shared: SharedProbeOptions = {
     taskId: opts.task.id,
     slug: opts.epic.slug,
-    tokens: extractPathTokens(opts.task.body),
+    // History names failed attempts' evidence; a done claim must not pull those logs into scope.
+    tokens: extractPathTokens(withoutSection(opts.task.body, "History")),
     extraFiles: opts.files,
     limit: opts.limit,
     timeoutMs: opts.timeoutMs ?? 30_000,

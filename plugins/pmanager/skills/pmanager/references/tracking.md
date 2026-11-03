@@ -44,17 +44,18 @@ draft-awaiting-approval state a non-interactive run leaves behind):
    with `; fixed by <what>`.
 2. Run `pm render --epic <slug> --session <id>` (regenerates the plan task
    table and INDEX).
-3. `done` claims: run `pm verify <slug> <id>` (pass any paths the user's
-   message names as `--files`). Check off a criterion only when the
-   evidence printed under it proves it; for `no evidence in scope` and
-   `needs measurement` write `**unverified** — <label>: <why>` under
-   Acceptance criteria so `pm check` accepts it. Read the `unattributed`
-   block before deciding: it holds the evidence the matcher could not tie
-   to a criterion. Never grep the repository or run the full test suite
-   for a done claim; when the report lists tests as `touched in scope` or
-   `references <file>`, run only those and cite the result as
-   `[command] fact`. A `gaps:` line lowers confidence and is named in the
-   write-back summary.
+3. `done` claims: run `pm verify <slug> <id>` (pass the done claim's
+   evidence paths as `--files`, never a failed attempt's evidence path:
+   those logs record what went wrong, not what was delivered). Check off a
+   criterion only when the evidence printed under it proves it; for
+   `no evidence in scope` and `needs measurement` write
+   `**unverified** — <label>: <why>` under Acceptance criteria so
+   `pm check` accepts it. Read the `unattributed` block before deciding: it
+   holds the evidence the matcher could not tie to a criterion. Never grep
+   the repository or run the full test suite for a done claim; when the
+   report lists tests as `touched in scope` or `references <file>`, run
+   only those and cite the result as `[command] fact`. A `gaps:` line
+   lowers confidence and is named in the write-back summary.
 
 **Failed attempt** (`T03 attempt failed: tried ...; got ...; evidence at ...`):
 

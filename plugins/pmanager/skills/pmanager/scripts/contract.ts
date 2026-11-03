@@ -264,26 +264,39 @@ function normalizeHeading(h: string): string {
     .toLowerCase();
 }
 
-export function sectionBody(body: string, heading: string): string | null {
+/** Index of the heading line and of the first line after the section, or null. */
+function sectionRange(lines: string[], heading: string): [number, number] | null {
   const want = normalizeHeading(heading);
-  const lines = body.split("\n");
-  let start = -1;
+  let head = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i] ?? "";
     if (l.startsWith("## ") && normalizeHeading(l.slice(3)) === want) {
-      start = i + 1;
+      head = i;
       break;
     }
   }
-  if (start === -1) return null;
+  if (head === -1) return null;
   let end = lines.length;
-  for (let i = start; i < lines.length; i++) {
+  for (let i = head + 1; i < lines.length; i++) {
     if ((lines[i] ?? "").startsWith("## ")) {
       end = i;
       break;
     }
   }
-  return lines.slice(start, end).join("\n");
+  return [head, end];
+}
+
+export function sectionBody(body: string, heading: string): string | null {
+  const lines = body.split("\n");
+  const range = sectionRange(lines, heading);
+  return range ? lines.slice(range[0] + 1, range[1]).join("\n") : null;
+}
+
+/** The body with one `## <heading>` section, heading included, removed. */
+export function withoutSection(body: string, heading: string): string {
+  const lines = body.split("\n");
+  const range = sectionRange(lines, heading);
+  return range ? [...lines.slice(0, range[0]), ...lines.slice(range[1])].join("\n") : body;
 }
 
 export function hasSection(body: string, heading: string): boolean {

@@ -158,3 +158,8 @@ test("the task template points at History but its skeleton has none", () => {
   expect(flat(raw)).toContain("`## History`");
   expect(flat(raw)).toContain("tracking.md");
 });
+
+test("done claims pass only the done report's evidence to pm verify", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("never a failed attempt's evidence path");
+});
