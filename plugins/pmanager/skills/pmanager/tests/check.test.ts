@@ -319,6 +319,56 @@ describe("history rules", () => {
     expect(f[0]?.message).toContain("in-progress");
   });
 
+  test("E-HIS-001 fix text names the optional fixed by suffix", async () => {
+    const root = await fixture();
+    await history(root, T01, ["- 2026-09-15 started work"]);
+    const f = await his(root, "E-HIS-001");
+    expect(f[0]?.fix).toContain('"- YYYY-MM-DD status <from> -> <to>[; fixed by <what>]"');
+  });
+
+  test("an invalid History line suppresses W-HIS-002", async () => {
+    const root = await fixture();
+    await edit(root, T01, "status: todo", "status: done");
+    await history(root, T01, [
+      "- 2026-09-15 status todo -> in-progress",
+      "- 2026-09-15 status in-progress -> done (fixed by one transaction)",
+    ]);
+    expect(await his(root, "E-HIS-001")).toHaveLength(1);
+    expect(await his(root, "W-HIS-002")).toEqual([]);
+  });
+
+  test("an unknown or missing frontmatter status leaves W-HIS-002 to the field rules", async () => {
+    const unknown = await fixture();
+    await edit(unknown, T01, "status: todo", "status: started");
+    await history(unknown, T01, ["- 2026-09-15 status todo -> in-progress"]);
+    expect(await rules(unknown)).toContain("E-STR-004");
+    expect(await his(unknown, "W-HIS-002")).toEqual([]);
+    const missing = await fixture();
+    await edit(missing, T01, "status: todo\n", "");
+    await history(missing, T01, ["- 2026-09-15 status todo -> in-progress"]);
+    expect(await rules(missing)).toContain("E-STR-003");
+    expect(await his(missing, "W-HIS-002")).toEqual([]);
+  });
+
+  test("W-HIS-002 reads only the last of several status lines", async () => {
+    const agrees = await fixture();
+    await edit(agrees, T01, "status: todo", "status: done");
+    await history(agrees, T01, [
+      "- 2026-09-15 status todo -> in-progress",
+      "- 2026-09-15 status in-progress -> done",
+    ]);
+    expect(await his(agrees, "W-HIS-002")).toEqual([]);
+    const lags = await fixture();
+    await edit(lags, T01, "status: todo", "status: done");
+    await history(lags, T01, [
+      "- 2026-09-15 status todo -> in-progress",
+      "- 2026-09-15 status in-progress -> blocked",
+    ]);
+    const f = await his(lags, "W-HIS-002");
+    expect(f).toHaveLength(1);
+    expect(f[0]?.message).toContain('"blocked"');
+  });
+
   test("attempt-only or empty History raises no W-HIS-002", async () => {
     const root = await fixture();
     await history(root, T01, [

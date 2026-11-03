@@ -462,6 +462,8 @@ export const acceptanceRules: Rule = (repo) => {
   return out;
 };
 
+const KNOWN_TASK_STATUSES: readonly string[] = TASK_STATUSES;
+
 export const historyRules: Rule = (repo, opts) => {
   const out: Finding[] = [];
   for (const e of repo.epics) {
@@ -474,12 +476,15 @@ export const historyRules: Rule = (repo, opts) => {
             t.path,
             "E-HIS-001",
             `History line in neither form: "${line}"`,
-            'use "- YYYY-MM-DD status <from> -> <to>" or "- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>"',
+            'use "- YYYY-MM-DD status <from> -> <to>[; fixed by <what>]" or "- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>"',
           ),
         );
       }
-      const last = history.entries.filter((h) => h.kind === "status").at(-1);
+      // An invalid line may be the missing status line, and an unknown status is E-STR-003/004's
+      // to report; either way the suggested line would itself be wrong.
       const status = getString(t.frontmatter, "status") ?? "";
+      if (history.invalid.length > 0 || !KNOWN_TASK_STATUSES.includes(status)) continue;
+      const last = history.entries.filter((h) => h.kind === "status").at(-1);
       if (last && last.to !== status) {
         out.push(
           warn(
