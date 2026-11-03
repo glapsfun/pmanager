@@ -1,5 +1,5 @@
 import { commonChecks } from "../graders/common";
-import { memoryRecallChecks } from "../graders/memory-recall";
+import { memoryRecallChecks, newSpecLog } from "../graders/memory-recall";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
 import { buildMemoryRecallFixture } from "./memory-recall-fixture";
 import { CONTRACT_SENTENCE, type Scenario } from "./types";
@@ -11,6 +11,7 @@ export const memoryRecall: Scenario = {
   buildFixture: buildMemoryRecallFixture,
   checks: [
     ...commonChecks("spec"),
+    newSpecLog,
     epicAndPlan,
     tasksMin3,
     binaryAcceptance,

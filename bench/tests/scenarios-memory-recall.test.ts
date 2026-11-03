@@ -79,6 +79,48 @@ describe("memory-recall fixture", () => {
     const mailer = await Bun.file(join(dir, "app", "mailer.py")).text();
     expect(mailer).not.toMatch(/newsletter|alert|marketing|spam|reserved|order mail/i);
     expect(await Bun.file(join(dir, "config", "flags.yaml")).text()).toContain("rollout_percent");
+    for (const p of files.filter((f) => f !== "app/mailer.py")) {
+      const text = await Bun.file(join(dir, p)).text();
+      expect({ p, stream: /stream/i.test(text) }).toEqual({ p, stream: false });
+    }
+  });
+
+  test("the code agrees with the memo and the done epics, apart from the seeded flag line", async () => {
+    const app = await Bun.file(join(dir, "app", "app.py")).text();
+    expect(app).toContain("LIMIT 50");
+    expect(app).toContain("register_blueprint(catalog)");
+    expect(app).toMatch(/order_id IN/);
+    expect(app).not.toMatch(/N\+1/);
+    const schema = await Bun.file(join(dir, "app", "schema.sql")).text();
+    expect(schema).toContain("total_cents INTEGER NOT NULL");
+    expect(schema).not.toMatch(/\btotal REAL\b/);
+  });
+
+  test("every repo path the memo names exists", async () => {
+    const memo = (await loadPmRepo(dir)).memo?.raw ?? "";
+    const named = [
+      ...[...memo.matchAll(/`([\w.-]+\/[\w./-]*)`/g)].map((m) => m[1] as string),
+      ...[...memo.matchAll(/\[([\w.-]+\/[\w./-]+), \d{4}-\d{2}-\d{2}\]/g)].map(
+        (m) => m[1] as string,
+      ),
+    ];
+    expect(named.length).toBeGreaterThan(4);
+    const tracked = (await gitOk(["ls-files"], dir)).split("\n");
+    for (const p of named) {
+      const hit = tracked.some((t) => (p.endsWith("/") ? t.startsWith(p) : t === p));
+      expect({ p, hit }).toEqual({ p, hit: true });
+    }
+  });
+
+  test("fixture commits are dated on or before the epics' last update", async () => {
+    const log = (await gitOk(["log", "-2", "--format=%aI %cI %s"], dir)).trim().split("\n");
+    expect(log).toHaveLength(2);
+    for (const line of log) {
+      const [authored, committed] = line.split(" ");
+      expect((authored ?? "").slice(0, 10) <= "2026-09-10").toBe(true);
+      expect((committed ?? "").slice(0, 10) <= "2026-09-10").toBe(true);
+    }
+    expect(log[0]).toEndWith("docs(pm): record past epics and the product memo");
   });
 
   test("the lesson epic's INDEX row avoids likely research keywords; the near miss shares one", async () => {
@@ -106,6 +148,10 @@ describe("memory-recall fixture", () => {
 });
 
 describe("memory-recall request", () => {
+  test("the scenario grades a spec log for the new epic, not the prior epics' logs", () => {
+    expect(memoryRecall.checks.map((c) => c.id)).toContain("new-spec-log");
+  });
+
   test("the request names neither a trap nor the skill", () => {
     for (const word of [
       "legal",

@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { gitOk } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { applyRender } from "../../plugins/pmanager/skills/pmanager/scripts/render";
 import { loadPmRepo } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
-import { type FixtureInfo, gitCommitAll, headSha } from "../fixture";
+import { type FixtureInfo, headSha } from "../fixture";
 
 export const LESSON_EPIC = "deals-newsletter";
-export const SUPERSEDING_EPIC = "flags-in-repo";
+export const LESSON_TITLE = "Weekly deals newsletter";
+const SUPERSEDING_EPIC = "flags-in-repo";
 export const NEAR_MISS_EPIC = "restock-forecast";
 
 export const MEMO_LESSON_LINE =
@@ -42,7 +44,7 @@ interface PriorEpic {
 const EPICS: PriorEpic[] = [
   {
     slug: LESSON_EPIC,
-    title: "Weekly deals newsletter",
+    title: LESSON_TITLE,
     type: "feature",
     created: "2026-04-01",
     updated: "2026-05-28",
@@ -535,7 +537,7 @@ ${CONVENTIONS.map((c) => `- ${c}`).join("\n")}
 <!-- pm:log:end -->
 `;
 
-export const CODE_FILES: Record<string, string> = {
+const CODE_FILES: Record<string, string> = {
   "app/mailer.py": `STREAMS = ("transactional", "bulk")
 SENDERS = {"transactional": "orders@shop.example", "bulk": "news@shop.example"}
 
@@ -579,12 +581,126 @@ def product(product_id):
         {"id": pid, "name": name, "price_cents": price_cents, "stock": stock, "sold_out": stock == 0}
     )
 `,
-  "app/catalog.sql": `CREATE TABLE products (
+  "app/app.py": `from flask import Flask, jsonify, request
+import sqlite3
+
+from app.catalog import catalog
+
+app = Flask(__name__)
+app.register_blueprint(catalog)
+
+PAGE_SIZE = 50
+
+
+def db():
+    return sqlite3.connect("webshop.db")
+
+
+@app.get("/orders")
+def orders():
+    conn = db()
+    page = int(request.args.get("page", 1))
+    rows = conn.execute(
+        "SELECT id, user_id, total_cents FROM orders ORDER BY id DESC LIMIT 50 OFFSET ?",
+        ((page - 1) * PAGE_SIZE,),
+    ).fetchall()
+    ids = [r[0] for r in rows]
+    items = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for order_id, sku, qty in conn.execute(
+            f"SELECT order_id, sku, qty FROM order_items WHERE order_id IN ({marks})", ids
+        ):
+            items.setdefault(order_id, []).append([sku, qty])
+    return jsonify(
+        [
+            {"id": i, "user": u, "total_cents": t, "items": items.get(i, [])}
+            for i, u, t in rows
+        ]
+    )
+`,
+  "app/schema.sql": `CREATE TABLE orders (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  total_cents INTEGER NOT NULL
+);
+
+CREATE TABLE order_items (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL,
+  sku TEXT NOT NULL,
+  qty INTEGER NOT NULL
+);
+
+CREATE INDEX order_items_order_id ON order_items (order_id);
+
+CREATE TABLE products (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   price_cents INTEGER NOT NULL,
   stock INTEGER NOT NULL
 );
+`,
+  "migrations/001_total_cents.sql": `ALTER TABLE orders ADD COLUMN total_cents INTEGER NOT NULL DEFAULT 0;
+UPDATE orders SET total_cents = CAST(ROUND(total * 100) AS INTEGER);
+`,
+  "scripts/migrate.py": `import pathlib
+import sqlite3
+
+MIGRATIONS = pathlib.Path(__file__).resolve().parent.parent / "migrations"
+
+
+def main():
+    conn = sqlite3.connect("webshop.db")
+    conn.execute("CREATE TABLE IF NOT EXISTS applied (name TEXT PRIMARY KEY)")
+    done = {r[0] for r in conn.execute("SELECT name FROM applied")}
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        if path.name in done:
+            continue
+        conn.executescript(path.read_text())
+        conn.execute("INSERT INTO applied (name) VALUES (?)", (path.name,))
+        conn.commit()
+
+
+if __name__ == "__main__":
+    main()
+`,
+  "app/worker.py": `from redis import Redis
+from rq import Queue
+
+queue = Queue("worker", connection=Redis())
+
+
+def enqueue(job, *args):
+    return queue.enqueue(job, *args, retry=3)
+`,
+  "deploy/cron.yaml": `jobs:
+  reorder_points:
+    schedule: "0 2 * * *"
+    command: python -m app.jobs.reorder_points
+  cart_cleanup:
+    schedule: "30 3 * * *"
+    command: python -m app.jobs.cart_cleanup
+  retention:
+    schedule: "0 4 * * 0"
+    command: python -m app.jobs.retention
+`,
+  "analytics/events.yaml": `checkout_started:
+  props: [cart_id]
+checkout_completed:
+  props: [order_id, total_cents]
+search_exit:
+  props: [query]
+`,
+  "i18n/en.json": `{
+  "product.sold_out": "Sold out",
+  "orders.title": "Your orders"
+}
+`,
+  "i18n/de.json": `{
+  "product.sold_out": "Ausverkauft",
+  "orders.title": "Deine Bestellungen"
+}
 `,
   "app/flags.py": `import hashlib
 import pathlib
@@ -772,6 +888,20 @@ function slugName(title: string): string {
     .join("-");
 }
 
+/** A commit dated today would postdate every epic it records, which no real history does. */
+async function commitDated(dir: string, message: string, date: string): Promise<void> {
+  await gitOk(["add", "-A"], dir);
+  const proc = Bun.spawn(["git", "commit", "-q", "-m", message], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  });
+  if ((await proc.exited) !== 0) {
+    throw new Error(`git commit failed: ${await new Response(proc.stderr).text()}`);
+  }
+}
+
 async function put(dir: string, rel: string, body: string): Promise<void> {
   const path = join(dir, rel);
   await mkdir(dirname(path), { recursive: true });
@@ -801,10 +931,14 @@ async function writePmDocs(dir: string): Promise<void> {
 export async function buildMemoryRecallFixture(dir: string): Promise<FixtureInfo> {
   await buildWebshopRepo(dir, { withPmDocs: false });
   for (const [rel, body] of Object.entries(CODE_FILES)) await put(dir, rel, body);
-  await gitCommitAll(dir, "feat: catalog, mailer and in-repo feature flags");
+  await commitDated(dir, "feat: the shop as the done epics left it", "2026-09-10T09:00:00+00:00");
   await writePmDocs(dir);
   await applyRender(await loadPmRepo(dir));
-  await gitCommitAll(dir, "docs(pm): twelve epics and the product memo");
+  await commitDated(
+    dir,
+    "docs(pm): record past epics and the product memo",
+    "2026-09-10T10:00:00+00:00",
+  );
   return {
     baselineSha: await headSha(dir),
     originBare: null,
