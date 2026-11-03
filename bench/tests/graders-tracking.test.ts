@@ -8,7 +8,7 @@ import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helper
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
 import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
-import { trackingChecks } from "../graders/tracking";
+import { FIXTURE_SECRET, trackingChecks } from "../graders/tracking";
 import { runChecks } from "../graders/types";
 import { ATTEMPT_LOG, trackingUpdateMemory } from "../scenarios/tracking-update-memory";
 
@@ -211,6 +211,14 @@ describe("attempt checks", () => {
     expect(o["t01-history-attempt"]).toBe(true);
     expect(o["t01-history-sequence"]).toBe(true);
     expect(o["check-no-errors"]).toBe(true);
+  });
+
+  test("the secret alone in Notes fails no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(dir, T01, "## Notes\n", `## Notes\n\nPassword was ${FIXTURE_SECRET}\n`);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(false);
   });
 
   test("pasting the log into Notes fails no-raw-log", async () => {

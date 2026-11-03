@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { FIXTURE_SECRET } from "../graders/tracking";
 import { SCENARIOS, scenarioByName } from "../scenarios/registry";
-import { FIXTURE_SECRET } from "../scenarios/tracking-update-memory";
 import { CONTRACT_SENTENCE, composePrompt, hasSkill, SKILL_PREFIX } from "../scenarios/types";
 
 describe("scenarios", () => {
