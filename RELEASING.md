@@ -36,7 +36,7 @@ Each commit since the last tag that touches the shipped paths counts, by its sub
 
 - `bun run setup` has been run, and you are on a clean checkout.
 - `gh auth status` shows the same account as `git config user.name` (`gh auth switch --user <name>` if not).
-- The pinned `claude` and `codex` CLIs are installed (`bun ci/gate.ts install-clis`), with the credentials the paid agent e2e needs.
+- The pinned `claude` and `codex` CLIs are installed (`bun ci/gate.ts install-clis`). For `check --agent-e2e`, they also need the credentials the paid agent e2e uses.
 - The `v*` tag ruleset exists on GitHub (no deletion, no update). `publish` and `baseline` refuse to run without it.
 
 ## Steps
@@ -44,7 +44,7 @@ Each commit since the last tag that touches the shipped paths counts, by its sub
 1. `bun run release status` shows where a release stands and what to do next. Start here every time.
 2. `bun run release prepare` creates `release/vX.Y.Z` from `origin/main`, bumps both manifests, commits `chore(release): vX.Y.Z`, and drafts notes in `.release-guru/notes.md` from the shipped commits, each citing its PR or commit. Nothing is pushed.
 3. Rewrite the notes for users. Keep the citations; fill the Migration section when something breaks.
-4. `bun run release check` runs, in the background, the full gate (`bun ci/gate.ts pre-push`) and then the paid agent e2e (3 runs of each scenario, Claude Code blocking and capped at 10 USD per run, Codex report-only). The agent e2e writes its history and report into `.release-guru/agent-e2e/`, not into the tracked bench files. `bun run release check --foreground` runs the same in the terminal.
+4. `bun run release check` runs the full gate (`bun ci/gate.ts pre-push`) in the background. The paid agent e2e is off by default, because it can take hours: the summary and the PR then show it as `skipped`. `bun run release check --agent-e2e` runs it after the gate (3 runs of each scenario, Claude Code blocking and capped at 10 USD per run, Codex report-only). Once it has run on a tree, a failure blocks the release, and a later `check` without the flag does not clear it. It writes its history and report into `.release-guru/agent-e2e/`, not into the tracked bench files. `--foreground` runs the same checks in the terminal.
 5. `bun run release wait` returns when the checks finish, or after `--timeout` seconds (default 540) with code 3. `wait`, `publish`, `baseline`, `verify` and `check --foreground` can run for minutes. `publish`, `baseline` and `verify` need a shell timeout of at least 10 minutes, since `publish` and `baseline` end by running verify and no flag keeps verify short. Smaller `--timeout` and `--wait` values keep the waiting parts shorter, with more reruns.
 6. `bun run release summary` writes `.release-guru/summary.md`: version, previous tag, branch, commit, tree, notes, check results, distribution changes and blockers, ending with the publish command.
 7. Read the summary. Publishing is one yes for the whole of step 8.
@@ -59,7 +59,7 @@ Check results are bound to the git tree, not the commit. `main` only takes up-to
 | :--- | :--- | :--- |
 | `prepared` | branch and notes exist locally | write the notes, `check` |
 | `blocked` | a check failed or something changed | fix and `check` again, or `abandon` |
-| `checked` | gate and agent e2e passed for this tree | `summary`, then `publish --tree` after a yes |
+| `checked` | gate passed for this tree, and agent e2e passed or was skipped | `summary`, then `publish --tree` after a yes |
 | `publishing` | some of the publish steps are done | `publish --tree` again |
 | `published` | tag and release exist; verify passed, or `status` reports `verify has not run` | done, or `verify` |
 | `published-verify-failed` | the release is out, an install route failed | find the cause, `verify` again |

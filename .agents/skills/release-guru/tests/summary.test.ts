@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cmdPrepare } from "../scripts/prepare";
-import { readState, statePaths, writeState } from "../scripts/state";
+import { AGENT_RUN_FAILED, readState, statePaths, writeState } from "../scripts/state";
 import { cmdSummary, prBody } from "../scripts/summary";
 import { testCtx } from "./ctx";
 import { commitAndPush, makeFixture } from "./fixture";
@@ -63,6 +63,82 @@ test("a TODO in the notes and missing checks show as blockers", async () => {
     "agent e2e has not passed for this tree",
   ]);
   expect(String(r.data?.summary)).toContain("| gate | not run |");
+});
+
+test("a skipped agent e2e shows in the summary and the PR body and does not block", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const evidence = s.evidence.map((e) =>
+    e.check === "agents" ? { ...e, result: "skipped" as const } : e,
+  );
+  await writeState(f.cfg, { ...s, evidence });
+  const r = await cmdSummary(testCtx(f));
+  expect(r.code).toBe(0);
+  expect(r.blockers).toBeUndefined();
+  expect(String(r.data?.summary)).toMatch(/\| agents \| skipped \| [0-9a-f]{7} \|/);
+  expect(prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n")).toContain(
+    "| agents | skipped |",
+  );
+});
+
+test("a failed agent e2e still blocks", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const evidence = s.evidence.map((e) =>
+    e.check === "agents" ? { ...e, result: "fail" as const } : e,
+  );
+  await writeState(f.cfg, { ...s, evidence });
+  expect((await cmdSummary(testCtx(f))).blockers).toEqual([AGENT_RUN_FAILED]);
+});
+
+test("a later check without --agent-e2e does not hide a failed paid run on the same tree", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const failed = s.evidence.find((e) => e.check === "agents");
+  if (!failed) throw new Error("no agents evidence");
+  const skipped = {
+    ...failed,
+    result: "skipped" as const,
+    finishedAt: "2026-11-02T11:00:00Z",
+  };
+  const evidence = [
+    ...s.evidence.filter((e) => e !== failed),
+    { ...failed, result: "fail" as const },
+    skipped,
+  ];
+  await writeState(f.cfg, { ...s, evidence });
+  expect((await cmdSummary(testCtx(f))).blockers).toEqual([AGENT_RUN_FAILED]);
+  const passedLater = [
+    ...evidence,
+    { ...failed, finishedAt: "2026-11-02T12:00:00Z" },
+    {
+      ...skipped,
+      finishedAt: "2026-11-02T13:00:00Z",
+    },
+  ];
+  await writeState(f.cfg, { ...s, evidence: passedLater });
+  expect((await cmdSummary(testCtx(f))).code).toBe(0);
+});
+
+test("a paid run that passed stays in the table and the PR body after a plain check", async () => {
+  const { f } = await checked();
+  const s = await readState(f.cfg);
+  if (!s) throw new Error("no state");
+  const paid = s.evidence.find((e) => e.check === "agents");
+  if (!paid) throw new Error("no agents evidence");
+  const ran = { ...paid, detail: "claude-code feature-idea-epic 3/3 PASS\nagent e2e: PASS" };
+  const skipped = { ...paid, result: "skipped" as const, finishedAt: "2026-11-02T11:00:00Z" };
+  const evidence = [...s.evidence.filter((e) => e !== paid), ran, skipped];
+  await writeState(f.cfg, { ...s, evidence });
+  const text = String((await cmdSummary(testCtx(f))).data?.summary);
+  expect(text).toMatch(/\| agents \| pass \|/);
+  expect(text).not.toContain("not run: check ran without --agent-e2e");
+  const body = prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n");
+  expect(body).toMatch(/\| agents \| pass \|/);
+  expect(body).toContain("claude-code feature-idea-epic 3/3 PASS");
 });
 
 test("the PR body is the notes plus the checks table", async () => {

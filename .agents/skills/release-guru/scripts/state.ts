@@ -19,7 +19,7 @@ export interface Evidence {
   commit: string;
   tree: string;
   tools: Record<string, string>;
-  result: "pass" | "fail" | "unavailable";
+  result: "pass" | "fail" | "unavailable" | "skipped";
   detail: string;
   startedAt: string;
   finishedAt: string;
@@ -113,6 +113,20 @@ export async function clearState(cfg: Config): Promise<void> {
   for (const name of await readdir(p.dir)) {
     if (name !== "lock") await rm(join(p.dir, name), { recursive: true, force: true });
   }
+}
+
+/** The paid run costs money and hours, so the way out is the maintainer's call, not a retry loop. */
+export const AGENT_RUN_FAILED =
+  "agent e2e did not pass for this tree: ask the maintainer whether to run check --agent-e2e again, or abandon and prepare again";
+
+/** The newest paid run on this tree; a later check that skipped it does not clear its result. */
+export function lastAgentRun(s: ReleaseState): Evidence | undefined {
+  let last: Evidence | undefined;
+  for (const e of s.evidence) {
+    if (e.check !== "agents" || e.tree !== s.tree || e.result === "skipped") continue;
+    if (!last || e.finishedAt > last.finishedAt) last = e;
+  }
+  return last;
 }
 
 export function freshEvidence(s: ReleaseState): { gate?: Evidence; agents?: Evidence } {

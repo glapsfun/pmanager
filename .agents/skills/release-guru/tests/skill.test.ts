@@ -52,6 +52,12 @@ test("the docs tell agents which steps no flag keeps short", () => {
   expect(readFileSync(SKILL, "utf8")).not.toContain("wait --timeout 500`");
 });
 
+test("the docs say the paid agent e2e runs only with --agent-e2e", () => {
+  for (const file of [SKILL, RUNBOOK]) {
+    expect(readFileSync(file, "utf8"), file).toContain("bun run release check --agent-e2e");
+  }
+});
+
 test("RELEASING.md covers the stuck cases", () => {
   const text = readFileSync(RUNBOOK, "utf8");
   for (const phrase of [
