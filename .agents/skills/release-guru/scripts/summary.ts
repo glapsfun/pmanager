@@ -20,21 +20,20 @@ function shown(s: ReleaseState): { gate?: Evidence; agents?: Evidence } {
   return { gate: fresh.gate, agents: lastAgentRun(s) ?? fresh.agents };
 }
 
-function checksTable(s: ReleaseState): string {
+/** The PR leaves out tools, whose versions name the agent CLIs; the local summary keeps them. */
+function checksTable(s: ReleaseState, withTools: boolean): string {
   const ev = shown(s);
   const rows = (["gate", "agents"] as const).map((c) => {
     const e = ev[c];
-    if (!e) return `| ${c} | not run | | | |`;
+    if (!e) return withTools ? `| ${c} | not run | | | |` : `| ${c} | not run | | |`;
     const tools = Object.entries(e.tools)
       .map(([k, v]) => `${k} ${v}`)
       .join(", ");
-    return `| ${c} | ${e.result} | ${e.tree.slice(0, 7)} | ${tools} | ${e.finishedAt} |`;
+    const cells = [c, e.result, e.tree.slice(0, 7), ...(withTools ? [tools] : []), e.finishedAt];
+    return `| ${cells.join(" | ")} |`;
   });
-  return [
-    "| Check | Result | Tree | Tools | Finished |",
-    "| :--- | :--- | :--- | :--- | :--- |",
-    ...rows,
-  ].join("\n");
+  const head = ["Check", "Result", "Tree", ...(withTools ? ["Tools"] : []), "Finished"];
+  return [`| ${head.join(" | ")} |`, `|${" :--- |".repeat(head.length)}`, ...rows].join("\n");
 }
 
 /** Blockers a reader must see before saying yes. */
@@ -74,7 +73,7 @@ export function renderSummary(s: ReleaseState, notes: string, dist: string[]): s
     "",
     "## Release checks",
     "",
-    checksTable(s),
+    checksTable(s, true),
     "",
     details,
     "## Distribution changes",
@@ -90,21 +89,9 @@ export function renderSummary(s: ReleaseState, notes: string, dist: string[]): s
   ].join("\n");
 }
 
-const VERDICT_LINE =
-  /^(\S+ \S+ \d+\/\d+ (PASS|FAIL)|\S+ unavailable|agent e2e: (PASS|FAIL))( \[report-only\])?$/;
-
-/** The agent e2e verdict lines, so report-only and unavailable harnesses stay visible. */
-function agentVerdict(s: ReleaseState): string {
-  const detail = shown(s).agents?.detail ?? "";
-  const lines = detail.split("\n").filter((l) => VERDICT_LINE.test(l));
-  return lines.length > 0
-    ? `\nAgent e2e per harness and scenario:\n\n\`\`\`\n${lines.join("\n")}\n\`\`\`\n`
-    : "";
-}
-
 /** The release PR's body: what users get, then the evidence that it was checked. */
 export function prBody(s: ReleaseState, notes: string): string {
-  return `${notes.trimEnd()}\n\n## Release checks\n\nCommit ${s.commit}, tree ${s.tree}.\n\n${checksTable(s)}\n${agentVerdict(s)}`;
+  return `${notes.trimEnd()}\n\n## Release checks\n\nCommit ${s.commit}, tree ${s.tree}.\n\n${checksTable(s, false)}\n`;
 }
 
 async function distribution(ctx: Ctx, s: ReleaseState): Promise<string[]> {

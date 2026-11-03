@@ -138,7 +138,7 @@ test("a paid run that passed stays in the table and the PR body after a plain ch
   expect(text).not.toContain("not run: check ran without --agent-e2e");
   const body = prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n");
   expect(body).toMatch(/\| agents \| pass \|/);
-  expect(body).toContain("claude-code feature-idea-epic 3/3 PASS");
+  expect(text).toContain("claude-code feature-idea-epic 3/3 PASS");
 });
 
 test("the PR body is the notes plus the checks table", async () => {
@@ -151,26 +151,28 @@ test("the PR body is the notes plus the checks table", async () => {
   expect(body).not.toContain("gate output");
 });
 
-test("the PR body keeps each harness's agent e2e verdict, report-only and unavailable ones included", async () => {
+test("the PR body names no tool or harness; the local summary keeps them", async () => {
   const { f } = await checked();
   const s = await readState(f.cfg);
   if (!s) throw new Error("no state");
   const detail = [
-    "run 1 of 3 ...",
     "claude-code feature-idea-epic 2/3 PASS",
     "codex feature-idea-epic 0/3 FAIL [report-only]",
     "codex unavailable [report-only]",
     "agent e2e: PASS",
   ].join("\n");
-  const evidence = s.evidence.map((e) => (e.check === "agents" ? { ...e, detail } : e));
+  const tools = { bun: "1.4.2", claude: "2.1.317 (Claude Code)", codex: "codex-cli 0.166.0" };
+  const evidence = s.evidence.map((e) => ({
+    ...e,
+    tools,
+    ...(e.check === "agents" ? { detail } : {}),
+  }));
+  await writeState(f.cfg, { ...s, evidence });
   const body = prBody({ ...s, evidence }, "## Fixed\n\n- a fix (#1)\n");
-  expect(body).toContain(
-    [
-      "claude-code feature-idea-epic 2/3 PASS",
-      "codex feature-idea-epic 0/3 FAIL [report-only]",
-      "codex unavailable [report-only]",
-      "agent e2e: PASS",
-    ].join("\n"),
-  );
-  expect(body).not.toContain("run 1 of 3");
+  expect(body).not.toMatch(/claude|codex/i);
+  expect(body).toContain("| Check | Result | Tree | Finished |");
+  expect(body).toMatch(/\| agents \| pass \| [0-9a-f]{7} \| 2026-11-02T10:05:00Z \|/);
+  const text = String((await cmdSummary(testCtx(f))).data?.summary);
+  expect(text).toContain("claude 2.1.317 (Claude Code)");
+  expect(text).toContain("codex feature-idea-epic 0/3 FAIL [report-only]");
 });
