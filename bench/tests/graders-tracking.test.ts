@@ -8,7 +8,7 @@ import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helper
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
 import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
-import { FIXTURE_SECRET, trackingChecks } from "../graders/tracking";
+import { FIXTURE_SECRET, RAW_LOG_MARKERS, trackingChecks } from "../graders/tracking";
 import { runChecks } from "../graders/types";
 import { ATTEMPT_LOG, trackingUpdateMemory } from "../scenarios/tracking-update-memory";
 
@@ -255,6 +255,41 @@ describe("attempt checks", () => {
     const o = await scenarioOutcomes(dir, info);
     expect(o["t02-history-blocked"]).toBe(false);
     expect(o["t01-history-attempt"]).toBe(true);
+  });
+
+  test("raw-log markers come from the log and never from the request", () => {
+    expect(RAW_LOG_MARKERS).toContain(FIXTURE_SECRET);
+    expect(RAW_LOG_MARKERS).toContain('File "scripts/seed.py", line');
+    expect(RAW_LOG_MARKERS).toContain("$ python scripts/seed.py");
+    for (const m of RAW_LOG_MARKERS) {
+      expect(ATTEMPT_LOG).toContain(m);
+      expect(trackingUpdateMemory.task).not.toContain(m);
+    }
+    expect(RAW_LOG_MARKERS).not.toContain("SHOP_DB_PASSWORD");
+  });
+
+  test("a short summary that names the error, command and variable passes no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(
+      dir,
+      T01,
+      "## Notes\n",
+      "## Notes\n\nThe seed run (python scripts/seed.py --orders 1000) stopped after 200 orders with sqlite3.OperationalError: database is locked; the log also printed SHOP_DB_PASSWORD, so it stays out of these docs.\n",
+    );
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(true);
+  });
+
+  test("each raw-log marker pasted alone fails no-raw-log", async () => {
+    for (const marker of RAW_LOG_MARKERS) {
+      const { dir, info } = await scenarioFixture();
+      await historyUpdate(dir);
+      const line = ATTEMPT_LOG.split("\n").find((l) => l.includes(marker)) ?? marker;
+      await edit(dir, T01, "## Notes\n", `## Notes\n\n${line}\n`);
+      const o = await scenarioOutcomes(dir, info);
+      expect([marker, o["no-raw-log"]]).toEqual([marker, false]);
+    }
   });
 
   test("pasting the log into Notes fails no-raw-log", async () => {

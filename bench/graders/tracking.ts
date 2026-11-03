@@ -216,7 +216,18 @@ export function trackingChecks(): Check[] {
 
 /** Planted in the tracking scenario's attempt log; it must never be copied into docs/pm. */
 export const FIXTURE_SECRET = "s3cr3t-fixture-value";
-const TRACEBACK = "Traceback (most recent call last)";
+/**
+ * Strings only a pasted log holds. A short summary may name the error, the command or the
+ * variable, so "database is locked", "python scripts/seed.py" and a bare "SHOP_DB_PASSWORD"
+ * are left out on purpose.
+ */
+export const RAW_LOG_MARKERS: readonly string[] = [
+  FIXTURE_SECRET,
+  "Traceback (most recent call last)",
+  "$ python scripts/seed.py",
+  'File "scripts/seed.py", line',
+  "env: SHOP_DB_PASSWORD=",
+];
 
 function describeEntry(h: HistoryEntry): string {
   return h.kind === "status" ? `${h.from} -> ${h.to}` : "attempt";
@@ -305,7 +316,7 @@ export const noRawLog: Check = {
       } catch {
         continue;
       }
-      if (text.includes(FIXTURE_SECRET) || text.includes(TRACEBACK)) leaked.push(`docs/pm/${name}`);
+      if (RAW_LOG_MARKERS.some((m) => text.includes(m))) leaked.push(`docs/pm/${name}`);
     }
     return leaked.length === 0
       ? pass("no log output in docs/pm")
