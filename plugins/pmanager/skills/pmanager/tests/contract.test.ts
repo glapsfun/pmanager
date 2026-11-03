@@ -7,6 +7,7 @@ import {
   getString,
   hasSection,
   parseDoc,
+  parseHistory,
   parseYamlSubset,
   sectionBody,
   sessionFields,
@@ -194,5 +195,63 @@ describe("sections", () => {
   test("ignores (required) suffix in the document", () => {
     expect(hasSection("## Problem statement (required)\n\ntext\n", "Problem statement")).toBe(true);
     expect(hasSection("## Other\n", "Problem statement")).toBe(false);
+  });
+});
+
+describe("parseHistory", () => {
+  test("null without a History section; empty section is valid", () => {
+    expect(parseHistory("## Notes\n\nx\n")).toBeNull();
+    expect(parseHistory("## History\n")).toEqual({ entries: [], invalid: [] });
+  });
+  test("status line, with and without fixed by", () => {
+    const h = parseHistory(
+      "## History\n\n- 2026-11-03 status todo -> in-progress\n- 2026-11-04 status in-progress -> done; fixed by seeding inside one transaction\n",
+    );
+    expect(h?.entries).toEqual([
+      { kind: "status", date: "2026-11-03", from: "todo", to: "in-progress", fixedBy: null },
+      {
+        kind: "status",
+        date: "2026-11-04",
+        from: "in-progress",
+        to: "done",
+        fixedBy: "seeding inside one transaction",
+      },
+    ]);
+    expect(h?.invalid).toEqual([]);
+  });
+  test("attempt fields keep colons and hashes", () => {
+    const h = parseHistory(
+      "## History\n\n- 2026-11-03 attempt failed: tried seeding 1,000 orders; got error: database is locked (see #12); evidence docs/attempt-1.log\n",
+    );
+    expect(h?.entries).toEqual([
+      {
+        kind: "attempt",
+        date: "2026-11-03",
+        tried: "seeding 1,000 orders",
+        got: "error: database is locked (see #12)",
+        evidence: "docs/attempt-1.log",
+      },
+    ]);
+  });
+  test("CRLF, trailing spaces and blank lines are accepted", () => {
+    const h = parseHistory("## History\r\n\r\n- 2026-11-03 status todo -> blocked   \r\n\r\n");
+    expect(h?.entries).toHaveLength(1);
+    expect(h?.invalid).toEqual([]);
+  });
+  test("lines in neither form are invalid", () => {
+    const bad = [
+      "Started work on Monday.",
+      "- 2026-11-03 status todo -> started",
+      "- 2026-02-30 status todo -> done",
+      "- 2026-11-03 attempt failed: tried ; got x; evidence y",
+      "2026-11-03 status todo -> done",
+    ];
+    expect(parseHistory(`## History\n\n${bad.join("\n")}\n`)?.invalid).toEqual(bad);
+  });
+  test("only the History section is read, wherever it sits", () => {
+    const h = parseHistory(
+      "## History\n\n- 2026-11-03 status todo -> in-progress\n\n## Notes\n\nfree text: anything\n",
+    );
+    expect(h).toEqual({ entries: [expect.objectContaining({ to: "in-progress" })], invalid: [] });
   });
 });

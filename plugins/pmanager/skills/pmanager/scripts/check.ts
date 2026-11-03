@@ -14,6 +14,7 @@ import {
   PLAN_REQUIRED_SECTIONS,
   PLAN_STATUSES,
   PRIORITIES,
+  parseHistory,
   sectionBody,
   sessionOf,
   splitFrontmatter,
@@ -461,6 +462,39 @@ export const acceptanceRules: Rule = (repo) => {
   return out;
 };
 
+export const historyRules: Rule = (repo, opts) => {
+  const out: Finding[] = [];
+  for (const e of repo.epics) {
+    for (const t of e.tasks) {
+      const history = parseHistory(t.body);
+      if (!history) continue;
+      for (const line of history.invalid) {
+        out.push(
+          err(
+            t.path,
+            "E-HIS-001",
+            `History line in neither form: "${line}"`,
+            'use "- YYYY-MM-DD status <from> -> <to>" or "- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>"',
+          ),
+        );
+      }
+      const last = history.entries.filter((h) => h.kind === "status").at(-1);
+      const status = getString(t.frontmatter, "status") ?? "";
+      if (last && last.to !== status) {
+        out.push(
+          warn(
+            t.path,
+            "W-HIS-002",
+            `last History status is "${last.to}" but frontmatter status is "${status}"`,
+            `append "- ${opts.today} status ${last.to} -> ${status}" or correct the frontmatter`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+};
+
 export const claimRules: Rule = (repo, opts) => {
   const out: Finding[] = [];
   for (const e of repo.epics) {
@@ -544,6 +578,8 @@ export const RULES = [
   "E-ST-003",
   "E-ST-004",
   "W-ACC-001",
+  "E-HIS-001",
+  "W-HIS-002",
   "E-CLM-001",
   "W-CLM-001",
   "W-CLM-002",
@@ -557,6 +593,7 @@ const rules: Rule[] = [
   derivedViewRules,
   stateRules,
   acceptanceRules,
+  historyRules,
   claimRules,
   legacyRules,
 ];

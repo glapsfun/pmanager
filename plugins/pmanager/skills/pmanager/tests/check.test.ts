@@ -280,6 +280,55 @@ describe("acceptance rules", () => {
   });
 });
 
+describe("history rules", () => {
+  async function history(root: string, rel: string, lines: string[]) {
+    const body = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+    await edit(root, rel, "## Notes\n", `## Notes\n\n## History\n\n${body}`);
+  }
+
+  async function his(root: string, rule: string) {
+    return check(await loadPmRepo(root), OPTS).filter((f) => f.rule === rule);
+  }
+
+  test("E-HIS-001 names each line in neither form, as an error", async () => {
+    const root = await fixture();
+    await history(root, T01, ["- 2026-09-15 started work"]);
+    const f = await his(root, "E-HIS-001");
+    expect(f).toHaveLength(1);
+    expect(f[0]?.severity).toBe("error");
+    expect(f[0]?.file).toBe(join(root, T01));
+    expect(f[0]?.message).toContain("started work");
+  });
+
+  test("valid History matching frontmatter raises nothing", async () => {
+    const root = await fixture();
+    await edit(root, T01, "status: todo", "status: in-progress");
+    await history(root, T01, [
+      "- 2026-09-15 status todo -> in-progress",
+      "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked; evidence docs/attempt-1.log",
+    ]);
+    expect((await rules(root)).filter((r) => r.includes("HIS"))).toEqual([]);
+  });
+
+  test("W-HIS-002 warns when the last status line disagrees with frontmatter", async () => {
+    const root = await fixture();
+    await history(root, T01, ["- 2026-09-15 status todo -> in-progress"]);
+    const f = await his(root, "W-HIS-002");
+    expect(f).toHaveLength(1);
+    expect(f[0]?.severity).toBe("warning");
+    expect(f[0]?.message).toContain("in-progress");
+  });
+
+  test("attempt-only or empty History raises no W-HIS-002", async () => {
+    const root = await fixture();
+    await history(root, T01, [
+      "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked; evidence docs/attempt-1.log",
+    ]);
+    await history(root, T02, []);
+    expect((await rules(root)).filter((r) => r.includes("HIS"))).toEqual([]);
+  });
+});
+
 describe("legacy", () => {
   test("W-LEG-001 for v0 docs, no E-STR-003", async () => {
     const root = await fixture();

@@ -289,3 +289,63 @@ export function sectionBody(body: string, heading: string): string | null {
 export function hasSection(body: string, heading: string): boolean {
   return sectionBody(body, heading) !== null;
 }
+
+export type HistoryEntry =
+  | { kind: "status"; date: string; from: string; to: string; fixedBy: string | null }
+  | { kind: "attempt"; date: string; tried: string; got: string; evidence: string };
+
+export interface History {
+  entries: HistoryEntry[];
+  /** non-blank lines in neither form, trimmed, in file order */
+  invalid: string[];
+}
+
+const HISTORY_STATUS = /^- (\d{4}-\d{2}-\d{2}) status (\S+) -> (\S+)(?:; fixed by (.+))?$/;
+const HISTORY_ATTEMPT =
+  /^- (\d{4}-\d{2}-\d{2}) attempt failed: tried (.+?); got (.+?); evidence (.+)$/;
+const KNOWN_STATUSES: readonly string[] = TASK_STATUSES;
+
+// A regex alone accepts 2026-02-30; History dates are read back later, so they must be real days.
+function isCalendarDate(d: string): boolean {
+  const t = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+}
+
+function parseHistoryLine(line: string): HistoryEntry | null {
+  const s = HISTORY_STATUS.exec(line);
+  if (s) {
+    const [, date = "", from = "", to = "", fixedBy] = s;
+    if (!isCalendarDate(date) || !KNOWN_STATUSES.includes(from) || !KNOWN_STATUSES.includes(to)) {
+      return null;
+    }
+    const fix = fixedBy?.trim() ?? "";
+    return { kind: "status", date, from, to, fixedBy: fix === "" ? null : fix };
+  }
+  const a = HISTORY_ATTEMPT.exec(line);
+  if (!a) return null;
+  const [, date = "", tried = "", got = "", evidence = ""] = a;
+  const fields = [tried.trim(), got.trim(), evidence.trim()];
+  if (!isCalendarDate(date) || fields.some((f) => f === "")) return null;
+  return {
+    kind: "attempt",
+    date,
+    tried: fields[0] ?? "",
+    got: fields[1] ?? "",
+    evidence: fields[2] ?? "",
+  };
+}
+
+/** null when the body has no `## History` section. */
+export function parseHistory(body: string): History | null {
+  const section = sectionBody(body, "History");
+  if (section === null) return null;
+  const history: History = { entries: [], invalid: [] };
+  for (const raw of section.split("\n")) {
+    const line = raw.trimEnd();
+    if (line.trim() === "") continue;
+    const entry = parseHistoryLine(line);
+    if (entry) history.entries.push(entry);
+    else history.invalid.push(line.trim());
+  }
+  return history;
+}
