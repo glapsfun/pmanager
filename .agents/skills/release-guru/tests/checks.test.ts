@@ -6,7 +6,7 @@ import { agentsCmd, cmdCheck, cmdWait, GATE_CMD, runChecks } from "../scripts/ch
 import type { Run } from "../scripts/git";
 import { cmdPrepare } from "../scripts/prepare";
 import { main, parseArgs, USAGE } from "../scripts/release";
-import { readState, statePaths, writeState } from "../scripts/state";
+import { AGENT_RUN_FAILED, readState, statePaths, writeState } from "../scripts/state";
 import { testCtx } from "./ctx";
 import { commitAndPush, makeFixture } from "./fixture";
 
@@ -191,6 +191,37 @@ test("the command line passes --agent-e2e to check and to the runner", () => {
   });
   expect(parseArgs(["run-checks", "--agent-e2e"])?.flags).toEqual({ agentE2e: true });
   expect(USAGE).toContain("check [--agent-e2e] [--foreground]");
+});
+
+test("a plain check after a failed paid run on the same tree stays blocked", async () => {
+  const f = await prepared();
+  const failing = fakeRun(
+    () => ok(),
+    () => ({ code: 1, stdout: "agent e2e: FAIL\n", stderr: "" }),
+  );
+  expect((await runChecks({ ...testCtx(f), run: failing.run }, { agentE2e: true })).phase).toBe(
+    "blocked",
+  );
+  const { run } = fakeRun(() => ok());
+  const r = await runChecks({ ...testCtx(f), run });
+  expect(r).toMatchObject({ code: 1, phase: "blocked", blockers: [AGENT_RUN_FAILED] });
+  expect(AGENT_RUN_FAILED).toContain("ask the maintainer");
+});
+
+test("the command line hands --agent-e2e through to the checks", async () => {
+  for (const [argv, paid] of [
+    [["check", "--foreground"], false],
+    [["check", "--foreground", "--agent-e2e"], true],
+    [["run-checks", "--agent-e2e"], true],
+  ] as const) {
+    const f = await prepared();
+    const { run, calls } = fakeRun(() => ok());
+    await main([...argv], { ...testCtx(f), run, out: () => {} });
+    expect(
+      calls.some((c) => c.cmd.includes("agent-e2e")),
+      argv.join(" "),
+    ).toBe(paid);
+  }
 });
 
 test("check refuses when HEAD is not the prepared candidate", async () => {

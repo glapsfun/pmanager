@@ -34,6 +34,7 @@ Releases pmanager from this repository. Run `bun run release <command>` from the
 - `vX.Y.Z already exists on <commit>`, or `the merge commit's tree differs`: `bun run release abandon`, then prepare with `--version` above that version.
 - `prepare` says `origin/main` already carries a version: it was bumped by hand; prepare with `--version` above it.
 - `GitHub blocks the merge although checks passed`: tell the maintainer. They resolve it on the PR page, or merge it there with a merge commit; then run publish again.
+- `agent e2e did not pass for this tree`: tell the maintainer. Run `check --agent-e2e` again only on their yes, or abandon and prepare again.
 - `status` reports `verify has not run`: run `bun run release verify`. `prepare` refuses until it has run.
 - `abandon` says it left a PR or branch alone, or `prepare` names a release in progress that `abandon` cannot find: tell the maintainer. It was made somewhere else, or release-guru cannot tell it is this candidate's. If nobody needs it, the maintainer closes the PR or deletes the branch on GitHub.
 - Interrupted anywhere: `bun run release status`, then the step it names. Each step checks what already exists before it writes.

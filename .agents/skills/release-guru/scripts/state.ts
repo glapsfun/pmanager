@@ -115,6 +115,20 @@ export async function clearState(cfg: Config): Promise<void> {
   }
 }
 
+/** The paid run costs money and hours, so the way out is the maintainer's call, not a retry loop. */
+export const AGENT_RUN_FAILED =
+  "agent e2e did not pass for this tree: ask the maintainer whether to run check --agent-e2e again, or abandon and prepare again";
+
+/** The newest paid run on this tree; a later check that skipped it does not clear its result. */
+export function lastAgentRun(s: ReleaseState): Evidence | undefined {
+  let last: Evidence | undefined;
+  for (const e of s.evidence) {
+    if (e.check !== "agents" || e.tree !== s.tree || e.result === "skipped") continue;
+    if (!last || e.finishedAt > last.finishedAt) last = e;
+  }
+  return last;
+}
+
 export function freshEvidence(s: ReleaseState): { gate?: Evidence; agents?: Evidence } {
   const out: { gate?: Evidence; agents?: Evidence } = {};
   for (const e of s.evidence) {

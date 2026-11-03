@@ -2,14 +2,28 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { notesProblems } from "./changes";
 import type { Ctx, Result } from "./context";
-import { type Evidence, freshEvidence, type ReleaseState, readState, statePaths } from "./state";
+import {
+  AGENT_RUN_FAILED,
+  type Evidence,
+  freshEvidence,
+  lastAgentRun,
+  type ReleaseState,
+  readState,
+  statePaths,
+} from "./state";
 
 const CHECK_LABEL: Record<Evidence["check"], string> = { gate: "gate", agents: "agent e2e" };
 
-function checksTable(s: ReleaseState): string {
+/** What the summary and the PR show: a paid run on this tree outranks a later skip. */
+function shown(s: ReleaseState): { gate?: Evidence; agents?: Evidence } {
   const fresh = freshEvidence(s);
+  return { gate: fresh.gate, agents: lastAgentRun(s) ?? fresh.agents };
+}
+
+function checksTable(s: ReleaseState): string {
+  const ev = shown(s);
   const rows = (["gate", "agents"] as const).map((c) => {
-    const e = fresh[c];
+    const e = ev[c];
     if (!e) return `| ${c} | not run | | | |`;
     const tools = Object.entries(e.tools)
       .map(([k, v]) => `${k} ${v}`)
@@ -23,16 +37,6 @@ function checksTable(s: ReleaseState): string {
   ].join("\n");
 }
 
-/** The newest paid run on this tree; a later check that skipped it does not clear its result. */
-function lastAgentRun(s: ReleaseState): Evidence | undefined {
-  let last: Evidence | undefined;
-  for (const e of s.evidence) {
-    if (e.check !== "agents" || e.tree !== s.tree || e.result === "skipped") continue;
-    if (!last || e.finishedAt > last.finishedAt) last = e;
-  }
-  return last;
-}
-
 /** Blockers a reader must see before saying yes. */
 export function summaryBlockers(s: ReleaseState, notes: string): string[] {
   const fresh = freshEvidence(s);
@@ -40,9 +44,7 @@ export function summaryBlockers(s: ReleaseState, notes: string): string[] {
   if (fresh.gate?.result !== "pass") out.push(`${CHECK_LABEL.gate} has not passed for this tree`);
   const run = lastAgentRun(s);
   if (run && run.result !== "pass") {
-    out.push(
-      `${CHECK_LABEL.agents} did not pass for this tree: run check --agent-e2e until it passes, or abandon and prepare again`,
-    );
+    out.push(AGENT_RUN_FAILED);
   } else if (!run && fresh.agents?.result !== "skipped") {
     out.push(`${CHECK_LABEL.agents} has not passed for this tree`);
   }
@@ -50,10 +52,10 @@ export function summaryBlockers(s: ReleaseState, notes: string): string[] {
 }
 
 export function renderSummary(s: ReleaseState, notes: string, dist: string[]): string {
-  const fresh = freshEvidence(s);
+  const ev = shown(s);
   const details = (["gate", "agents"] as const)
     .flatMap((c) => {
-      const e = fresh[c];
+      const e = ev[c];
       return e ? [`### ${c}`, "", "```", e.detail, "```", ""] : [];
     })
     .join("\n");
@@ -93,7 +95,7 @@ const VERDICT_LINE =
 
 /** The agent e2e verdict lines, so report-only and unavailable harnesses stay visible. */
 function agentVerdict(s: ReleaseState): string {
-  const detail = freshEvidence(s).agents?.detail ?? "";
+  const detail = shown(s).agents?.detail ?? "";
   const lines = detail.split("\n").filter((l) => VERDICT_LINE.test(l));
   return lines.length > 0
     ? `\nAgent e2e per harness and scenario:\n\n\`\`\`\n${lines.join("\n")}\n\`\`\`\n`

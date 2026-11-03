@@ -2,7 +2,9 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Ctx, Result } from "./context";
 import {
+  AGENT_RUN_FAILED,
   type Evidence,
+  lastAgentRun,
   pidAlive,
   type ReleaseState,
   readState,
@@ -155,6 +157,9 @@ export async function runChecks(ctx: Ctx, opts: CheckOpts = {}): Promise<Result>
         "not run: check ran without --agent-e2e",
       ),
     );
+    // Skipping does not clear a paid run that failed on this tree.
+    const prior = lastAgentRun(start);
+    if (prior && prior.result !== "pass") blockers.push(AGENT_RUN_FAILED);
   } else {
     const cmd = agentsCmd(paths);
     const agentsStart = ctx.now().toISOString();
