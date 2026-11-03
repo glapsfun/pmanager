@@ -75,7 +75,7 @@ test("memory-recall is measurement only: found by name, never in the release set
     expect(s.task.endsWith(CONTRACT_SENTENCE)).toBe(true);
     expect(s.task.includes("pmanager")).toBe(false);
     expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
-    expect(s.graderVersion).toBe(1);
+    expect(s.graderVersion).toBe(2);
   }
 });
 

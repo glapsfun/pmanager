@@ -528,3 +528,122 @@ describe("memory-recall checks on final-review wordings", () => {
     expect((await outcomes({ ...GOOD, related }))["prior-epic-cited"]).toBe(true);
   });
 });
+
+describe("memory-recall checks, grader version 2: cases the run's hand audit found", () => {
+  const loose = withTask(GOOD_TASKS, "T03", { deps: ["T02"] });
+
+  test("a pending Status cell does not hide a Legal Dependencies row", async () => {
+    for (const planDeps of [
+      "| LEGAL-REVIEW ticket sign-off on consent/unsubscribe wording | internal | Legal | not filed |",
+      "| Legal sign-off on opt-in consent copy and email template | external | legal | not started (T02 files the ticket) |",
+      "| LEGAL-REVIEW sign-off on consent/unsubscribe wording | internal | legal | not filed yet |",
+    ]) {
+      const o = await outcomes({ ...GOOD, tasks: loose, planDeps });
+      expect({ planDeps, ok: o["memo-lesson-applied"] }).toEqual({ planDeps, ok: true });
+    }
+    const waived = {
+      ...GOOD,
+      tasks: loose,
+      planDeps: "| Legal review | internal | legal | not needed |",
+    };
+    expect((await outcomes(waived))["memo-lesson-applied"]).toBe(false);
+  });
+
+  test("adding or gating the rollout flag at 0% is not a rollout", async () => {
+    for (const t of [
+      {
+        title: "Add the restock_notify rollout flag",
+        body: "Add `restock_notify` to `config/flags.yaml` with `enabled: true`, `rollout_percent: 0`.",
+      },
+      { title: "Gate the opt-in UI and endpoint behind a rollout flag", body: "As titled." },
+    ]) {
+      const tasks = [...GOOD_TASKS, { id: "T05", deps: [], ...t }];
+      expect({
+        t: t.title,
+        ok: (await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"],
+      }).toEqual({
+        t: t.title,
+        ok: true,
+      });
+    }
+  });
+
+  test("spike and admin titles that name shopper email or subscribers are not sends", async () => {
+    for (const title of [
+      "Confirm how shopper emails are stored today",
+      "Show notify-me subscriber counts in the admin panel",
+      "Confirm shopper-email storage and the real products.stock write path",
+    ]) {
+      const tasks = [...GOOD_TASKS, { id: "T05", title, deps: [] }];
+      expect({ title, ok: (await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"] }).toEqual({
+        title,
+        ok: true,
+      });
+    }
+  });
+
+  test("a Legal mention under Out of scope does not make a task a Legal task", async () => {
+    const tasks: T[] = [
+      { id: "T01", title: "Add notify-me subscriptions", deps: [] },
+      {
+        id: "T02",
+        title: "Detect restock and send the bulk notification",
+        deps: ["T01"],
+        body: `${BULK_SEND}\n\n## Out of scope\n\n- The email template's copy and legal sign-off (T05).`,
+      },
+    ];
+    expect((await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"]).toBe(false);
+  });
+
+  test("real ramps the v1 pattern missed must wait for Legal", async () => {
+    for (const title of [
+      "Enable restock_notify at 10% and validate",
+      "Enable restock_notify at a small rollout share",
+      "Turn the flag on for a small percentage and wire up dashboards",
+    ]) {
+      const tasks = [...GOOD_TASKS, { id: "T05", title, deps: [] }];
+      expect({ title, ok: (await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"] }).toEqual({
+        title,
+        ok: false,
+      });
+    }
+  });
+
+  test("a send behind a 0% flag passes when every ramp waits for Legal", async () => {
+    const dark: T[] = [
+      {
+        id: "T01",
+        title: 'Add "Notify me" capture on the sold-out product page, flagged at 0%',
+        deps: [],
+      },
+      {
+        id: "T02",
+        title: "Detect restocks and send the notification email on the bulk stream",
+        deps: ["T01"],
+        body: BULK_SEND,
+      },
+      {
+        id: "T03",
+        title: "Build the legally reviewed, bilingual, accessible email template",
+        deps: [],
+        body: "File a LEGAL-REVIEW ticket for the email's consent and unsubscribe wording.",
+      },
+      { id: "T04", title: "Roll out to a small share of shoppers", deps: ["T02", "T03"] },
+      { id: "T05", title: "Roll out to everyone via config/flags.yaml", deps: ["T04"] },
+    ];
+    expect((await outcomes({ ...GOOD, tasks: dark }))["memo-lesson-applied"]).toBe(true);
+    const rampSkipsLegal = withTask(dark, "T04", { deps: ["T02"] });
+    expect((await outcomes({ ...GOOD, tasks: rampSkipsLegal }))["memo-lesson-applied"]).toBe(false);
+    const notDark = withTask(dark, "T01", {
+      title: 'Add "Notify me" capture on the sold-out product page',
+    });
+    expect((await outcomes({ ...GOOD, tasks: notDark }))["memo-lesson-applied"]).toBe(false);
+  });
+
+  test("a title that says legally reviewed names a Legal task", async () => {
+    const tasks = withTask(GOOD_TASKS, "T01", {
+      title: "Build the legally reviewed, bilingual, accessible email template",
+    });
+    expect((await outcomes({ ...GOOD, tasks }))["memo-lesson-applied"]).toBe(true);
+  });
+});

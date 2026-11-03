@@ -15,18 +15,27 @@ import { fail, pass } from "./common";
 import { epicCheck } from "./new-epic";
 import type { Check, CheckResult } from "./types";
 
-const LEGAL_TITLE = /\blegal\b|LEGAL-REVIEW/i;
-const LEGAL_REVIEW = /LEGAL-REVIEW|\blegal\s+(review|sign-?off|approval)/i;
+const LEGAL_TITLE = /\blegal(ly)?\b|LEGAL-REVIEW/i;
+const LEGAL_REVIEW =
+  /LEGAL-REVIEW|\blegal\s+(review|sign-?off|approval)|\blegally\s+(reviewed|approved|signed off)/i;
 const LEGAL_NEGATION = /\b(no|not|none|never|without|skip\w*|waive\w*)\b|n't\b/i;
+/** A Status cell such as "not filed yet" says the review is pending, not waived. */
+const LEGAL_PENDING =
+  /\bnot\s+(yet\s+)?(filed|started|requested|submitted|opened|begun)(\s+yet)?\b/gi;
 
 // A task ships mail or ramps the flag only when it says so; data model, UI, signup,
-// template and monitoring work ships nothing to shoppers by itself.
-const SEND_VERB = /\b(send\w*|e-?mail\w*|notify\w*)\b/i;
-const AUDIENCE = /\b(shoppers?|subscribers?|customers?)\b/i;
-const SEND_WORD = /\bsend\w*\b/i;
-const MAIL_OBJECT = /\b(e-?mails?|alerts?|notifications?|messages?|mail)\b/i;
+// template, spike, admin and monitoring work ships nothing to shoppers by itself.
+// Word order matters: "Email subscribers" sends, "Confirm how shopper emails are stored" does not.
+const SEND_TO_AUDIENCE =
+  /\b(send\w*|e-?mail\w*|notify(?![- ]me)\w*)\s+(\S+\s+){0,3}?(shoppers?|subscribers?|customers?|signups?)\b/i;
+const SEND_MAIL = /\bsend\w*\s+(\S+\s+){0,3}?(e-?mails?|alerts?|notifications?|messages?|mail)\b/i;
 const ROLLOUT =
-  /\broll(ing|s|ed)?[\s-]?out\b|\brollout\b|\bramp\w*|\bturn(s|ed|ing)?\s+(\w+\s+)?on\b|\bgo(es|ing)?[\s-]live\b|\d+\s*%\s*(of\s+)?(the\s+)?(shoppers|users|customers|subscribers)/i;
+  /\broll(ing|s|ed)?[\s-]?out\b|\brollout\b|\bramp\w*|\bturn(s|ed|ing)?\s+(\S+\s+){0,3}?on\b|\bgo(es|ing)?[\s-]live\b|\b(enable|expand|open)\w*\b.*(\b[1-9]\d*\s*%|\b(small|initial)\b.*\b(share|percentage|cohort)\b|\beveryone\b)|\b[1-9]\d*\s*%\s*(of\s+)?(the\s+)?(shoppers|users|customers|subscribers)/i;
+/** "the rollout flag" names the flag; adding or gating it ramps nothing. */
+const ROLLOUT_FLAG = /\brollout[\s-]+flags?\b/gi;
+/** The flag starts dark, so shoppers see nothing until a ramp task raises it. */
+const ZERO_FLAG =
+  /rollout_percent[`"']?\s*[:=]?\s*0\b|\bat\s+0\s*%|\bflagged at 0|\bships? dark\b|\b0\s*%/i;
 const PREP =
   /\b(tables?|models?|schema|migrations?|api|ui|pages?|buttons?|forms?|sign-?ups?|subscribe|subscriptions?|unsubscribe|templates?|copy|monitor\w*|measur\w*|metrics?|dashboards?|deliverability)\b/i;
 const BODY_SEND = /mailer\.send|\bsend\(|stream\s*=/;
@@ -99,27 +108,46 @@ function citesLesson(e: EpicRecord): boolean {
   );
 }
 
+function isRollout(t: TaskDoc): boolean {
+  return ROLLOUT.test(title(t).replace(ROLLOUT_FLAG, "flag"));
+}
+
 function isSendTask(t: TaskDoc): boolean {
   const name = title(t);
-  if (
-    (SEND_VERB.test(name) && AUDIENCE.test(name)) ||
-    (SEND_WORD.test(name) && MAIL_OBJECT.test(name)) ||
-    ROLLOUT.test(name)
-  ) {
-    return true;
-  }
+  if (SEND_TO_AUDIENCE.test(name) || SEND_MAIL.test(name) || isRollout(t)) return true;
   if (PREP.test(name)) return false;
   return BODY_SEND.test(t.body);
 }
 
 /** "none (no legal dependencies)" or "no legal review needed" must not count as planning one. */
 function namesReview(text: string): boolean {
-  return text.split("\n").some((l) => LEGAL_REVIEW.test(l) && !LEGAL_NEGATION.test(l));
+  return text
+    .split("\n")
+    .map((l) => l.replace(LEGAL_PENDING, ""))
+    .some((l) => LEGAL_REVIEW.test(l) && !LEGAL_NEGATION.test(l));
+}
+
+/** Out of scope names work this task leaves to another one, such as "legal sign-off (T05)". */
+function withoutOutOfScope(body: string): string {
+  const scope = sectionBody(body, "Out of scope");
+  return scope === null ? body : body.replace(scope, "");
 }
 
 function isLegalTask(t: TaskDoc): boolean {
   const name = title(t);
-  return (LEGAL_TITLE.test(name) && !LEGAL_NEGATION.test(name)) || namesReview(t.body);
+  return (
+    (LEGAL_TITLE.test(name) && !LEGAL_NEGATION.test(name)) || namesReview(withoutOutOfScope(t.body))
+  );
+}
+
+/** Sends need no edge of their own when the flag starts dark and every ramp waits for Legal. */
+function shipsDark(e: EpicRecord, legal: Set<string>): boolean {
+  const ramps = e.tasks.filter(isRollout);
+  return (
+    ramps.length > 0 &&
+    ramps.every((r) => legal.has(r.id) || reaches(e, r.id, legal)) &&
+    e.tasks.some((t) => ZERO_FLAG.test(title(t)) || ZERO_FLAG.test(t.body))
+  );
 }
 
 function memoLesson(e: EpicRecord): CheckResult {
@@ -130,6 +158,11 @@ function memoLesson(e: EpicRecord): CheckResult {
   if (send.length === 0) return fail("no task sends mail to shoppers or rolls the feature out");
   const legal = new Set(e.tasks.filter(isLegalTask).map((t) => t.id));
   const loose = send.filter((t) => !legal.has(t.id) && !reaches(e, t.id, legal));
+  if (loose.length > 0 && !loose.some(isRollout) && shipsDark(e, legal)) {
+    return pass(
+      `${loose.map((t) => t.id).join(", ")} ship dark behind the flag; every ramp waits for the Legal review`,
+    );
+  }
   return loose.length === 0
     ? pass(`${send.map((t) => t.id).join(", ")} wait for the Legal review`)
     : fail(
