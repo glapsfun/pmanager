@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { projectFileText } from "../scripts/projects";
 import {
   exists,
   gitOk,
@@ -312,5 +313,27 @@ describe("pm record", () => {
     expect(j.push).toBe("no-claim");
     expect(j.commit.branch).toBe("main");
     expect(j.wrote).toEqual([`${SLUG}/plan.md`]);
+  });
+});
+
+describe("project catalog", () => {
+  test("record warns about an unregistered repo and ignores catalog file errors", async () => {
+    const root = await localUnclaimed();
+    const infra = {
+      id: "infra",
+      name: "infra",
+      url: "https://github.com/acme/infra.git",
+      added: "2026-09-01",
+    };
+    await writeTree(root, {
+      "docs/pm/projects/infra.md": projectFileText(infra),
+      "docs/pm/projects/INDEX.md": "stale\n",
+      "docs/pm/projects/README.md": "notes about projects\n",
+    });
+    const r = await rec(root, await bundle(SLUG));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("W-PRJ-001");
+    expect(r.stdout).not.toContain("E-PRJ-001");
+    expect(r.stdout).not.toContain("W-PRJ-002");
   });
 });

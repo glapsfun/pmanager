@@ -268,6 +268,7 @@ describe("resolveTarget + resolveRepos", () => {
     await buildWebshopRepo(dir);
     const infra = await makeTempDir("infra");
     await initGitRepo(infra);
+    await gitOk(["remote", "add", "origin", "https://github.com/acme/infra.git"], infra);
     const p = (id: string) => ({
       id,
       name: id,
@@ -286,6 +287,34 @@ describe("resolveTarget + resolveRepos", () => {
     expect(await resolveTarget(dir, "argocd", {}, projects)).toEqual({
       error: "argocd is not mapped on this machine; pm project add <path>",
     });
+  });
+  test("--repo <id> refuses a missing or mismatched checkout instead of researching it", async () => {
+    const dir = await makeTempDir("targets");
+    await buildWebshopRepo(dir);
+    const argocd = await makeTempDir("argocd");
+    await initGitRepo(argocd);
+    await gitOk(["remote", "add", "origin", "https://github.com/acme/argocd.git"], argocd);
+    const url = "https://github.com/acme/infra.git";
+    const projects = [{ id: "infra", name: "infra", url, added: "", file: "" }];
+    expect(await resolveTarget(dir, "infra", { [url]: "/nowhere/infra" }, projects)).toEqual({
+      error: "infra is mapped to /nowhere/infra, which does not exist",
+    });
+    expect(await resolveTarget(dir, "infra", { [url]: argocd }, projects)).toEqual({
+      error: `infra is mapped to ${argocd}, whose origin is https://github.com/acme/argocd.git`,
+    });
+  });
+  test("an epic repo mapped to a folder that is gone is a gap, not a crash", async () => {
+    const dir = await makeTempDir("targets");
+    await buildWebshopRepo(dir);
+    const epic = epicBySlug(await loadPmRepo(dir), "app-performance");
+    if (!epic) throw new Error("fixture epic missing");
+    const r = await resolveRepos(dir, epic, undefined, {
+      "git@github.com:glapsfun/webshop.git": "/nowhere/webshop",
+    });
+    if ("error" in r) throw new Error(r.error);
+    expect(r.gaps[0]).toBe(
+      "git@github.com:glapsfun/webshop.git maps to /nowhere/webshop, which does not exist",
+    );
   });
   test("--repo by name, by path, unknown name lists known names, non-git path errors", async () => {
     const dir = await makeTempDir("targets");

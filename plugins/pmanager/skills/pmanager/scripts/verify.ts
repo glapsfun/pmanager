@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getList, getString, parseHistory, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
-import type { Project } from "./projects";
+import { availability, type Project } from "./projects";
 import type { EpicRecord, TaskDoc } from "./repo";
 import { lookupMapped } from "./repo-url";
 import { classifyPath, failure } from "./research";
@@ -304,12 +304,19 @@ export async function resolveTarget(
   if (repoArg === undefined) return { target: { name: ".", path: root } };
   const project = projects.find((p) => p.id === repoArg);
   if (project) {
-    const path = lookupMapped(map, project.url);
-    if (path === undefined) {
+    // The states pm project list reports: never research a checkout that is gone or is another repo.
+    const a = await availability(project, map);
+    if (a.state === "not mapped") {
       return { error: `${project.id} is not mapped on this machine; pm project add <path>` };
     }
-    const top = await repoRoot(path);
-    if (!top) return { error: `${path} is not inside a git repository` };
+    if (a.state === "missing") {
+      return { error: `${project.id} is mapped to ${a.path}, which does not exist` };
+    }
+    if (a.state === "origin mismatch") {
+      return { error: `${project.id} is mapped to ${a.path}, whose origin is ${a.origin}` };
+    }
+    const top = await repoRoot(a.path);
+    if (!top) return { error: `${a.path} is not inside a git repository` };
     return { target: { name: project.id, path: top } };
   }
   const mapped = map[repoArg];
@@ -340,6 +347,10 @@ export async function resolveRepos(
     const mapped = lookupMapped(map, url);
     if (mapped === undefined) {
       gaps.push(`${url} not checked out on this machine; map it in docs/pm/.local/repos.json`);
+      continue;
+    }
+    if (!(await isDirectory(mapped))) {
+      gaps.push(`${url} maps to ${mapped}, which does not exist`);
       continue;
     }
     const path = await repoRoot(mapped);

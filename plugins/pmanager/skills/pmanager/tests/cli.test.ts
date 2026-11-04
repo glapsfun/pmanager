@@ -577,3 +577,16 @@ describe("catalog across commands", () => {
     expect((await run(["verify", "app-performance", "T01", "--repo", "infra"], wt)).code).toBe(0);
   });
 });
+
+describe("catalog errors stay in the main checkout", () => {
+  test("a stray file in projects/ fails check on main but not check --epic", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await writeTree(a, { "docs/pm/projects/README.md": "notes about projects\n" });
+    const c = await run(["claim", "app-performance"], a);
+    expect(c.code).toBe(0);
+    const main = await run(["check"], a);
+    expect(main.code).toBe(1);
+    expect(main.stdout).toContain("E-PRJ-001");
+    expect((await run(["check", "--epic", "app-performance"], a)).code).toBe(0);
+  });
+});

@@ -41,6 +41,11 @@ export interface CheckOptions {
   today: string;
   /** the main checkout's project catalog; absent or empty means no catalog rules */
   catalog?: Catalog;
+  /**
+   * main: the catalog's own files are checked too; epic: only W-PRJ-001, so a bad
+   * catalog file in the main checkout never blocks an epic branch's check or record.
+   */
+  catalogScope?: "main" | "epic";
 }
 
 type Rule = (repo: PmRepo, opts: CheckOptions) => Finding[];
@@ -549,10 +554,11 @@ export const catalogRules: Rule = (repo, opts) => {
   const catalog = opts.catalog;
   if (!catalog) return [];
   const out: Finding[] = [];
-  for (const bad of catalog.invalid) {
+  const main = (opts.catalogScope ?? "main") === "main";
+  for (const bad of main ? catalog.invalid : []) {
     out.push(err(bad.file, "E-PRJ-001", bad.reason, "fix the project file's frontmatter"));
   }
-  catalog.projects.forEach((p, i) => {
+  (main ? catalog.projects : []).forEach((p, i) => {
     const twin = catalog.projects.slice(0, i).find((q) => sameRepo(q.url, p.url));
     if (twin) {
       out.push(
@@ -581,7 +587,7 @@ export const catalogRules: Rule = (repo, opts) => {
       );
     }
   }
-  if (catalog.index !== renderProjectsIndex(catalog.projects)) {
+  if (main && catalog.index !== renderProjectsIndex(catalog.projects)) {
     const index =
       catalog.projects[0]?.file.replace(/[^/]+$/, "INDEX.md") ?? "docs/pm/projects/INDEX.md";
     out.push(

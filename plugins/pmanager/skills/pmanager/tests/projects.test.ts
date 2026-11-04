@@ -190,6 +190,16 @@ describe("addProject", () => {
     expect(r.ok && r.project.id).toBe("other-infra");
   });
 
+  test("an argument that is neither a directory nor a remote URL is refused", async () => {
+    const root = await manager();
+    for (const arg of ["../infar", "infra", "/nowhere/infra"]) {
+      const r = await addProject(root, arg, opts);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain(`no such directory ${arg}`);
+    }
+    expect(await exists(join(root, "docs/pm/projects"))).toBe(false);
+  });
+
   test("the manager itself and a checkout without origin are refused", async () => {
     const root = await manager();
     const self = await addProject(root, root, opts);

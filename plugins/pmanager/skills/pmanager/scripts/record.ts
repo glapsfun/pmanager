@@ -6,6 +6,7 @@ import { claimBranch } from "./claim";
 import { countBySeverity, type Finding, formatFindings } from "./findings";
 import { fetchOrigin, git, hasRemote, headBranch, pushSetUpstream } from "./git";
 import { writeLogEntry } from "./log";
+import type { Catalog } from "./projects";
 import { applyRender } from "./render";
 import { loadPmRepo, PM_DIR } from "./repo";
 
@@ -20,6 +21,8 @@ export interface RecordOptions {
   staleDays: number;
   files: BundleFile[];
   inRepo: boolean;
+  /** the main checkout's catalog: record warns about unregistered repos, nothing more */
+  catalog?: Catalog;
 }
 
 export interface RecordResult {
@@ -124,6 +127,8 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
   const findings = check(await loadPmRepo(target), {
     staleDays: opts.staleDays,
     today: opts.today,
+    catalog: opts.catalog,
+    catalogScope: "epic",
   });
   const { errors, warnings } = countBySeverity(findings);
   const result: RecordResult = {

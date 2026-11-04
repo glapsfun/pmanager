@@ -526,6 +526,7 @@ async function runRecord(
     staleDays: args.staleDays,
     files,
     inRepo: found !== null,
+    catalog: (await mainCatalog(root)).catalog,
   });
   out(args.json ? json(result) : formatRecord(result, target, slug));
   return result.ok ? 0 : 1;
@@ -567,10 +568,11 @@ export async function main(
   switch (args.cmd) {
     case "check": {
       const target = await targetRoot(root, args);
-      const { catalog } = await mainCatalog(root);
+      const { catalog, main } = await mainCatalog(root);
       const findings = check(target === root ? repo : await loadPmRepo(target), {
         ...opts,
         catalog,
+        catalogScope: target === main ? "main" : "epic",
       });
       const { errors, warnings } = countBySeverity(findings);
       out(

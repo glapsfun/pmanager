@@ -5,7 +5,7 @@ import { git, repoRoot } from "./git";
 import { LOCAL_REPOS_FILE, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
 import { repoShortName } from "./render";
 import { LOCAL_DIR, PROJECTS_DIR } from "./repo";
-import { lookupMapped, normalizeRepoUrl, sameRepo } from "./repo-url";
+import { isRemoteUrl, lookupMapped, normalizeRepoUrl, sameRepo } from "./repo-url";
 import { listWorktrees } from "./worktree";
 
 export { PROJECTS_DIR } from "./repo";
@@ -176,6 +176,8 @@ export async function addProject(
     }
     url = origin;
     path = top;
+  } else if (!isRemoteUrl(arg)) {
+    return { ok: false, message: `no such directory ${arg}; pass a checkout path or a remote URL` };
   }
 
   const catalog = await loadCatalog(pmDir);

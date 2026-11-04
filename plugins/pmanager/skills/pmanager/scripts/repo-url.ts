@@ -11,6 +11,11 @@ export function normalizeRepoUrl(url: string): string {
   return u;
 }
 
+/** A remote in one of the forms normalizeRepoUrl understands, so a mistyped path is not taken for a URL. */
+export function isRemoteUrl(url: string): boolean {
+  return normalizeRepoUrl(url) !== url.trim();
+}
+
 export function sameRepo(a: string, b: string): boolean {
   return normalizeRepoUrl(a) === normalizeRepoUrl(b);
 }

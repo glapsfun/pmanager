@@ -428,6 +428,15 @@ describe("project catalog", () => {
     expect(only(await findings([]), "W-PRJ-001")).toEqual([]);
   });
 
+  test("checked for one epic, the catalog only adds W-PRJ-001", async () => {
+    const root = await fixture();
+    const infra = project("infra", "https://github.com/acme/infra.git");
+    const invalid = [{ file: "/m/docs/pm/projects/README.md", reason: "missing id, name, url" }];
+    const catalog = { projects: [infra], invalid, index: "stale\n" };
+    const fs = check(await loadPmRepo(root), { ...OPTS, catalog, catalogScope: "epic" });
+    expect(fs.filter((f) => f.rule.includes("PRJ")).map((f) => f.rule)).toEqual(["W-PRJ-001"]);
+  });
+
   test("broken or duplicate project files are E-PRJ-001; a stale index is W-PRJ-002", async () => {
     const infra = project("infra", "https://github.com/acme/infra.git");
     const broken = await findings([infra], {
