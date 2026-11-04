@@ -330,7 +330,7 @@ const STAGING: Step[] = [
 ];
 
 /** The manager registers the repos it plans for before its first epic; pm writes, the user commits. */
-const REGISTRY: Step[] = [
+export const REGISTRY: Step[] = [
   ...(["webshop", "infra", "argocd"] as const).map(
     (name): Step => ({
       day: "2026-10-19",
@@ -347,7 +347,7 @@ const REGISTRY: Step[] = [
 ];
 
 /** A codex session that reserved an epic and never came back, and a draft dropped by pi. */
-const CLAIMS: Step[] = [
+export const CLAIMS: Step[] = [
   {
     day: "2026-11-05",
     harness: "codex",
@@ -482,13 +482,14 @@ async function playStep(
   }
 }
 
-/** Plays STEPS in order; returns each claimed slug's session id. */
-export async function playStory(
+/** Plays `steps` in order; returns each claimed slug's session id. */
+export async function playSteps(
   ws: Workspace,
+  steps: Step[],
   opts: { shiftDays: number },
 ): Promise<Record<string, string>> {
   const sessions: Record<string, string> = {};
-  for (const [i, step] of STEPS.entries()) {
+  for (const [i, step] of steps.entries()) {
     try {
       await playStep(ws, step, sessions, opts.shiftDays);
     } catch (e) {
@@ -504,4 +505,12 @@ export async function playStory(
     }
   }
   return sessions;
+}
+
+/** The whole story. */
+export function playStory(
+  ws: Workspace,
+  opts: { shiftDays: number },
+): Promise<Record<string, string>> {
+  return playSteps(ws, STEPS, opts);
 }

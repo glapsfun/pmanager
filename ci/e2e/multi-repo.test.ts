@@ -1,11 +1,13 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { loadPmRepo } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import { exists, gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { pmProcess } from "./pm";
-import { STORY_END } from "./story";
+import { CLAIMS, playSteps, REGISTRY, STORY_END } from "./story";
 import {
   buildBase,
+  buildBaseAt,
   buildWorkspace,
   parseCliArgs,
   REPO_ROOT,
@@ -354,4 +356,37 @@ describe("whole workspace", () => {
     expect(h.code).toBe(0);
     expect(h.stdout).toMatch(new RegExp(`${TARGETS.infra.replaceAll(".", "\\.")} → [^\\n]*my ws`));
   }, 120_000);
+});
+
+describe("manager at a path", () => {
+  test("buildBaseAt puts the manager at the path and the rest under <manager>-pm-workspace", async () => {
+    const m = join(await makeTempDir("bench"), "fixture");
+    const ws = await buildBaseAt(m);
+    const rest = `${m}-pm-workspace`;
+    expect(ws.manager).toBe(m);
+    expect(ws.dir).toBe(rest);
+    expect(ws.repos.infra).toBe(join(rest, "infra"));
+    expect(ws.worktree("x")).toBe(`${m}-pm-x`);
+    expect((await gitOk(["remote", "get-url", "origin"], m)).trim()).toBe(
+      join(rest, "remotes", "manager.git"),
+    );
+    const map = JSON.parse(await readFile(join(m, "docs/pm/.local/repos.json"), "utf8"));
+    expect(Object.keys(map).sort()).toEqual(Object.values(TARGETS).sort());
+    const busy = join(await makeTempDir("bench"), "fixture");
+    await mkdir(busy);
+    await writeFile(join(busy, "notes.txt"), "mine\n");
+    await expect(buildBaseAt(busy)).rejects.toThrow();
+  });
+
+  test("REGISTRY and CLAIMS alone give a catalog and two claims, no epics on main", async () => {
+    const ws = await buildBaseAt(join(await makeTempDir("bench"), "fixture"));
+    await playSteps(ws, [...REGISTRY, ...CLAIMS], { shiftDays: 0 });
+    const status = (await pm(ws.manager, "status")).stdout;
+    const projects = status.split("\n").filter((l) => /^ {2}(webshop|infra|argocd) {2}/.test(l));
+    expect(projects).toHaveLength(3);
+    expect(projects.every((l) => l.endsWith("  available"))).toBe(true);
+    expect(statusBlock(status, "argocd-sso-dex")).toContain("[stale]");
+    expect(statusBlock(status, "multi-region-failover")).toMatch(/abandoned/);
+    expect((await loadPmRepo(ws.manager)).epics).toEqual([]);
+  });
 });
