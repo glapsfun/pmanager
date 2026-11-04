@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "attempt-capture-1",
+  "createdAt": "2026-11-03T19:45:29.768Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.317",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill"
+  ],
+  "pairs": 3,
+  "timeoutS": 900,
+  "repoSha": "97d906f",
+  "repoDirty": false,
+  "skillVersion": "0.10.1",
+  "skillHash": "sha256:4b5b8cd13295d3c5902335a5dd1df66c7feedf6ab0318f550287d95f2501e3a0",
+  "contractHash": "sha256:7744d795e259f41a6339a29871d57d20c928d18d0470f814cbfac49907bdd078",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "tracking-update-memory",
+      "version": 1,
+      "promptHash": "sha256:07ba4de92a034b817216e913e09872cc1b19238bdc476ab29b82c6b675ad670f",
+      "fixtureHash": "sha256:372e52519e8b41f135656d51ae34c707774eaf6ca29c4f069d94c6ccaf783246",
+      "graderVersion": 2
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "attempt-capture-1-p1-tracking-update-memory-with-skill",
+      "pair": 1,
+      "scenario": "tracking-update-memory",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "attempt-capture-1-p2-tracking-update-memory-with-skill",
+      "pair": 2,
+      "scenario": "tracking-update-memory",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "attempt-capture-1-p3-tracking-update-memory-with-skill",
+      "pair": 3,
+      "scenario": "tracking-update-memory",
+      "condition": "with-skill",
+      "order": 1
+    }
+  ]
+}

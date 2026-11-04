@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getList, getString, sectionBody } from "./contract";
+import { getList, getString, parseHistory, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
 import type { EpicRecord, TaskDoc } from "./repo";
 import { classifyPath, failure } from "./research";
@@ -64,6 +64,30 @@ export function extractPathTokens(text: string): string[] {
     out.add(raw);
   }
   return [...out];
+}
+
+function evidencePath(p: string): string {
+  return p
+    .replace(/`/g, "")
+    .replace(/^at\s+/i, "")
+    .replace(/[.,:;)]+$/, "")
+    .trim();
+}
+
+/**
+ * Path tokens a done claim may pull into scope. A failed attempt's log records what went
+ * wrong, and pm verify prints untracked files whole, so its path is left out even when
+ * Notes mentions it too.
+ */
+export function scopeTokens(body: string): string[] {
+  const logs = new Set(
+    (parseHistory(body)?.entries ?? []).flatMap((h) =>
+      h.kind === "attempt" ? [evidencePath(h.evidence)] : [],
+    ),
+  );
+  return extractPathTokens(withoutSection(body, "History")).filter(
+    (t) => !logs.has(evidencePath(t)),
+  );
 }
 
 export function pathMatches(token: string, path: string): boolean {
@@ -674,7 +698,7 @@ export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
   const shared: SharedProbeOptions = {
     taskId: opts.task.id,
     slug: opts.epic.slug,
-    tokens: extractPathTokens(opts.task.body),
+    tokens: scopeTokens(opts.task.body),
     extraFiles: opts.files,
     limit: opts.limit,
     timeoutMs: opts.timeoutMs ?? 30_000,

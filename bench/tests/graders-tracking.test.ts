@@ -8,8 +8,9 @@ import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helper
 import { EMPTY_TELEMETRY, type Telemetry } from "../adapters/types";
 import { type FixtureInfo, headSha, snapshotDirty } from "../fixture";
 import { buildCheckContext } from "../graders/context";
-import { trackingChecks } from "../graders/tracking";
+import { FIXTURE_SECRET, RAW_LOG_MARKERS, trackingChecks } from "../graders/tracking";
 import { runChecks } from "../graders/types";
+import { ATTEMPT_LOG, trackingUpdateMemory } from "../scenarios/tracking-update-memory";
 
 const T01 = "docs/pm/app-performance/tasks/T01-benchmark-orders.md";
 const T02 = "docs/pm/app-performance/tasks/T02-add-order-items-index.md";
@@ -119,5 +120,200 @@ describe("tracking checks", () => {
       "| T01 | Benchmark orders endpoint | M1 | must | — | todo |",
     );
     expect((await outcomes(dir, info))["table-mirrors"]).toBe(false);
+  });
+});
+
+describe("attempt checks", () => {
+  const HISTORY_T01 = [
+    "- 2026-09-15 status todo -> in-progress",
+    "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked after about 200 orders; evidence docs/attempt-1.log",
+    "- 2026-09-15 status in-progress -> done; fixed by seeding all orders inside one transaction",
+  ];
+
+  async function scenarioFixture() {
+    const dir = await makeTempDir("bench-attempt");
+    const info = await trackingUpdateMemory.buildFixture(dir);
+    return { dir, info };
+  }
+
+  async function append(dir: string, rel: string, text: string) {
+    const p = join(dir, rel);
+    await writeFile(p, `${(await readFile(p, "utf8")).trimEnd()}\n\n${text}\n`);
+  }
+
+  async function historyUpdate(
+    dir: string,
+    t01: string[] = HISTORY_T01,
+    t02: string[] = ["- 2026-09-15 status todo -> blocked"],
+  ) {
+    await goodUpdate(dir);
+    await append(dir, T01, `## History\n\n${t01.join("\n")}`);
+    await append(dir, T02, `## History\n\n${t02.join("\n")}`);
+    await applyRender(await loadPmRepo(dir));
+  }
+
+  async function scenarioOutcomes(dir: string, info: FixtureInfo) {
+    const ctx = await buildCheckContext(dir, info, EMPTY_TELEMETRY);
+    const res = await runChecks(trackingUpdateMemory.checks, ctx);
+    return Object.fromEntries(res.map((r) => [r.id, r.passed]));
+  }
+
+  test("a correct update passes every check that does not need telemetry", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(true);
+    expect(o["t01-history-sequence"]).toBe(true);
+    expect(o["t02-history-blocked"]).toBe(true);
+    expect(o["no-raw-log"]).toBe(true);
+    expect(o["check-no-errors"]).toBe(true);
+    expect(o["t01-done"]).toBe(true);
+    expect(o["t02-blocked-noted"]).toBe(true);
+  });
+
+  test("no History fails the History checks", async () => {
+    const { dir, info } = await scenarioFixture();
+    await goodUpdate(dir);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+    expect(o["t01-history-sequence"]).toBe(false);
+    expect(o["t02-history-blocked"]).toBe(false);
+    expect(o["no-raw-log"]).toBe(true);
+  });
+
+  test("an attempt that marks T01 blocked fails the sequence check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      "- 2026-09-15 status todo -> blocked",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status blocked -> done; fixed by seeding all orders inside one transaction",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-sequence"]).toBe(false);
+  });
+
+  test("a malformed History line fails the attempt check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      "- 2026-09-15 tried again, it broke",
+      HISTORY_T01[2] ?? "",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+  });
+
+  test("an attempt line copied from the request's own wording passes", async () => {
+    const task = trackingUpdateMemory.task;
+    const start = task.indexOf("attempt failed: ");
+    const end = task.indexOf("docs/attempt-1.log") + "docs/attempt-1.log".length;
+    const copied = `- 2026-09-15 ${task.slice(start, end)}`;
+    expect(copied).toContain("; evidence at docs/attempt-1.log");
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [HISTORY_T01[0] ?? "", copied, HISTORY_T01[2] ?? ""]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(true);
+    expect(o["t01-history-sequence"]).toBe(true);
+    expect(o["check-no-errors"]).toBe(true);
+  });
+
+  test("the secret alone in Notes fails no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(dir, T01, "## Notes\n", `## Notes\n\nPassword was ${FIXTURE_SECRET}\n`);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(false);
+  });
+
+  test("a broken status chain fails the sequence check", async () => {
+    const gap = await scenarioFixture();
+    await historyUpdate(gap.dir, [
+      HISTORY_T01[0] ?? "",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status todo -> done; fixed by seeding all orders inside one transaction",
+    ]);
+    expect((await scenarioOutcomes(gap.dir, gap.info))["t01-history-sequence"]).toBe(false);
+    const start = await scenarioFixture();
+    await historyUpdate(start.dir, [
+      "- 2026-09-15 status blocked -> in-progress",
+      HISTORY_T01[1] ?? "",
+      HISTORY_T01[2] ?? "",
+    ]);
+    expect((await scenarioOutcomes(start.dir, start.info))["t01-history-sequence"]).toBe(false);
+  });
+
+  test("a done line without the transaction fix fails the sequence check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      HISTORY_T01[1] ?? "",
+      "- 2026-09-15 status in-progress -> done",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-sequence"]).toBe(false);
+    expect(o["t01-history-attempt"]).toBe(true);
+  });
+
+  test("an attempt line with the wrong evidence path fails the attempt check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, [
+      HISTORY_T01[0] ?? "",
+      "- 2026-09-15 attempt failed: tried one insert per commit; got database is locked; evidence docs/profile-results.txt",
+      HISTORY_T01[2] ?? "",
+    ]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t01-history-attempt"]).toBe(false);
+    expect(o["t01-history-sequence"]).toBe(true);
+  });
+
+  test("T02 History without todo -> blocked fails its check", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir, HISTORY_T01, ["- 2026-09-15 status todo -> in-progress"]);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["t02-history-blocked"]).toBe(false);
+    expect(o["t01-history-attempt"]).toBe(true);
+  });
+
+  test("raw-log markers come from the log and never from the request", () => {
+    expect(RAW_LOG_MARKERS).toContain(FIXTURE_SECRET);
+    expect(RAW_LOG_MARKERS).toContain('File "scripts/seed.py", line');
+    expect(RAW_LOG_MARKERS).toContain("$ python scripts/seed.py");
+    for (const m of RAW_LOG_MARKERS) {
+      expect(ATTEMPT_LOG).toContain(m);
+      expect(trackingUpdateMemory.task).not.toContain(m);
+    }
+    expect(RAW_LOG_MARKERS).not.toContain("SHOP_DB_PASSWORD");
+  });
+
+  test("a short summary that names the error, command and variable passes no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(
+      dir,
+      T01,
+      "## Notes\n",
+      "## Notes\n\nThe seed run (python scripts/seed.py --orders 1000) stopped after 200 orders with sqlite3.OperationalError: database is locked; the log also printed SHOP_DB_PASSWORD, so it stays out of these docs.\n",
+    );
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(true);
+  });
+
+  test("each raw-log marker pasted alone fails no-raw-log", async () => {
+    for (const marker of RAW_LOG_MARKERS) {
+      const { dir, info } = await scenarioFixture();
+      await historyUpdate(dir);
+      const line = ATTEMPT_LOG.split("\n").find((l) => l.includes(marker)) ?? marker;
+      await edit(dir, T01, "## Notes\n", `## Notes\n\n${line}\n`);
+      const o = await scenarioOutcomes(dir, info);
+      expect([marker, o["no-raw-log"]]).toEqual([marker, false]);
+    }
+  });
+
+  test("pasting the log into Notes fails no-raw-log", async () => {
+    const { dir, info } = await scenarioFixture();
+    await historyUpdate(dir);
+    await edit(dir, T01, "## Notes\n", `## Notes\n\n${ATTEMPT_LOG}\n`);
+    const o = await scenarioOutcomes(dir, info);
+    expect(o["no-raw-log"]).toBe(false);
   });
 });

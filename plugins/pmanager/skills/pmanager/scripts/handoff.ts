@@ -94,8 +94,10 @@ export function buildHandoff(
     "",
     "## Report back",
     "",
-    `When finished, tell the planning session exactly: "${task.id} of ${slug} is done, evidence at <path>"`,
+    `When finished, tell the planning session exactly: "${task.id} of ${slug} is done, evidence at <path>"; after a failed attempt, end it with "; fixed by <what changed>"`,
+    `If an attempt failed: "${task.id} of ${slug} attempt failed: tried <what>; got <result>; evidence at <path>"`,
     `If blocked: "${task.id} of ${slug} is blocked on <reason>"`,
+    "Keep each field to a short summary and point at evidence by path or URL; never paste log output.",
     "",
   ].join("\n");
 }

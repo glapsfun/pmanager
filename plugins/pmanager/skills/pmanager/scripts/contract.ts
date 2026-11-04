@@ -264,28 +264,102 @@ function normalizeHeading(h: string): string {
     .toLowerCase();
 }
 
-export function sectionBody(body: string, heading: string): string | null {
+/** Index of the heading line and of the first line after the section, or null. */
+function sectionRange(lines: string[], heading: string): [number, number] | null {
   const want = normalizeHeading(heading);
-  const lines = body.split("\n");
-  let start = -1;
+  let head = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i] ?? "";
     if (l.startsWith("## ") && normalizeHeading(l.slice(3)) === want) {
-      start = i + 1;
+      head = i;
       break;
     }
   }
-  if (start === -1) return null;
+  if (head === -1) return null;
   let end = lines.length;
-  for (let i = start; i < lines.length; i++) {
+  for (let i = head + 1; i < lines.length; i++) {
     if ((lines[i] ?? "").startsWith("## ")) {
       end = i;
       break;
     }
   }
-  return lines.slice(start, end).join("\n");
+  return [head, end];
+}
+
+export function sectionBody(body: string, heading: string): string | null {
+  const lines = body.split("\n");
+  const range = sectionRange(lines, heading);
+  return range ? lines.slice(range[0] + 1, range[1]).join("\n") : null;
+}
+
+/** The body with one `## <heading>` section, heading included, removed. */
+export function withoutSection(body: string, heading: string): string {
+  const lines = body.split("\n");
+  const range = sectionRange(lines, heading);
+  return range ? [...lines.slice(0, range[0]), ...lines.slice(range[1])].join("\n") : body;
 }
 
 export function hasSection(body: string, heading: string): boolean {
   return sectionBody(body, heading) !== null;
+}
+
+export type HistoryEntry =
+  | { kind: "status"; date: string; from: string; to: string; fixedBy: string | null }
+  | { kind: "attempt"; date: string; tried: string; got: string; evidence: string };
+
+export interface History {
+  entries: HistoryEntry[];
+  /** non-blank lines in neither form, trimmed, in file order */
+  invalid: string[];
+}
+
+const HISTORY_STATUS = /^- (\d{4}-\d{2}-\d{2}) status (\S+) -> (\S+)(?:; fixed by (.+))?$/;
+// "evidence at <path>" is how the handoff brief words it, so a copied report line still parses;
+// a bare "evidence at" has no path and must not read as the path "at".
+const HISTORY_ATTEMPT =
+  /^- (\d{4}-\d{2}-\d{2}) attempt failed: tried (.+?); got (.+?); evidence (?:at )?(?!at$)(.+)$/;
+const KNOWN_STATUSES: readonly string[] = TASK_STATUSES;
+
+// A regex alone accepts 2026-02-30; History dates are read back later, so they must be real days.
+function isCalendarDate(d: string): boolean {
+  const t = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+}
+
+function parseHistoryLine(line: string): HistoryEntry | null {
+  const s = HISTORY_STATUS.exec(line);
+  if (s) {
+    const [, date = "", from = "", to = "", fixedBy] = s;
+    if (!isCalendarDate(date) || !KNOWN_STATUSES.includes(from) || !KNOWN_STATUSES.includes(to)) {
+      return null;
+    }
+    return { kind: "status", date, from, to, fixedBy: fixedBy?.trim() ?? null };
+  }
+  const a = HISTORY_ATTEMPT.exec(line);
+  if (!a) return null;
+  const [, date = "", tried = "", got = "", evidence = ""] = a;
+  const fields = [tried.trim(), got.trim(), evidence.trim()];
+  if (!isCalendarDate(date) || fields.some((f) => f === "")) return null;
+  return {
+    kind: "attempt",
+    date,
+    tried: fields[0] ?? "",
+    got: fields[1] ?? "",
+    evidence: fields[2] ?? "",
+  };
+}
+
+/** null when the body has no `## History` section. */
+export function parseHistory(body: string): History | null {
+  const section = sectionBody(body, "History");
+  if (section === null) return null;
+  const history: History = { entries: [], invalid: [] };
+  for (const raw of section.split("\n")) {
+    const line = raw.trimEnd();
+    if (line.trim() === "") continue;
+    const entry = parseHistoryLine(line);
+    if (entry) history.entries.push(entry);
+    else history.invalid.push(line.trim());
+  }
+  return history;
 }
