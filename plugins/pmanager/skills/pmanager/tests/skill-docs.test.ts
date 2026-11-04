@@ -137,3 +137,55 @@ test("memory.md Write-back names pm record", () => {
   const s = between(read("references/memory.md"), "## Write-back", "## Edge cases");
   expect(s).toContain("`pm record`");
 });
+
+test("update routing names a failed attempt", () => {
+  expect(flat(SKILL)).toContain('"T03 attempt failed"');
+});
+
+test("tracking.md carries both History forms and the date meaning", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("- YYYY-MM-DD status <from> -> <to>");
+  expect(t).toContain("; fixed by <what>");
+  expect(t).toContain("- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>");
+  expect(t).toContain("the day the planning session recorded the report");
+  expect(t).toContain("never paste log output");
+});
+
+test("the task template points at History but its skeleton has none", () => {
+  const raw = read("references/task.template.md");
+  const block = /```markdown\n([\s\S]*?)```/.exec(raw)?.[1] ?? "";
+  expect(block).not.toContain("## History");
+  expect(flat(raw)).toContain("`## History`");
+  expect(flat(raw)).toContain("tracking.md");
+});
+
+test("done claims pass only the done report's evidence to pm verify", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("never a failed attempt's evidence path");
+});
+
+test("tracking.md shows a multi-event History in event order", () => {
+  const raw = read("references/tracking.md");
+  expect(raw).toContain(
+    [
+      "## History",
+      "",
+      "- 2026-11-03 status todo -> in-progress",
+      "- 2026-11-03 attempt failed: tried <what>; got <result>; evidence <path>",
+      "- 2026-11-04 status in-progress -> done; fixed by <what>",
+    ].join("\n"),
+  );
+  const t = flat(raw);
+  expect(t).toContain("one line per event, in the order the events happened");
+  expect(t).toContain("`status todo -> in-progress` line comes before its first attempt line");
+});
+
+test("several reports in one request render and check once", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("apply all their edits first, then render and check once");
+});
+
+test("each History event stays on one line", () => {
+  const t = flat(read("references/tracking.md"));
+  expect(t).toContain("Each event is one line, never wrapped");
+});

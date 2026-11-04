@@ -37,20 +37,57 @@ draft-awaiting-approval state a non-interactive run leaves behind):
 **Task status** (`T02 is done`, `T03 is blocked on infra`):
 
 1. Task frontmatter: `status`, `updated`; blockers also get a Notes line
-   naming the blocker.
+   naming the blocker. In the same edit pass, append
+   `- YYYY-MM-DD status <from> -> <to>` to the task's `## History`
+   section, creating the section last in the file when it is missing. A
+   done report that names what fixed an earlier failure ends that line
+   with `; fixed by <what>`.
 2. Run `pm render --epic <slug> --session <id>` (regenerates the plan task
    table and INDEX).
-3. `done` claims: run `pm verify <slug> <id>` (pass any paths the user's
-   message names as `--files`). Check off a criterion only when the
-   evidence printed under it proves it; for `no evidence in scope` and
-   `needs measurement` write `**unverified** — <label>: <why>` under
-   Acceptance criteria so `pm check` accepts it. Read the `unattributed`
-   block before deciding: it holds the evidence the matcher could not tie
-   to a criterion. Never grep the repository or run the full test suite
-   for a done claim; when the report lists tests as `touched in scope` or
-   `references <file>`, run only those and cite the result as
-   `[command] fact`. A `gaps:` line lowers confidence and is named in the
-   write-back summary.
+3. `done` claims: run `pm verify <slug> <id>` (pass the done claim's
+   evidence paths as `--files`, never a failed attempt's evidence path:
+   those logs record what went wrong, not what was delivered). Check off a
+   criterion only when the evidence printed under it proves it; for
+   `no evidence in scope` and `needs measurement` write
+   `**unverified** — <label>: <why>` under Acceptance criteria so
+   `pm check` accepts it. Read the `unattributed` block before deciding: it
+   holds the evidence the matcher could not tie to a criterion. Never grep
+   the repository or run the full test suite for a done claim; when the
+   report lists tests as `touched in scope` or `references <file>`, run
+   only those and cite the result as `[command] fact`. A `gaps:` line
+   lowers confidence and is named in the write-back summary.
+
+**Failed attempt** (`T03 attempt failed: tried ...; got ...; evidence at ...`):
+
+1. Append `- YYYY-MM-DD attempt failed: tried <what>; got <result>; evidence <path>`
+   to the task's `## History`. Status stays as it is, except that a `todo`
+   task first moves to `in-progress`, with its own status line, since an
+   attempt means work started.
+2. This is not a done claim, so no `pm verify`. Render and check as usual.
+
+**History format:** append-only, one line per event, oldest first, in
+exactly the two forms above. The date is the day the planning session
+recorded the report, not the day the work happened, so it is no measure of
+duration. `->` is plain ASCII. Each field is a short summary with evidence
+as a path or URL: never paste log output or environment values. Only
+update mode writes History; `pm check` reports a line in neither form
+(E-HIS-001) and a last status line that disagrees with the frontmatter
+(W-HIS-002).
+
+A report holding several events gets one line per event, in the order the
+events happened. Each event is one line, never wrapped, however long. For a
+`todo` task, its `status todo -> in-progress` line comes before its first
+attempt line. When one request carries several reports, apply all their
+edits first, then render and check once. A failed attempt followed by a
+done report that names its fix reads:
+
+```markdown
+## History
+
+- 2026-11-03 status todo -> in-progress
+- 2026-11-03 attempt failed: tried <what>; got <result>; evidence <path>
+- 2026-11-04 status in-progress -> done; fixed by <what>
+```
 
 **Scope changes** (add/split/descope tasks, shift a milestone):
 
@@ -61,7 +98,8 @@ draft-awaiting-approval state a non-interactive run leaves behind):
    to the `- Won't (this epic):` line with its reason (E-ST-002) and the
    task file's frontmatter is set to `status: descoped` — a recorded
    decision, not a deletion; descoped tasks are excluded from INDEX task
-   counts and next-task ranking.
+   counts and next-task ranking. Setting `descoped` appends its History
+   status line like any other status change.
 3. A change that breaks the epic's framing (new scope contradicts
    non-goals, metric no longer fits) → stop and say so: that's a new epic
    or an epic revision needing approval, not a quiet plan edit.
