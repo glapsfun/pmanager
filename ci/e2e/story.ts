@@ -35,7 +35,7 @@ const HC_PLAN = `${HC}/plan.md`;
 const HC_T01 = `${HC}/tasks/T01-healthz-endpoint.md`;
 const HC_T02 = `${HC}/tasks/T02-probes-and-release.md`;
 
-export const STEPS: Step[] = [
+const HEALTHCHECK: Step[] = [
   {
     day: "2026-10-20",
     harness: CC,
@@ -157,13 +157,186 @@ export const STEPS: Step[] = [
   { day: "2026-11-02", git: ["branch", "-q", "-D", `pm/${HC}`] },
 ];
 
+const SE = "staging-environment";
+const SE_EPIC = `${SE}/epic.md`;
+const SE_T01 = `${SE}/tasks/T01-staging-terraform-env.md`;
+const SE_T02 = `${SE}/tasks/T02-apply-staging-capture-access.md`;
+const SE_T04 = `${SE}/tasks/T04-kustomize-overlays.md`;
+const SE_T07 = `${SE}/tasks/T07-validate-staging-first-workflow.md`;
+const MEMO = "pmanager-memo.md";
+
+const epicUpdated = (from: string, to: string): Edit => [`updated: ${from}`, `updated: ${to}`];
+
+/** The real planning run of 2026-11-04, then its tasks progressing in infra and argocd. */
+const STAGING: Step[] = [
+  {
+    day: "2026-11-04",
+    harness: CC,
+    pm: [
+      "claim",
+      SE,
+      "--draft",
+      "--title",
+      "Stand up a staging environment for the webshop",
+      "--type",
+      "feature",
+    ],
+  },
+  {
+    day: "2026-11-04",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "spec", "-m", `spec ${SE}`],
+    bundle: `${SE}/01-spec.md`,
+  },
+  {
+    day: "2026-11-04",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "update pmanager memo"],
+    edits: {
+      [MEMO]: [
+        ["_Last updated: 2026-10-20_", "_Last updated: 2026-11-04_"],
+        [
+          "It runs on the prod-eu k3s cluster and is deployed by an Argo",
+          "It runs on the prod-eu k3s cluster (Hetzner, provisioned by Terraform in the\n`infra` repo) and is deployed by an Argo",
+        ],
+        [
+          "| Releases without customer-facing errors | 5xx responses during a rollout | [user, 2026-10-20] |",
+          "| Releases without customer-facing errors | 5xx responses during a rollout | [user, 2026-10-20] |\n| Catch webshop bugs before they reach prod customers | % of webshop prod syncs preceded by a staging sync of the same revision | [user, 2026-11-04] |",
+        ],
+        [
+          "| argocd repo owners | Applications, workloads and sync health | PR review in argocd |",
+          "| argocd repo owners | Applications, workloads and sync health | PR review in argocd |\n| infra repo owners | Terraform environments, cluster/network modules | PR review on `infra/<topic>` branches |",
+        ],
+        [
+          "- `manager` (this repo)",
+          "- `infra`: one module change per pull request; branch as\n  `infra/<short-topic>`; `terraform fmt`/`validate`/`tflint` required before\n  commit; CI plans on PR and applies after merge — never run\n  `terraform plan`/`apply` from a workstation.\n- `infra`/`argocd` contract: `cluster_name` and `ingress_lb_name` outputs\n  are consumed by the argocd repo (ingress-nginx LB annotation); renaming\n  or removing one needs the matching argocd change merged first.\n- `manager` (this repo)",
+        ],
+      ],
+    },
+  },
+  {
+    day: "2026-11-10",
+    commit: "infra",
+    tree: `${SE}/02-staging-env`,
+    message: `feat: add staging environment (${SE} T01)`,
+  },
+  {
+    day: "2026-11-11",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "T01 done"],
+    edits: {
+      [SE_T01]: [
+        ["status: todo", "status: done"],
+        epicUpdated("2026-11-04", "2026-11-11"),
+        ["- [ ] `infra/envs/staging/main.tf` exists", "- [x] `infra/envs/staging/main.tf` exists"],
+        ['- [ ] `cluster_name = "staging-eu"`', '- [x] `cluster_name = "staging-eu"`'],
+        [
+          "from a workstation, per `AGENTS.md`)\n",
+          "from a workstation, per `AGENTS.md`)\n\n**unverified**: fmt, validate, tflint and the PR plan run in infra CI, which\nverify cannot see; the implementer reported them green on the pull request.\n",
+        ],
+        [
+          "",
+          "\n## History\n\n- 2026-11-11 status todo -> in-progress\n- 2026-11-11 status in-progress -> done\n",
+        ],
+      ],
+      [SE_EPIC]: [
+        ["status: approved", "status: in-progress"],
+        epicUpdated("2026-11-04", "2026-11-11"),
+      ],
+    },
+  },
+  {
+    day: "2026-11-13",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "T02 attempt failed"],
+    edits: {
+      [SE_T02]: [
+        ["status: todo", "status: in-progress"],
+        epicUpdated("2026-11-04", "2026-11-13"),
+        [
+          "",
+          "\n## History\n\n- 2026-11-13 status todo -> in-progress\n- 2026-11-13 attempt failed: tried CI apply of envs/staging; got hcloud quota exceeded for cpx31; evidence docs/pm/staging-environment/evidence/T02-apply.md\n",
+        ],
+      ],
+      [`${SE}/evidence/T02-apply.md`]: [
+        [
+          "",
+          "# T02 apply attempt, 2026-11-13\n\nThe CI apply of `envs/staging` stopped: hcloud refused the second `cpx31`\nserver because the project's server quota was reached. A quota raise was\nrequested in the Hetzner console.\n",
+        ],
+      ],
+      [SE_EPIC]: [epicUpdated("2026-11-11", "2026-11-13")],
+    },
+  },
+  {
+    day: "2026-11-17",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "T02 done"],
+    edits: {
+      [SE_T02]: [
+        ["status: in-progress", "status: done"],
+        epicUpdated("2026-11-13", "2026-11-17"),
+        ["- [ ] CI shows", "- [x] CI shows"],
+        ["- [ ] The `staging-eu` Hetzner", "- [x] The `staging-eu` Hetzner"],
+        ["- [ ] A kubeconfig", "- [x] A kubeconfig"],
+        ["", "- 2026-11-17 status in-progress -> done; fixed by quota raise to 6 servers\n"],
+      ],
+      [SE_EPIC]: [epicUpdated("2026-11-13", "2026-11-17")],
+    },
+  },
+  {
+    day: "2026-11-19",
+    commit: "argocd",
+    tree: `${SE}/03-overlays`,
+    message: `refactor(webshop): kustomize base and overlays (${SE} T04)`,
+  },
+  {
+    day: "2026-11-19",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "T04 in progress"],
+    edits: {
+      [SE_T04]: [
+        ["status: todo", "status: in-progress"],
+        epicUpdated("2026-11-04", "2026-11-19"),
+        ["", "\n## History\n\n- 2026-11-19 status todo -> in-progress\n"],
+      ],
+      [SE_EPIC]: [epicUpdated("2026-11-17", "2026-11-19")],
+    },
+  },
+  {
+    day: "2026-11-20",
+    harness: CC,
+    session: SE,
+    pm: ["record", SE, "--kind", "update", "-m", "T07 blocked on DNS"],
+    edits: {
+      [SE_T07]: [
+        ["status: todo", "status: blocked"],
+        epicUpdated("2026-11-04", "2026-11-20"),
+        [
+          "rather than guessing at a workaround.\n",
+          "rather than guessing at a workaround.\n\nBlocked on: DNS record `staging.shop.example.com` (external dependency; no DNS\nresources in these repos).\n",
+        ],
+        ["", "\n## History\n\n- 2026-11-20 status todo -> blocked\n"],
+      ],
+      [SE_EPIC]: [epicUpdated("2026-11-19", "2026-11-20")],
+    },
+  },
+];
+
+export const STEPS: Step[] = [...HEALTHCHECK, ...STAGING];
+
 function applyEdits(text: string, edits: Edit[], file: string, shift: number): string {
   let out = text;
   for (const [rawFrom, rawTo] of edits) {
     const from = shiftDates(rawFrom, shift);
     const to = shiftDates(rawTo, shift);
     if (from === "") {
-      out = `${out.trimEnd()}\n${to}`;
+      out = out === "" ? to : `${out.trimEnd()}\n${to}`;
       continue;
     }
     const at = out.indexOf(from);
@@ -191,7 +364,9 @@ async function bundleFor(
   const root = existsSync(ws.worktree(slug)) ? ws.worktree(slug) : ws.manager;
   const parts: string[] = [];
   for (const [file, edits] of Object.entries(step.edits)) {
-    const text = await readFile(join(root, "docs", "pm", file), "utf8");
+    // A file the edits create (an evidence note) starts empty.
+    const path = join(root, "docs", "pm", file);
+    const text = existsSync(path) ? await readFile(path, "utf8") : "";
     parts.push(`<!-- pm:file ${file} -->\n${applyEdits(text, edits, file, shift).trimEnd()}\n`);
   }
   return parts.join("");

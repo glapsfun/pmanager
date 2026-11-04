@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { exists, gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { pmProcess } from "./pm";
 import { STORY_END } from "./story";
@@ -74,5 +74,65 @@ describe("story", () => {
     const t01 = await pm(ws.manager, "verify", "webshop-healthcheck", "T01");
     expect(t01.stdout).toContain("[webshop:git log]");
     expect(await gitOk(["branch", "-r"], ws.manager)).not.toContain("pm/webshop-healthcheck");
+  });
+});
+
+describe("mid-flight epic", () => {
+  let ws: Workspace;
+  const pm = (cwd: string, ...args: string[]) =>
+    pmProcess(cwd, args, { env: { PM_TODAY: STORY_END } });
+  const SLUG = "staging-environment";
+
+  beforeAll(async () => {
+    ws = await buildWorkspace(await makeTempDir("multi-repo-midflight"));
+  }, 120_000);
+
+  test("worktree beside the targets; handoff resolves targets from main and the worktree", async () => {
+    expect(await exists(ws.worktree(SLUG))).toBe(true);
+    expect(dirname(ws.worktree(SLUG))).toBe(dirname(ws.repos.infra));
+    for (const cwd of [ws.manager, ws.worktree(SLUG)]) {
+      const h = await pm(cwd, "handoff", SLUG, "T04");
+      expect(h.code).toBe(0);
+      expect(h.stdout).toContain(`- ${TARGETS.infra} → ${ws.repos.infra}`);
+      expect(h.stdout).toContain(`- ${TARGETS.argocd} → ${ws.repos.argocd}`);
+    }
+  });
+
+  test("verify attaches the tagged infra commit to T01's repo-prefixed criterion", async () => {
+    const v = await pm(ws.manager, "verify", SLUG, "T01");
+    expect(v.code).toBe(0);
+    const criterion = v.stdout
+      .split("\n- [")
+      .find((c) => c.includes("`infra/envs/staging/main.tf` exists"));
+    expect(criterion).toContain("[infra:envs/staging/main.tf] present");
+    expect(v.stdout).not.toContain("infra/envs/staging/main.tf] missing");
+  });
+
+  test("History records a failed attempt and its fix", async () => {
+    const t02 = await readFile(
+      join(ws.worktree(SLUG), "docs/pm", SLUG, "tasks/T02-apply-staging-capture-access.md"),
+      "utf8",
+    );
+    const history = (t02.split("## History")[1] ?? "").trim().split("\n");
+    expect(history[0]).toContain("status todo -> in-progress");
+    expect(history[1]).toContain("attempt failed: tried CI apply");
+    expect(history[2]).toContain("status in-progress -> done; fixed by quota raise");
+    const check = await pm(ws.manager, "check", "--epic", SLUG);
+    expect(check.code).toBe(0);
+    expect(check.stdout).toContain("OK");
+  });
+
+  test("status shows progress, the worktree, a blocker and a live claim", async () => {
+    const s = await pm(ws.manager, "status");
+    const row = s.stdout.split("\n").findIndex((l) => l.startsWith(`${SLUG} `));
+    const block = s.stdout
+      .split("\n")
+      .slice(row, row + 6)
+      .join("\n");
+    expect(block).toMatch(new RegExp(`^${SLUG}\\s+feature\\s+in-progress`));
+    expect(block).toContain(`worktree: ${ws.worktree(SLUG)}`);
+    expect(block).toContain("session: claude-code");
+    expect(block).not.toContain("[stale]");
+    expect(block).toContain("T07");
   });
 });
