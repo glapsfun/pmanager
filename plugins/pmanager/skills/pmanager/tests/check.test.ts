@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { check } from "../scripts/check";
+import { type Catalog, type Project, renderProjectsIndex } from "../scripts/projects";
 import { loadPmRepo } from "../scripts/repo";
 import { copyFixture, makeTempDir, writeTree } from "./helpers";
 
@@ -387,5 +388,64 @@ describe("legacy", () => {
     const r = await rules(root);
     expect(r).toContain("W-LEG-001");
     expect(r).not.toContain("E-STR-003");
+  });
+});
+
+describe("project catalog", () => {
+  const project = (id: string, url: string) => ({
+    id,
+    name: id,
+    url,
+    added: "2026-09-01",
+    file: `/m/docs/pm/projects/${id}.md`,
+  });
+  async function findings(projects: Project[], extra: Partial<Catalog> = {}, epicStatus?: string) {
+    const root = await fixture();
+    if (epicStatus) await edit(root, EPIC, "status: in-progress", `status: ${epicStatus}`);
+    const catalog = { projects, invalid: [], index: renderProjectsIndex(projects), ...extra };
+    return check(await loadPmRepo(root), { ...OPTS, catalog });
+  }
+  const only = (fs: Awaited<ReturnType<typeof findings>>, rule: string) =>
+    fs.filter((f) => f.rule === rule);
+
+  test("an active epic naming an unregistered repo warns W-PRJ-001", async () => {
+    const fs = only(
+      await findings([project("infra", "https://github.com/acme/infra.git")]),
+      "W-PRJ-001",
+    );
+    expect(fs).toHaveLength(1);
+    expect(fs[0]?.severity).toBe("warning");
+    expect(fs[0]?.message).toContain("git@github.com:glapsfun/webshop.git");
+    expect(fs[0]?.fix).toContain("pm project add git@github.com:glapsfun/webshop.git");
+  });
+
+  test("another URL form, a done or abandoned epic, or an empty catalog give no W-PRJ-001", async () => {
+    const webshop = project("webshop", "https://github.com/glapsfun/webshop");
+    expect(only(await findings([webshop]), "W-PRJ-001")).toEqual([]);
+    const infra = project("infra", "https://github.com/acme/infra.git");
+    expect(only(await findings([infra], {}, "done"), "W-PRJ-001")).toEqual([]);
+    expect(only(await findings([infra], {}, "abandoned"), "W-PRJ-001")).toEqual([]);
+    expect(only(await findings([]), "W-PRJ-001")).toEqual([]);
+  });
+
+  test("checked for one epic, the catalog only adds W-PRJ-001", async () => {
+    const root = await fixture();
+    const infra = project("infra", "https://github.com/acme/infra.git");
+    const invalid = [{ file: "/m/docs/pm/projects/README.md", reason: "missing id, name, url" }];
+    const catalog = { projects: [infra], invalid, index: "stale\n" };
+    const fs = check(await loadPmRepo(root), { ...OPTS, catalog, catalogScope: "epic" });
+    expect(fs.filter((f) => f.rule.includes("PRJ")).map((f) => f.rule)).toEqual(["W-PRJ-001"]);
+  });
+
+  test("broken or duplicate project files are E-PRJ-001; a stale index is W-PRJ-002", async () => {
+    const infra = project("infra", "https://github.com/acme/infra.git");
+    const broken = await findings([infra], {
+      invalid: [{ file: "/m/docs/pm/projects/bad.md", reason: "missing url" }],
+    });
+    expect(only(broken, "E-PRJ-001").map((f) => f.message)).toEqual(["missing url"]);
+    const dup = await findings([infra, project("infra2", "git@github.com:acme/infra.git")]);
+    expect(only(dup, "E-PRJ-001")).toHaveLength(1);
+    expect(only(await findings([infra], { index: "stale\n" }), "W-PRJ-002")).toHaveLength(1);
+    expect(only(await findings([infra]), "W-PRJ-002")).toEqual([]);
   });
 });

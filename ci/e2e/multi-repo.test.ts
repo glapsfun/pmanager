@@ -86,6 +86,47 @@ describe("base workspace", () => {
   });
 });
 
+describe("project catalog", () => {
+  const projectLines = (stdout: string) =>
+    stdout.split("\n").filter((l) => /^ {2}(webshop|infra|argocd) {2}/.test(l));
+
+  test("on the base workspace: discover suggests the targets, add registers them", async () => {
+    const ws = await buildBase(await makeTempDir("multi-repo-catalog"));
+    const discover = await pm(ws.manager, "project", "discover");
+    for (const name of NAMES)
+      expect(discover.stdout).toMatch(new RegExp(`/${name} {2}\\S+ {2}new$`, "m"));
+    expect(discover.stdout).not.toContain("/manager ");
+    for (const name of NAMES) {
+      expect((await pm(ws.manager, "project", "add", ws.repos[name])).code).toBe(0);
+    }
+    const lines = projectLines((await pm(ws.manager, "status")).stdout);
+    expect(lines).toHaveLength(3);
+    expect(lines.every((l) => l.endsWith("  available"))).toBe(true);
+  });
+
+  test("the example's catalog is committed and used from the main checkout and the worktree", async () => {
+    const ws = await sharedWorkspace();
+    const lines = projectLines((await pm(ws.manager, "status")).stdout);
+    expect(lines).toHaveLength(3);
+    expect(lines.every((l) => l.endsWith("  available"))).toBe(true);
+    expect(await gitOk(["ls-files", "docs/pm/projects"], ws.manager)).toContain(
+      "docs/pm/projects/infra.md",
+    );
+    const discover = await pm(ws.manager, "project", "discover");
+    for (const name of NAMES) expect(discover.stdout).toContain(`registered as ${name}`);
+    expect(discover.stdout).not.toContain("manager-pm-staging-environment");
+    const research = await pm(
+      ws.worktree(SLUG),
+      "research",
+      "staging",
+      "--repo",
+      "infra",
+      "--no-gh",
+    );
+    expect(research.stdout).toContain("[envs/staging/main.tf:");
+  });
+});
+
 describe("cli", () => {
   test("takes a dir and an optional --install source, nothing else", () => {
     expect(parseCliArgs(["ex"])).toEqual({ dir: "ex", install: undefined });

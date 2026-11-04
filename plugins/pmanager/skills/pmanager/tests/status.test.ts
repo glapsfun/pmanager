@@ -49,6 +49,31 @@ describe("nextTask", () => {
 });
 
 describe("buildStatus", () => {
+  test("a projects block lists the catalog with availability, only when there are projects", async () => {
+    const repo = await loadPmRepo(await fixture());
+    const projects = [
+      {
+        id: "infra",
+        name: "Infra",
+        url: "https://github.com/acme/infra.git",
+        availability: { state: "available" as const, path: "/w/infra" },
+      },
+      {
+        id: "argocd",
+        name: "Argo CD",
+        url: "https://github.com/acme/argocd.git",
+        availability: { state: "not mapped" as const },
+      },
+    ];
+    const text = formatStatus(buildStatus(repo, null, "none", { ...OPTS, projects }));
+    expect(text).toMatch(/^projects:$/m);
+    expect(text).toMatch(
+      /^ {2}infra {2}Infra {2}https:\/\/github\.com\/acme\/infra\.git {2}available$/m,
+    );
+    expect(text).toMatch(/^ {2}argocd {2}Argo CD {2}\S+ {2}not mapped$/m);
+    expect(text.indexOf("projects:")).toBeLessThan(text.indexOf("memo:"));
+    expect(formatStatus(buildStatus(repo, null, "none", OPTS))).not.toContain("projects:");
+  });
   test("uses local session when no remote info", async () => {
     const repo = await loadPmRepo(await fixture());
     const report = buildStatus(repo, null, "none", OPTS);

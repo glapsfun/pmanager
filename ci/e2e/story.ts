@@ -329,6 +329,23 @@ const STAGING: Step[] = [
   },
 ];
 
+/** The manager registers the repos it plans for before its first epic; pm writes, the user commits. */
+const REGISTRY: Step[] = [
+  ...(["webshop", "infra", "argocd"] as const).map(
+    (name): Step => ({
+      day: "2026-10-19",
+      harness: CC,
+      pm: ["project", "add", `{{repo:${name}}}`],
+    }),
+  ),
+  { day: "2026-10-19", git: ["add", "docs/pm/projects"] },
+  {
+    day: "2026-10-19",
+    git: ["commit", "-q", "-m", "docs(pm): register webshop, infra and argocd"],
+  },
+  { day: "2026-10-19", git: ["push", "-q", "origin", "main"] },
+];
+
 /** A codex session that reserved an epic and never came back, and a draft dropped by pi. */
 const CLAIMS: Step[] = [
   {
@@ -366,7 +383,7 @@ const CLAIMS: Step[] = [
 ];
 
 // Stable sort: steps on the same day keep their written order.
-export const STEPS: Step[] = [...HEALTHCHECK, ...STAGING, ...CLAIMS].sort((a, b) =>
+export const STEPS: Step[] = [...REGISTRY, ...HEALTHCHECK, ...STAGING, ...CLAIMS].sort((a, b) =>
   a.day.localeCompare(b.day),
 );
 
@@ -445,7 +462,10 @@ async function playStep(
     await sh(["git", ...step.git], ws.manager, env);
     return;
   }
-  const args = step.pm.map((a) => shiftDates(a, shift));
+  // {{repo:<name>}} stands for that target's checkout, which only exists at build time.
+  const args = step.pm.map((a) =>
+    shiftDates(a, shift).replace(/^\{\{repo:(\w+)\}\}$/, (_, name: TargetName) => ws.repos[name]),
+  );
   const id = step.session ? sessions[step.session] : undefined;
   if (step.session && !id) throw new Error(`no session captured for ${step.session}`);
   if (id) args.push("--session", id);

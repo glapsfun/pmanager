@@ -5,7 +5,9 @@ and what outcome it must produce*. Every factual claim carries its source.
 Sections marked (required) must exist and be non-empty; write `none` or
 `unknown` explicitly rather than omitting a section.
 
-`repos` lists target repositories by remote URL, never local paths; local
+`repos` lists target repositories by remote URL, never local paths; when the
+manager has a project catalog (`pm status` shows `projects:`), take the URLs
+from it. Local
 checkouts are mapped per machine in `docs/pm/.local/repos.json` (created by
 the tool, self-ignored). `session` is written only by `pm claim` / `pm release`.
 

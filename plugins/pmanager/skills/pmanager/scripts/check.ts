@@ -24,6 +24,7 @@ import {
   TASK_V1_FIELDS,
 } from "./contract";
 import type { Finding } from "./findings";
+import { type Catalog, renderProjectsIndex, sameRepo } from "./projects";
 import {
   LOG_END,
   LOG_START,
@@ -38,6 +39,13 @@ import { type EpicRecord, epicId, type PmRepo } from "./repo";
 export interface CheckOptions {
   staleDays: number;
   today: string;
+  /** the main checkout's project catalog; absent or empty means no catalog rules */
+  catalog?: Catalog;
+  /**
+   * main: the catalog's own files are checked too; epic: only W-PRJ-001, so a bad
+   * catalog file in the main checkout never blocks an epic branch's check or record.
+   */
+  catalogScope?: "main" | "epic";
 }
 
 type Rule = (repo: PmRepo, opts: CheckOptions) => Finding[];
@@ -540,6 +548,55 @@ export const claimRules: Rule = (repo, opts) => {
   return out;
 };
 
+const FINISHED = new Set(["done", "abandoned"]);
+
+export const catalogRules: Rule = (repo, opts) => {
+  const catalog = opts.catalog;
+  if (!catalog) return [];
+  const out: Finding[] = [];
+  const main = (opts.catalogScope ?? "main") === "main";
+  for (const bad of main ? catalog.invalid : []) {
+    out.push(err(bad.file, "E-PRJ-001", bad.reason, "fix the project file's frontmatter"));
+  }
+  (main ? catalog.projects : []).forEach((p, i) => {
+    const twin = catalog.projects.slice(0, i).find((q) => sameRepo(q.url, p.url));
+    if (twin) {
+      out.push(
+        err(
+          p.file,
+          "E-PRJ-001",
+          `same repository as project ${twin.id}`,
+          "remove one of the two files",
+        ),
+      );
+    }
+  });
+  if (catalog.projects.length === 0) return out;
+  // A catalog added to a manager with history must not flag every finished epic on each record.
+  for (const e of repo.epics) {
+    if (!e.epic || FINISHED.has(getString(e.epic.frontmatter, "status") ?? "")) continue;
+    for (const url of getList(e.epic.frontmatter, "repos")) {
+      if (catalog.projects.some((p) => sameRepo(p.url, url))) continue;
+      out.push(
+        warn(
+          e.epic.path,
+          "W-PRJ-001",
+          `${url} is not a registered project`,
+          `pm project add ${url}`,
+        ),
+      );
+    }
+  }
+  if (main && catalog.index !== renderProjectsIndex(catalog.projects)) {
+    const index =
+      catalog.projects[0]?.file.replace(/[^/]+$/, "INDEX.md") ?? "docs/pm/projects/INDEX.md";
+    out.push(
+      warn(index, "W-PRJ-002", "the projects index is stale", "run pm render in the main checkout"),
+    );
+  }
+  return out;
+};
+
 export const legacyRules: Rule = (repo) => {
   const out: Finding[] = [];
   for (const e of repo.epics) {
@@ -589,6 +646,9 @@ export const RULES = [
   "W-CLM-001",
   "W-CLM-002",
   "W-LEG-001",
+  "E-PRJ-001",
+  "W-PRJ-001",
+  "W-PRJ-002",
 ] as const;
 
 const rules: Rule[] = [
@@ -601,6 +661,7 @@ const rules: Rule[] = [
   historyRules,
   claimRules,
   legacyRules,
+  catalogRules,
 ];
 
 export function check(repo: PmRepo, opts: CheckOptions): Finding[] {

@@ -189,3 +189,17 @@ test("each History event stays on one line", () => {
   const t = flat(read("references/tracking.md"));
   expect(t).toContain("Each event is one line, never wrapped");
 });
+
+test("Phase 2 takes repos URLs from the project catalog when status shows one", () => {
+  expect(phase2()).toContain("`projects:` block");
+  expect(phase2()).toContain("--repo <id>");
+  expect(phase2()).toContain("pm project add");
+});
+
+test("commands.md documents the project commands and their rules", () => {
+  const commands = read("references/commands.md");
+  expect(commands).toMatch(/^\| `project add /m);
+  expect(commands).toMatch(/^\| `project list/m);
+  expect(commands).toMatch(/^\| `project discover/m);
+  expect(flat(commands)).toContain("catalog E-PRJ-001 / W-PRJ-001…002");
+});

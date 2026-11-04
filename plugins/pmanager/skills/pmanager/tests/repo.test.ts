@@ -17,6 +17,15 @@ const MINI = {
 };
 
 describe("loadPmRepo", () => {
+  test("docs/pm/projects is the project catalog, not an epic", async () => {
+    const root = await makeTempDir("repo");
+    await writeTree(root, {
+      ...MINI,
+      "docs/pm/projects/infra.md":
+        "---\nid: infra\nname: Infra\nurl: https://github.com/o/infra.git\n---\n",
+    });
+    expect((await loadPmRepo(root)).epics.map((e) => e.slug)).toEqual(["alpha", "beta"]);
+  });
   test("loads epics, tasks sorted, index, memo, logs", async () => {
     const root = await makeTempDir("repo");
     await writeTree(root, MINI);

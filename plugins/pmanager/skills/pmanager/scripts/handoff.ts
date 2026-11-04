@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { getList, getString, sectionBody } from "./contract";
 import { git } from "./git";
 import { epicBySlug, LOCAL_DIR, PM_DIR, type PmRepo, taskById } from "./repo";
+import { lookupMapped } from "./repo-url";
 
 export const LOCAL_REPOS_FILE = "repos.json";
 
@@ -51,7 +52,7 @@ export async function loadLocalRepoMap(pmDir: string): Promise<Record<string, st
 }
 
 export function resolveRepo(url: string, map: Record<string, string>): string | null {
-  return map[url] ?? null;
+  return lookupMapped(map, url) ?? null;
 }
 
 function trimmed(body: string, heading: string): string {

@@ -5,6 +5,8 @@ import { parseLogEntry } from "./log";
 
 export const PM_DIR = "docs/pm";
 export const LOG_DIR = "log";
+/** The project catalog lives here; it is never an epic. */
+export const PROJECTS_DIR = "projects";
 export const LOCAL_DIR = ".local";
 
 export interface TaskDoc extends ParsedDoc {
@@ -81,7 +83,14 @@ export async function loadPmRepo(root: string): Promise<PmRepo> {
   const entries = await readdir(pmDir, { withFileTypes: true });
   const epics: EpicRecord[] = [];
   for (const e of entries) {
-    if (!e.isDirectory() || e.name === LOG_DIR || e.name.startsWith(".")) continue;
+    if (
+      !e.isDirectory() ||
+      e.name === LOG_DIR ||
+      e.name === PROJECTS_DIR ||
+      e.name.startsWith(".")
+    ) {
+      continue;
+    }
     epics.push(await loadEpic(pmDir, e.name));
   }
   epics.sort((a, b) => a.slug.localeCompare(b.slug));

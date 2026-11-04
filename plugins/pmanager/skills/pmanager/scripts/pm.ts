@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { type BundleFile, parseBundle } from "./bundle";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
@@ -16,13 +16,42 @@ import {
   repoRoot,
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
+import {
+  addProject,
+  availability,
+  type Catalog,
+  discoverSiblings,
+  formatAvailability,
+  formatCandidate,
+  loadCatalog,
+  PROJECTS_INDEX,
+  renderProjectsIndex,
+} from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
-import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
+import {
+  epicBySlug,
+  LOG_DIR,
+  loadPmRepo,
+  PM_DIR,
+  type PmRepo,
+  PROJECTS_DIR,
+  taskById,
+} from "./repo";
+
+// Folders under docs/pm that are not epics, so no epic may take their name.
+const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
+
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
-import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
+import {
+  buildStatus,
+  formatStatus,
+  type ProjectStatusRow,
+  type RemoteClaims,
+  type RemoteState,
+} from "./status";
 import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
 import { removeWorktree, worktreeFor } from "./worktree";
 
@@ -40,6 +69,10 @@ commands
   record <slug> --harness NAME [--session ID] --kind spec|update -m MSG [--from FILE|-]
                                 write a bundle of documents, log, render, check, commit and push an epic
   status                        epics, owners, stale claims, next task
+  project add <path|url> [--id ID] [--name NAME]
+                                register a project in the manager's docs/pm/projects and map its checkout; commits nothing
+  project list                  registered projects and their availability on this machine
+  project discover              git repos beside this manager, as registration suggestions; writes nothing
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
@@ -62,6 +95,8 @@ flags
   --session ID                  release, render --epic: the id pm claim printed for your session
   --force                       release, render --epic: act on another session's claim deliberately
   --title T                     claim --draft: the epic's one-line title
+  --id ID                       project add: the project id (default: the repo name)
+  --name NAME                   project add: the display name (default: the id)
   --type TYPE                   claim --draft: bug | feature | tech-debt | initiative
   --distinct                    claim --draft: proceed although an existing epic looks like the same work
   --kind spec|update            record: the log entry kind
@@ -103,6 +138,8 @@ export interface Args {
   kind?: string;
   message?: string;
   from?: string;
+  id?: string;
+  name?: string;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -146,6 +183,11 @@ export function parseArgs(argv: string[]): Args | null {
       const t = argv[++i];
       if (!t) return null;
       args.title = t;
+    } else if (a === "--id" || a === "--name") {
+      const v = argv[++i];
+      if (!v) return null;
+      if (a === "--id") args.id = v;
+      else args.name = v;
     } else if (a === "--type") {
       const t = argv[++i];
       if (!t) return null;
@@ -220,9 +262,9 @@ function out(text: string): void {
   process.stdout.write(text);
 }
 
-function fail(message: string): number {
+function fail(message: string, code = 2): number {
   process.stderr.write(`${message}\n`);
-  return 2;
+  return code;
 }
 
 function json(value: unknown): string {
@@ -299,11 +341,86 @@ async function remoteClaims(
   return { remote: "ok", claims };
 }
 
+/** The catalog always comes from the main checkout, like repos.json, wherever pm runs. */
+async function mainCatalog(
+  root: string,
+): Promise<{ catalog: Catalog; pmDir: string; main: string }> {
+  const pmDir = await repoMapPmDir(root);
+  return { catalog: await loadCatalog(pmDir), pmDir, main: dirname(dirname(pmDir)) };
+}
+
+async function projectRows(root: string): Promise<ProjectStatusRow[]> {
+  const { catalog, pmDir } = await mainCatalog(root);
+  const map = await readLocalRepoMap(pmDir);
+  return Promise.all(
+    catalog.projects.map(async (p) => ({
+      id: p.id,
+      name: p.name,
+      url: p.url,
+      availability: await availability(p, map),
+    })),
+  );
+}
+
+/** Only a render in the main checkout touches the catalog, so epic branches never carry it. */
+async function renderCatalogIndex(root: string): Promise<string[]> {
+  const { catalog, pmDir, main } = await mainCatalog(root);
+  if (main !== root || catalog.projects.length === 0) return [];
+  const text = renderProjectsIndex(catalog.projects);
+  if (catalog.index === text) return [];
+  const path = join(pmDir, PROJECTS_DIR, PROJECTS_INDEX);
+  await writeFile(path, text);
+  return [relative(root, path)];
+}
+
+async function runProject(root: string, args: Args): Promise<number> {
+  const [sub, target] = args.positional;
+  if (sub === "add" && target) {
+    const r = await addProject(root, target, { id: args.id, name: args.name, today: today() });
+    if (!r.ok) return fail(r.message, 1);
+    if (args.json) {
+      out(json(r));
+      return 0;
+    }
+    const main = dirname(dirname(await repoMapPmDir(root)));
+    out(
+      r.created
+        ? `registered ${r.project.id} (${r.project.url})\n`
+        : `already registered as ${r.project.id}\n`,
+    );
+    if (r.mapped) out(`mapped ${r.mapped}\n`);
+    if (r.written.length > 0) {
+      out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
+    }
+    return 0;
+  }
+  if (sub === "list" && !target) {
+    const rows = await projectRows(root);
+    if (args.json) out(json(rows));
+    else if (rows.length === 0) out("no projects registered\n");
+    else {
+      for (const r of rows) {
+        out(`${r.id}  ${r.name}  ${r.url}  ${formatAvailability(r.availability)}\n`);
+      }
+    }
+    return 0;
+  }
+  if (sub === "discover" && !target) {
+    const candidates = await discoverSiblings(root);
+    if (args.json) out(json(candidates));
+    else if (candidates.length === 0) out("no sibling repositories\n");
+    else for (const c of candidates) out(`${formatCandidate(c)}\n`);
+    return 0;
+  }
+  return fail(USAGE);
+}
+
 async function runResearch(root: string, args: Args): Promise<number> {
   const keywords = normalizeKeywords(args.positional);
   if (keywords.length === 0) return fail(USAGE);
   const map = await readLocalRepoMap(await repoMapPmDir(root));
-  const resolved = await resolveTarget(root, args.repo, map);
+  const { catalog } = await mainCatalog(root);
+  const resolved = await resolveTarget(root, args.repo, map, catalog.projects);
   if ("error" in resolved) return fail(resolved.error);
   const report = await buildResearch({
     root,
@@ -324,7 +441,7 @@ const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 async function runDraft(root: string, args: Args): Promise<number> {
   const slug = args.positional[0];
   const types: readonly string[] = EPIC_TYPES;
-  const validSlug = slug !== undefined && SLUG.test(slug) && slug !== "log";
+  const validSlug = slug !== undefined && SLUG.test(slug) && !RESERVED_SLUGS.has(slug);
   if (!validSlug || !args.title || !types.includes(args.type ?? "") || args.takeover) {
     return fail(USAGE);
   }
@@ -373,7 +490,7 @@ async function runRecord(
   const slug = args.positional[0];
   const kind = args.kind;
   const message = args.message?.trim() ?? "";
-  if (!slug || !SLUG.test(slug) || slug === "log") return fail(USAGE);
+  if (!slug || !SLUG.test(slug) || RESERVED_SLUGS.has(slug)) return fail(USAGE);
   if ((kind !== "spec" && kind !== "update") || message === "") return fail(USAGE);
   let files: BundleFile[] = [];
   if (args.from !== undefined) {
@@ -409,6 +526,7 @@ async function runRecord(
     staleDays: args.staleDays,
     files,
     inRepo: found !== null,
+    catalog: (await mainCatalog(root)).catalog,
   });
   out(args.json ? json(result) : formatRecord(result, target, slug));
   return result.ok ? 0 : 1;
@@ -425,6 +543,8 @@ export async function main(
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
   if (args.cmd === "research") return runResearch(root, args);
+  // the catalog lives in the main checkout and needs no epics, so it works before docs/pm exists
+  if (args.cmd === "project") return runProject(root, args);
   // a reservation comes before any docs/pm exists on a cold start
   if (args.cmd === "claim" && args.draft) return runDraft(root, args);
   const opts = { staleDays: args.staleDays, today: today() };
@@ -448,7 +568,12 @@ export async function main(
   switch (args.cmd) {
     case "check": {
       const target = await targetRoot(root, args);
-      const findings = check(target === root ? repo : await loadPmRepo(target), opts);
+      const { catalog, main } = await mainCatalog(root);
+      const findings = check(target === root ? repo : await loadPmRepo(target), {
+        ...opts,
+        catalog,
+        catalogScope: target === main ? "main" : "epic",
+      });
       const { errors, warnings } = countBySeverity(findings);
       out(
         args.json
@@ -473,6 +598,7 @@ export async function main(
       const base = target === root ? repo : await loadPmRepo(target);
       const migrated = args.migrate ? await migrate(base, opts.today) : [];
       const written = await applyRender(await loadPmRepo(target));
+      if (!args.epic) written.push(...(await renderCatalogIndex(root)));
       if (args.json) out(json({ migrated, written }));
       else {
         for (const p of migrated) out(`migrated ${p}\n`);
@@ -561,7 +687,8 @@ export async function main(
         if (wt) worktrees.set(slug, wt.path);
       }
       const source = await repoWithWorktreeEpics(root, repo, [...worktrees.keys()]);
-      const report = buildStatus(source, claims, remote, { ...opts, worktrees });
+      const projects = await projectRows(root);
+      const report = buildStatus(source, claims, remote, { ...opts, worktrees, projects });
       out(args.json ? json(report) : formatStatus(report));
       return 0;
     }
@@ -586,7 +713,8 @@ export async function main(
       const task = taskById(epic, taskId);
       if (!task) return fail(`unknown task ${taskId} in ${slug}`);
       const map = await readLocalRepoMap(await repoMapPmDir(root));
-      const resolved = await resolveRepos(root, epic, args.repo, map);
+      const { catalog } = await mainCatalog(root);
+      const resolved = await resolveRepos(root, epic, args.repo, map, catalog.projects);
       if ("error" in resolved) return fail(resolved.error);
       const report = await buildVerify({
         epic,

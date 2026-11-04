@@ -2,6 +2,7 @@ import { relative } from "node:path";
 import { isStale } from "./check";
 import type { RemoteEpic } from "./claim";
 import { getList, getString, type Session, sessionOf } from "./contract";
+import { type Availability, formatAvailability } from "./projects";
 import { LOG_END, LOG_START, repoShortName, taskCounts } from "./render";
 import type { EpicRecord, PmRepo, TaskDoc } from "./repo";
 
@@ -45,9 +46,17 @@ export interface MemoContext {
   context: string;
 }
 
+export interface ProjectStatusRow {
+  id: string;
+  name: string;
+  url: string;
+  availability: Availability;
+}
+
 export interface StatusReport {
   remote: RemoteState;
   rows: EpicStatusRow[];
+  projects: ProjectStatusRow[];
   memo: MemoContext | null;
 }
 
@@ -84,7 +93,12 @@ export function buildStatus(
   repo: PmRepo,
   remoteClaims: RemoteClaims | null,
   remote: RemoteState,
-  opts: { staleDays: number; today: string; worktrees?: Map<string, string> },
+  opts: {
+    staleDays: number;
+    today: string;
+    worktrees?: Map<string, string>;
+    projects?: ProjectStatusRow[];
+  },
 ): StatusReport {
   const rows: EpicStatusRow[] = [];
   for (const e of repo.epics) {
@@ -153,7 +167,7 @@ export function buildStatus(
   const memo = repo.memo
     ? { path: relative(repo.root, repo.memo.path), context: memoContext(repo.memo.raw) }
     : null;
-  return { remote, rows, memo };
+  return { remote, rows, projects: opts.projects ?? [], memo };
 }
 
 export function formatStatus(report: StatusReport): string {
@@ -179,6 +193,12 @@ export function formatStatus(report: StatusReport): string {
     lines.push(
       r.next ? `  next: ${r.next.id} ${r.next.title} (${r.next.priority})` : "  next: none ready",
     );
+  }
+  if (report.projects.length > 0) {
+    lines.push("projects:");
+    for (const p of report.projects) {
+      lines.push(`  ${p.id}  ${p.name}  ${p.url}  ${formatAvailability(p.availability)}`);
+    }
   }
   if (report.memo) {
     lines.push(`memo: ${report.memo.path}`);

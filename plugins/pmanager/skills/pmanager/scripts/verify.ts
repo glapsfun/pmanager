@@ -2,7 +2,9 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getList, getString, parseHistory, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
+import { availability, type Project } from "./projects";
 import type { EpicRecord, TaskDoc } from "./repo";
+import { lookupMapped } from "./repo-url";
 import { classifyPath, failure } from "./research";
 
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -297,8 +299,26 @@ export async function resolveTarget(
   root: string,
   repoArg: string | undefined,
   map: Record<string, string>,
+  projects: Project[] = [],
 ): Promise<{ target: RepoTarget } | { error: string }> {
   if (repoArg === undefined) return { target: { name: ".", path: root } };
+  const project = projects.find((p) => p.id === repoArg);
+  if (project) {
+    // The states pm project list reports: never research a checkout that is gone or is another repo.
+    const a = await availability(project, map);
+    if (a.state === "not mapped") {
+      return { error: `${project.id} is not mapped on this machine; pm project add <path>` };
+    }
+    if (a.state === "missing") {
+      return { error: `${project.id} is mapped to ${a.path}, which does not exist` };
+    }
+    if (a.state === "origin mismatch") {
+      return { error: `${project.id} is mapped to ${a.path}, whose origin is ${a.origin}` };
+    }
+    const top = await repoRoot(a.path);
+    if (!top) return { error: `${a.path} is not inside a git repository` };
+    return { target: { name: project.id, path: top } };
+  }
   const mapped = map[repoArg];
   const candidate = mapped ?? ((await isDirectory(repoArg)) ? repoArg : null);
   if (candidate === null) {
@@ -315,17 +335,22 @@ export async function resolveRepos(
   epic: EpicRecord,
   repoArg: string | undefined,
   map: Record<string, string>,
+  projects: Project[] = [],
 ): Promise<{ targets: RepoTarget[]; gaps: string[] } | { error: string }> {
   if (repoArg !== undefined) {
-    const r = await resolveTarget(root, repoArg, map);
+    const r = await resolveTarget(root, repoArg, map, projects);
     return "error" in r ? r : { targets: [r.target], gaps: [] };
   }
   const targets: RepoTarget[] = [];
   const gaps: string[] = [];
   for (const url of getList(epic.epic?.frontmatter ?? {}, "repos")) {
-    const mapped = map[url];
+    const mapped = lookupMapped(map, url);
     if (mapped === undefined) {
       gaps.push(`${url} not checked out on this machine; map it in docs/pm/.local/repos.json`);
+      continue;
+    }
+    if (!(await isDirectory(mapped))) {
+      gaps.push(`${url} maps to ${mapped}, which does not exist`);
       continue;
     }
     const path = await repoRoot(mapped);
