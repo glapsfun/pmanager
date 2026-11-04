@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import { getList, getString, parseHistory, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
 import type { EpicRecord, TaskDoc } from "./repo";
+import { lookupMapped } from "./repo-url";
 import { classifyPath, failure } from "./research";
 
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -323,7 +324,7 @@ export async function resolveRepos(
   const targets: RepoTarget[] = [];
   const gaps: string[] = [];
   for (const url of getList(epic.epic?.frontmatter ?? {}, "repos")) {
-    const mapped = map[url];
+    const mapped = lookupMapped(map, url);
     if (mapped === undefined) {
       gaps.push(`${url} not checked out on this machine; map it in docs/pm/.local/repos.json`);
       continue;

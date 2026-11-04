@@ -249,6 +249,20 @@ describe("resolveTarget + resolveRepos", () => {
     expect(r.targets).toEqual([{ name: "webshop", path: await repoRootOf(other) }]);
     expect(r.gaps).toEqual([]);
   });
+  test("an epic URL resolves through another URL form of the same repo", async () => {
+    const dir = await makeTempDir("targets");
+    await buildWebshopRepo(dir);
+    const other = await makeTempDir("webshop-checkout");
+    await initGitRepo(other);
+    const epic = epicBySlug(await loadPmRepo(dir), "app-performance");
+    if (!epic) throw new Error("fixture epic missing");
+    const r = await resolveRepos(dir, epic, undefined, {
+      "https://github.com/glapsfun/webshop": other,
+    });
+    if ("error" in r) throw new Error(r.error);
+    expect(r.targets).toEqual([{ name: "webshop", path: await repoRootOf(other) }]);
+    expect(r.gaps).toEqual([]);
+  });
   test("--repo by name, by path, unknown name lists known names, non-git path errors", async () => {
     const dir = await makeTempDir("targets");
     await buildWebshopRepo(dir);

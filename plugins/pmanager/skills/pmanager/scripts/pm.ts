@@ -19,7 +19,19 @@ import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
-import { epicBySlug, loadPmRepo, PM_DIR, type PmRepo, taskById } from "./repo";
+import {
+  epicBySlug,
+  LOG_DIR,
+  loadPmRepo,
+  PM_DIR,
+  type PmRepo,
+  PROJECTS_DIR,
+  taskById,
+} from "./repo";
+
+// Folders under docs/pm that are not epics, so no epic may take their name.
+const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
+
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
@@ -324,7 +336,7 @@ const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 async function runDraft(root: string, args: Args): Promise<number> {
   const slug = args.positional[0];
   const types: readonly string[] = EPIC_TYPES;
-  const validSlug = slug !== undefined && SLUG.test(slug) && slug !== "log";
+  const validSlug = slug !== undefined && SLUG.test(slug) && !RESERVED_SLUGS.has(slug);
   if (!validSlug || !args.title || !types.includes(args.type ?? "") || args.takeover) {
     return fail(USAGE);
   }
@@ -373,7 +385,7 @@ async function runRecord(
   const slug = args.positional[0];
   const kind = args.kind;
   const message = args.message?.trim() ?? "";
-  if (!slug || !SLUG.test(slug) || slug === "log") return fail(USAGE);
+  if (!slug || !SLUG.test(slug) || RESERVED_SLUGS.has(slug)) return fail(USAGE);
   if ((kind !== "spec" && kind !== "update") || message === "") return fail(USAGE);
   let files: BundleFile[] = [];
   if (args.from !== undefined) {

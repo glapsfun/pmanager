@@ -270,6 +270,13 @@ describe("verify", () => {
 });
 
 describe("worktrees", () => {
+  test("projects is reserved like log: claiming it is a usage error", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    for (const slug of ["log", "projects"]) {
+      const r = await run(["claim", slug, "--draft", "--title", "T", "--type", "feature"], a);
+      expect(r.code).toBe(2);
+    }
+  });
   test("claim prints the worktree path and leaves the checkout on main", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     const r = await run(["claim", "app-performance"], a);
