@@ -268,6 +268,7 @@ function opts(cwd: string, over: Partial<VerifyProbeOptions> = {}): VerifyProbeO
   return {
     cwd,
     repo: ".",
+    repos: ["."],
     since: ROOT_SINCE,
     taskId: "T02",
     slug: "app-performance",
@@ -322,6 +323,24 @@ describe("probeNamedPaths", () => {
     expect(facts["app/nothing.py"]).toBe("missing");
     expect(facts["and/or"]).toBeUndefined();
     expect(p.files.sort()).toEqual([MIGRATION, "docs/profile-results.txt"]);
+  });
+  test("a repo-prefixed token matches as written before the prefix is stripped", async () => {
+    const dir = await makeTempDir("charts");
+    await initGitRepo(dir);
+    await mkdir(join(dir, "charts", "app"), { recursive: true });
+    await writeFile(join(dir, "charts", "app", "values.yaml"), "replicas: 2\n");
+    await mkdir(join(dir, "app"), { recursive: true });
+    await writeFile(join(dir, "app", "values.yaml"), "replicas: 1\n");
+    const l = await listFiles(dir, 30_000);
+    const p = await probeNamedPaths(
+      opts(dir, {
+        repo: "charts",
+        repos: ["charts", "argocd"],
+        tokens: ["charts/app/values.yaml"],
+      }),
+      [...l.tracked, ...l.untracked],
+    );
+    expect(p.files).toEqual(["charts/app/values.yaml"]);
   });
   test("a tracked file deleted in the worktree is reported deleted, not present", async () => {
     const { dir, sha } = await webshopWithMigration();
@@ -484,6 +503,34 @@ describe("buildVerify", () => {
     expect(r.scope.commits).toBe(1);
     expect(r.scope.files).toBeGreaterThanOrEqual(1);
     expect(r.errors).toEqual([]);
+  });
+  test("a path prefixed with a target repo's name is looked up in that repo only", async () => {
+    const { dir } = await webshopWithMigration();
+    await edit(
+      dir,
+      T02,
+      "- [ ] Migration file exists and applies cleanly",
+      "- [ ] `infra/envs/staging/main.tf` defines the staging root module",
+    );
+    const infra = await makeTempDir("infra");
+    await initGitRepo(infra);
+    await mkdir(join(infra, "envs", "staging"), { recursive: true });
+    await writeFile(join(infra, "envs", "staging", "main.tf"), 'module "cluster" {}\n');
+    await commitDated(infra, "add staging root module (T02)", "2026-09-12T10:00:00");
+    const argocd = await makeTempDir("argocd");
+    await initGitRepo(argocd);
+    const r = await verifyT02(dir, {
+      targets: [
+        { name: "infra", path: infra },
+        { name: "argocd", path: argocd },
+      ],
+    });
+    const first = r.criteria[0]?.evidence.map((e) => `[${e.repo}:${e.source}] ${e.fact}`) ?? [];
+    expect(first.some((l) => l.startsWith("[infra:envs/staging/main.tf] present"))).toBe(true);
+    const missing = [...r.criteria.flatMap((c) => c.evidence), ...r.unattributed]
+      .filter((e) => e.fact === "missing" && e.source.startsWith("infra/"))
+      .map((e) => `${e.repo}:${e.source}`);
+    expect(missing).toEqual([]);
   });
   test("todo task falls back to epic created; --files adds untracked evidence to unattributed", async () => {
     const { dir } = await webshopWithMigration();
