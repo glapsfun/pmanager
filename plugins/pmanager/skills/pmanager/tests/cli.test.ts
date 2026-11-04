@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { worktreeFor, worktreePath } from "../scripts/worktree";
 import {
@@ -537,5 +537,43 @@ describe("project command", () => {
     const self = await run(["project", "add", root], root);
     expect(self.code).toBe(1);
     expect((await run(["project", "list"], root)).stdout).toContain("no projects registered");
+  });
+});
+
+describe("catalog across commands", () => {
+  async function infraCheckout() {
+    const dir = await makeTempDir("infra");
+    await initGitRepo(dir);
+    await gitOk(["remote", "add", "origin", "https://github.com/acme/infra.git"], dir);
+    return dir;
+  }
+
+  test("render refreshes the projects index in the main checkout, never with --epic", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await run(["project", "add", await infraCheckout()], a)).code).toBe(0);
+    const index = join(a, "docs/pm/projects/INDEX.md");
+    await writeFile(index, "stale\n");
+    const c = await run(["claim", "app-performance"], a);
+    await run(["render", "--epic", "app-performance", "--session", sid(c.stdout)], a);
+    expect(await readFile(index, "utf8")).toBe("stale\n");
+    const r = await run(["render"], a);
+    expect(r.code).toBe(0);
+    expect(await readFile(index, "utf8")).toContain("| [infra](infra.md) |");
+  });
+
+  test("status lists projects; research and verify take an id, also from a worktree", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const infra = await infraCheckout();
+    await run(["project", "add", infra], a);
+    expect((await run(["status"], a)).stdout).toMatch(/^ {2}infra {2}infra {2}\S+ {2}available$/m);
+    const c = await run(["claim", "app-performance"], a);
+    expect(c.code).toBe(0);
+    const wt = worktreePath(a, "app-performance");
+    for (const cwd of [a, wt]) {
+      const r = await run(["research", "anything", "--repo", "infra", "--no-gh"], cwd);
+      expect(r.code).toBe(0);
+      expect(r.stdout.split("\n")[0]).toContain("infra");
+    }
+    expect((await run(["verify", "app-performance", "T01", "--repo", "infra"], wt)).code).toBe(0);
   });
 });

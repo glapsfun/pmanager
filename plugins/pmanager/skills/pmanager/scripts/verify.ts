@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getList, getString, parseHistory, sectionBody, withoutSection } from "./contract";
 import { gitTimed, repoRoot } from "./git";
+import type { Project } from "./projects";
 import type { EpicRecord, TaskDoc } from "./repo";
 import { lookupMapped } from "./repo-url";
 import { classifyPath, failure } from "./research";
@@ -298,8 +299,19 @@ export async function resolveTarget(
   root: string,
   repoArg: string | undefined,
   map: Record<string, string>,
+  projects: Project[] = [],
 ): Promise<{ target: RepoTarget } | { error: string }> {
   if (repoArg === undefined) return { target: { name: ".", path: root } };
+  const project = projects.find((p) => p.id === repoArg);
+  if (project) {
+    const path = lookupMapped(map, project.url);
+    if (path === undefined) {
+      return { error: `${project.id} is not mapped on this machine; pm project add <path>` };
+    }
+    const top = await repoRoot(path);
+    if (!top) return { error: `${path} is not inside a git repository` };
+    return { target: { name: project.id, path: top } };
+  }
   const mapped = map[repoArg];
   const candidate = mapped ?? ((await isDirectory(repoArg)) ? repoArg : null);
   if (candidate === null) {
@@ -316,9 +328,10 @@ export async function resolveRepos(
   epic: EpicRecord,
   repoArg: string | undefined,
   map: Record<string, string>,
+  projects: Project[] = [],
 ): Promise<{ targets: RepoTarget[]; gaps: string[] } | { error: string }> {
   if (repoArg !== undefined) {
-    const r = await resolveTarget(root, repoArg, map);
+    const r = await resolveTarget(root, repoArg, map, projects);
     return "error" in r ? r : { targets: [r.target], gaps: [] };
   }
   const targets: RepoTarget[] = [];

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { type BundleFile, parseBundle } from "./bundle";
 import { check } from "./check";
@@ -19,10 +19,13 @@ import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "
 import {
   addProject,
   availability,
+  type Catalog,
   discoverSiblings,
   formatAvailability,
   formatCandidate,
   loadCatalog,
+  PROJECTS_INDEX,
+  renderProjectsIndex,
 } from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
@@ -42,7 +45,13 @@ const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
 import { buildResearch, formatResearch, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
-import { buildStatus, formatStatus, type RemoteClaims, type RemoteState } from "./status";
+import {
+  buildStatus,
+  formatStatus,
+  type ProjectStatusRow,
+  type RemoteClaims,
+  type RemoteState,
+} from "./status";
 import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
 import { removeWorktree, worktreeFor } from "./worktree";
 
@@ -332,6 +341,38 @@ async function remoteClaims(
   return { remote: "ok", claims };
 }
 
+/** The catalog always comes from the main checkout, like repos.json, wherever pm runs. */
+async function mainCatalog(
+  root: string,
+): Promise<{ catalog: Catalog; pmDir: string; main: string }> {
+  const pmDir = await repoMapPmDir(root);
+  return { catalog: await loadCatalog(pmDir), pmDir, main: dirname(dirname(pmDir)) };
+}
+
+async function projectRows(root: string): Promise<ProjectStatusRow[]> {
+  const { catalog, pmDir } = await mainCatalog(root);
+  const map = await readLocalRepoMap(pmDir);
+  return Promise.all(
+    catalog.projects.map(async (p) => ({
+      id: p.id,
+      name: p.name,
+      url: p.url,
+      availability: await availability(p, map),
+    })),
+  );
+}
+
+/** Only a render in the main checkout touches the catalog, so epic branches never carry it. */
+async function renderCatalogIndex(root: string): Promise<string[]> {
+  const { catalog, pmDir, main } = await mainCatalog(root);
+  if (main !== root || catalog.projects.length === 0) return [];
+  const text = renderProjectsIndex(catalog.projects);
+  if (catalog.index === text) return [];
+  const path = join(pmDir, PROJECTS_DIR, PROJECTS_INDEX);
+  await writeFile(path, text);
+  return [relative(root, path)];
+}
+
 async function runProject(root: string, args: Args): Promise<number> {
   const [sub, target] = args.positional;
   if (sub === "add" && target) {
@@ -354,16 +395,7 @@ async function runProject(root: string, args: Args): Promise<number> {
     return 0;
   }
   if (sub === "list" && !target) {
-    const pmDir = await repoMapPmDir(root);
-    const [catalog, map] = await Promise.all([loadCatalog(pmDir), readLocalRepoMap(pmDir)]);
-    const rows = await Promise.all(
-      catalog.projects.map(async (p) => ({
-        id: p.id,
-        name: p.name,
-        url: p.url,
-        availability: await availability(p, map),
-      })),
-    );
+    const rows = await projectRows(root);
     if (args.json) out(json(rows));
     else if (rows.length === 0) out("no projects registered\n");
     else {
@@ -387,7 +419,8 @@ async function runResearch(root: string, args: Args): Promise<number> {
   const keywords = normalizeKeywords(args.positional);
   if (keywords.length === 0) return fail(USAGE);
   const map = await readLocalRepoMap(await repoMapPmDir(root));
-  const resolved = await resolveTarget(root, args.repo, map);
+  const { catalog } = await mainCatalog(root);
+  const resolved = await resolveTarget(root, args.repo, map, catalog.projects);
   if ("error" in resolved) return fail(resolved.error);
   const report = await buildResearch({
     root,
@@ -534,7 +567,11 @@ export async function main(
   switch (args.cmd) {
     case "check": {
       const target = await targetRoot(root, args);
-      const findings = check(target === root ? repo : await loadPmRepo(target), opts);
+      const { catalog } = await mainCatalog(root);
+      const findings = check(target === root ? repo : await loadPmRepo(target), {
+        ...opts,
+        catalog,
+      });
       const { errors, warnings } = countBySeverity(findings);
       out(
         args.json
@@ -559,6 +596,7 @@ export async function main(
       const base = target === root ? repo : await loadPmRepo(target);
       const migrated = args.migrate ? await migrate(base, opts.today) : [];
       const written = await applyRender(await loadPmRepo(target));
+      if (!args.epic) written.push(...(await renderCatalogIndex(root)));
       if (args.json) out(json({ migrated, written }));
       else {
         for (const p of migrated) out(`migrated ${p}\n`);
@@ -647,7 +685,8 @@ export async function main(
         if (wt) worktrees.set(slug, wt.path);
       }
       const source = await repoWithWorktreeEpics(root, repo, [...worktrees.keys()]);
-      const report = buildStatus(source, claims, remote, { ...opts, worktrees });
+      const projects = await projectRows(root);
+      const report = buildStatus(source, claims, remote, { ...opts, worktrees, projects });
       out(args.json ? json(report) : formatStatus(report));
       return 0;
     }
@@ -672,7 +711,8 @@ export async function main(
       const task = taskById(epic, taskId);
       if (!task) return fail(`unknown task ${taskId} in ${slug}`);
       const map = await readLocalRepoMap(await repoMapPmDir(root));
-      const resolved = await resolveRepos(root, epic, args.repo, map);
+      const { catalog } = await mainCatalog(root);
+      const resolved = await resolveRepos(root, epic, args.repo, map, catalog.projects);
       if ("error" in resolved) return fail(resolved.error);
       const report = await buildVerify({
         epic,

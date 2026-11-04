@@ -263,6 +263,30 @@ describe("resolveTarget + resolveRepos", () => {
     expect(r.targets).toEqual([{ name: "webshop", path: await repoRootOf(other) }]);
     expect(r.gaps).toEqual([]);
   });
+  test("--repo accepts a project id, through any URL form in the map", async () => {
+    const dir = await makeTempDir("targets");
+    await buildWebshopRepo(dir);
+    const infra = await makeTempDir("infra");
+    await initGitRepo(infra);
+    const p = (id: string) => ({
+      id,
+      name: id,
+      url: `https://github.com/acme/${id}.git`,
+      added: "",
+      file: "",
+    });
+    const projects = [p("infra"), p("argocd")];
+    const r = await resolveTarget(
+      dir,
+      "infra",
+      { "git@github.com:acme/infra.git": infra },
+      projects,
+    );
+    expect(r).toEqual({ target: { name: "infra", path: await repoRootOf(infra) } });
+    expect(await resolveTarget(dir, "argocd", {}, projects)).toEqual({
+      error: "argocd is not mapped on this machine; pm project add <path>",
+    });
+  });
   test("--repo by name, by path, unknown name lists known names, non-git path errors", async () => {
     const dir = await makeTempDir("targets");
     await buildWebshopRepo(dir);
