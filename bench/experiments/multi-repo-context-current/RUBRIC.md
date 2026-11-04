@@ -23,6 +23,8 @@ tasks) and the transcript (`raw.jsonl`), and record one row per check:
 | cross-repo-order | pass / fail | |
 | repos-registered | pass / fail | |
 
+Also record **targets researched**: which targets the transcript's `pm research --repo` calls covered. `pm research` uses only the last `--repo` it is given, so a call naming three repos researched one; a miss on a target that was never researched is reported as such, not as a gap profiles would close.
+
 **Verdict.** From reading the plan, not from the grader alone. Where the two
 differ, the hand verdict stands and `NOTES.md` records the grader bug and
 the re-grade.
@@ -35,10 +37,19 @@ the fact appears in its output. A pass with no traceable source is
 "passed, source unclear". A fact traced to the memo or to a prior epic means
 the fixture leaked; stop and fix the fixture before trusting the run.
 
+## Cases the graders do not settle
+
+- A task that tells someone to run `terraform plan` from a workstation fails `conventions`: infra's AGENTS.md forbids plan and apply from a workstation; the grader checks only apply.
+- `kubectl apply --dry-run` is not a hand apply.
+- A check named only in plan.md or epic.md (for example in the Definition of done) counts for a repo when it plainly applies to that repo's tasks; record "plan-level" as its source.
+- One task that releases the webshop and bumps argocd's tag, followed by a separate traffic task that depends on it, passes `cross-repo-order` (the release still precedes the switch); note it.
+- A grader verdict that lists unattributed tasks in its evidence is read by hand: place each task and re-grade.
+
 ## Exclusions
 
-Harness or API failures (crash, API error) are excluded. A timeout counts as
-failed. Fewer than 8 graded attempts makes the experiment inconclusive;
+Harness or API failures (crash, API error) are excluded, and so is an attempt
+whose plan is not in the fixture because the agent skipped `--no-worktree`
+(its plan cannot be read). A timeout counts as failed. Fewer than 8 graded attempts makes the experiment inconclusive;
 topping up is the user's call.
 
 ## Decision rule (copied from the design, fixed before the run)

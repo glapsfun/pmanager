@@ -192,6 +192,84 @@ describe("multi-repo-context graders", () => {
   });
 });
 
+describe("realistic phrasings", () => {
+  test("tasks named only by repo or artifact are attributed", async () => {
+    const version: T = {
+      id: "T01",
+      title: "Expose GET /version on the webshop service",
+      what: "Return the build version from the webshop service.",
+      accept: "`make test` and `make lint` pass",
+    };
+    const release: T = {
+      id: "T02",
+      title: "Cut webshop 1.6.0",
+      deps: ["T01"],
+      what: "Push a `v1.6.0` tag on webshop `main`; the release workflow publishes ghcr.io/pm-example/webshop:1.6.0.",
+      accept: "the 1.6.0 image exists",
+    };
+    const lb: T = {
+      ...LB,
+      what: "Add the canary load balancer in infra; the PR is merged and the change is applied by CI.",
+      accept: "`terraform -chdir=envs/prod validate` passes",
+    };
+    const weight: T = {
+      id: "T04",
+      title: "Send 10% of traffic to the canary",
+      deps: ["T02", "T03"],
+      what: "Set canary-weight 10 on the canary ingress; Argo CD syncs it.",
+      accept: "`kubeconform` passes",
+    };
+    const r = await grade([version, release, lb, weight]);
+    expect(IDS.map((id) => [id, r[id]])).toEqual(IDS.map((id) => [id, true]));
+  });
+
+  test("a task with an infra path and a mention of the argocd repo is infra only", async () => {
+    const dir = await makeTempDir("mrc-attr");
+    const t: T = { ...LB, what: `${LB.what} Keep the output names the argocd repo reads.` };
+    await writeTree(dir, {
+      [`docs/pm/${SLUG}/epic.md`]: `---\nid: ${SLUG}\n---\n`,
+      [`docs/pm/${SLUG}/tasks/T03-x.md`]: taskFile(t),
+    });
+    const task = (await loadPmRepo(dir)).epics[0]?.tasks[0];
+    if (!task) throw new Error("task missing");
+    expect(targetsOf(task)).toEqual(["infra"]);
+  });
+
+  test("conventions reads sentences and clauses, not lines", async () => {
+    const lbWith = (what: string): T => ({ ...LB, what });
+    const ok = [
+      "Add an hcloud_load_balancer in envs/prod and open a pull request; merge it and the `apply` workflow runs `terraform apply` on main.",
+      "Add an hcloud_load_balancer in envs/prod. Do not run\n`terraform apply` from a workstation; CI applies after merge.",
+    ];
+    for (const what of ok)
+      expect((await grade([VERSION, RELEASE, lbWith(what), CANARY])).conventions).toBe(true);
+    const bad = [
+      "Add an hcloud_load_balancer in envs/prod and run `terraform apply` from your laptop; no CI needed.",
+      "Run `terraform apply` from envs/prod. Do not touch the existing LB; CI posts the plan.",
+    ];
+    for (const what of bad)
+      expect((await grade([VERSION, RELEASE, lbWith(what), CANARY])).conventions).toBe(false);
+  });
+
+  test("checks written under Notes count, and bun run test is a manager command", async () => {
+    const noted: T = { ...VERSION, accept: "GET /version returns the build version" };
+    const dir = await grade([
+      { ...noted, what: `${noted.what}\n\n## Notes\n\nChecks: make test, make lint.` },
+      RELEASE,
+      LB,
+      CANARY,
+    ]);
+    expect(dir["own-checks-webshop"]).toBe(true);
+    const leaked = await grade([
+      { ...VERSION, accept: "`bun run test` passes" },
+      RELEASE,
+      LB,
+      CANARY,
+    ]);
+    expect(leaked["no-manager-commands"]).toBe(false);
+  });
+});
+
 describe("targetsOf", () => {
   test("reads the title and the work, not Context or Out of scope", async () => {
     const dir = await makeTempDir("mrc-attr");

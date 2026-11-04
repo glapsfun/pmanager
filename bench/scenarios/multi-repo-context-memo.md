@@ -18,9 +18,9 @@ provisions, and is deployed by an Argo CD app-of-apps in the `argocd` repo.
 
 | Who | Cares about | Consulted via |
 | :--- | :--- | :--- |
-| webshop repo owners | the service and its releases | PR review in webshop |
-| infra repo owners | the cluster and its network | PR review in infra |
-| argocd repo owners | Applications, workloads and sync health | PR review in argocd |
+| webshop repo owners | the service and its releases | #webshop channel |
+| infra repo owners | the cluster and its network | #infra channel |
+| argocd repo owners | Applications, workloads and sync health | #argocd channel |
 
 ## 4. Conventions & constraints
 
