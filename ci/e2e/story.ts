@@ -328,7 +328,46 @@ const STAGING: Step[] = [
   },
 ];
 
-export const STEPS: Step[] = [...HEALTHCHECK, ...STAGING];
+/** A codex session that reserved an epic and never came back, and a draft dropped by pi. */
+const CLAIMS: Step[] = [
+  {
+    day: "2026-11-05",
+    harness: "codex",
+    pm: [
+      "claim",
+      "argocd-sso-dex",
+      "--draft",
+      "--title",
+      "Single sign-on for Argo CD with Dex",
+      "--type",
+      "feature",
+    ],
+  },
+  {
+    day: "2026-11-06",
+    harness: "pi",
+    pm: [
+      "claim",
+      "multi-region-failover",
+      "--draft",
+      "--title",
+      "Multi-region failover for prod-eu",
+      "--type",
+      "initiative",
+    ],
+  },
+  {
+    day: "2026-11-06",
+    harness: "pi",
+    session: "multi-region-failover",
+    pm: ["release", "multi-region-failover", "--abandon"],
+  },
+];
+
+// Stable sort: steps on the same day keep their written order.
+export const STEPS: Step[] = [...HEALTHCHECK, ...STAGING, ...CLAIMS].sort((a, b) =>
+  a.day.localeCompare(b.day),
+);
 
 function applyEdits(text: string, edits: Edit[], file: string, shift: number): string {
   let out = text;

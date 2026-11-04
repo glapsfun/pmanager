@@ -136,3 +136,62 @@ describe("mid-flight epic", () => {
     expect(block).toContain("T07");
   });
 });
+
+describe("claims", () => {
+  const at = (cwd: string, harness: string, ...args: string[]) =>
+    pmProcess(cwd, args, { harness, env: { PM_TODAY: STORY_END } });
+  const statusBlock = (stdout: string, slug: string) => {
+    const lines = stdout.split("\n");
+    const row = lines.findIndex((l) => l.startsWith(`${slug} `));
+    return row === -1 ? "" : lines.slice(row, row + 6).join("\n");
+  };
+
+  test("status flags the stale claim and the abandoned draft", async () => {
+    const ws = await buildWorkspace(await makeTempDir("multi-repo-claims"));
+    const s = await at(ws.manager, "claude-code", "status");
+    const sso = statusBlock(s.stdout, "argocd-sso-dex");
+    expect(sso).toContain("codex");
+    expect(sso).toContain("[stale]");
+    expect(statusBlock(s.stdout, "multi-region-failover")).toMatch(
+      /^multi-region-failover\s+initiative\s+abandoned/,
+    );
+    expect(
+      (await gitOk(["ls-remote", "origin", "pm/multi-region-failover"], ws.manager)).trim(),
+    ).not.toBe("");
+  }, 120_000);
+
+  test("takeover works only on the stale claim, and release frees it", async () => {
+    const ws = await buildWorkspace(await makeTempDir("multi-repo-takeover"));
+    const take = await at(ws.manager, "claude-code", "claim", "argocd-sso-dex", "--takeover");
+    expect(take.code).toBe(0);
+    const id = /session: ([0-9a-f]{6})/.exec(take.stdout)?.[1] ?? "";
+    expect(id).not.toBe("");
+    const refused = await at(ws.manager, "codex", "claim", "staging-environment", "--takeover");
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain("is not stale");
+    const release = await at(
+      ws.manager,
+      "claude-code",
+      "release",
+      "argocd-sso-dex",
+      "--session",
+      id,
+    );
+    expect(release.code).toBe(0);
+    expect(await exists(ws.worktree("argocd-sso-dex"))).toBe(false);
+    const s = await at(ws.manager, "claude-code", "status");
+    expect(statusBlock(s.stdout, "argocd-sso-dex")).toContain("session: unowned");
+  }, 120_000);
+
+  // Known pm bug: claim treats an existing pm/<slug> branch as owned even when its
+  // epic carries no session, so a released draft reads "owned by unknown since unknown".
+  test.failing("a released draft can be claimed again", async () => {
+    const ws = await buildWorkspace(await makeTempDir("multi-repo-reclaim"));
+    const take = await at(ws.manager, "claude-code", "claim", "argocd-sso-dex", "--takeover");
+    const id = /session: ([0-9a-f]{6})/.exec(take.stdout)?.[1] ?? "";
+    await at(ws.manager, "claude-code", "release", "argocd-sso-dex", "--session", id);
+    const claim = await at(ws.manager, "claude-code", "claim", "argocd-sso-dex");
+    expect(claim.code).toBe(0);
+    expect(claim.stdout).toContain(`worktree: ${ws.worktree("argocd-sso-dex")}`);
+  }, 120_000);
+});
