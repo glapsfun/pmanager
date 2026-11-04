@@ -12,6 +12,7 @@ import {
   remoteWithClones,
   runPm,
   unclaimedSeed,
+  writeTree,
 } from "./helpers";
 
 async function run(args: string[], cwd: string, env: Record<string, string> = {}) {
@@ -341,6 +342,30 @@ describe("worktrees", () => {
     expect(r.code).toBe(0);
     const wtIndex = join(worktreePath(a, "app-performance"), "docs", "pm", "INDEX.md");
     expect(await readFile(wtIndex, "utf8")).toContain("app-performance");
+  });
+  test("research, handoff and verify inside the worktree read the main checkout's repo map", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const target = await makeTempDir("webshop");
+    await writeTree(target, { "app/orders.py": "def orders():\n    pass\n" });
+    await initGitRepo(target);
+    await gitOk(["add", "-A"], target);
+    await gitOk(["commit", "-q", "-m", "seed"], target);
+    const url = "git@github.com:glapsfun/webshop.git";
+    await writeTree(a, {
+      "docs/pm/.local/repos.json": JSON.stringify({ [url]: target }),
+      "docs/pm/.local/.gitignore": "*\n",
+    });
+    const wt = worktreePath(a, "app-performance");
+    const handoff = await run(["handoff", "app-performance", "T01"], wt);
+    expect(handoff.stdout).toContain(`- ${url} → ${target}`);
+    const research = await run(["research", "orders", "--no-gh", "--repo", url], wt);
+    expect(research.code).toBe(0);
+    expect(research.stdout).toContain("[app/orders.py:1]");
+    const verify = await run(["verify", "app-performance", "T02"], wt);
+    expect(verify.code).toBe(0);
+    expect(verify.stdout).not.toContain("not checked out on this machine");
+    expect(await exists(join(wt, "docs/pm/.local"))).toBe(false);
   });
   test("check --epic reads the worktree", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
