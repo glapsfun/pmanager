@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { type BundleFile, parseBundle } from "./bundle";
 import { check } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
@@ -16,6 +16,7 @@ import {
   repoRoot,
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
+import { addProject, availability, formatAvailability, loadCatalog } from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
@@ -52,6 +53,9 @@ commands
   record <slug> --harness NAME [--session ID] --kind spec|update -m MSG [--from FILE|-]
                                 write a bundle of documents, log, render, check, commit and push an epic
   status                        epics, owners, stale claims, next task
+  project add <path|url> [--id ID] [--name NAME]
+                                register a project in the manager's docs/pm/projects and map its checkout; commits nothing
+  project list                  registered projects and their availability on this machine
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
@@ -74,6 +78,8 @@ flags
   --session ID                  release, render --epic: the id pm claim printed for your session
   --force                       release, render --epic: act on another session's claim deliberately
   --title T                     claim --draft: the epic's one-line title
+  --id ID                       project add: the project id (default: the repo name)
+  --name NAME                   project add: the display name (default: the id)
   --type TYPE                   claim --draft: bug | feature | tech-debt | initiative
   --distinct                    claim --draft: proceed although an existing epic looks like the same work
   --kind spec|update            record: the log entry kind
@@ -115,6 +121,8 @@ export interface Args {
   kind?: string;
   message?: string;
   from?: string;
+  id?: string;
+  name?: string;
 }
 
 export function defaultHarness(env = process.env): string {
@@ -158,6 +166,11 @@ export function parseArgs(argv: string[]): Args | null {
       const t = argv[++i];
       if (!t) return null;
       args.title = t;
+    } else if (a === "--id" || a === "--name") {
+      const v = argv[++i];
+      if (!v) return null;
+      if (a === "--id") args.id = v;
+      else args.name = v;
     } else if (a === "--type") {
       const t = argv[++i];
       if (!t) return null;
@@ -232,9 +245,9 @@ function out(text: string): void {
   process.stdout.write(text);
 }
 
-function fail(message: string): number {
+function fail(message: string, code = 2): number {
   process.stderr.write(`${message}\n`);
-  return 2;
+  return code;
 }
 
 function json(value: unknown): string {
@@ -309,6 +322,50 @@ async function remoteClaims(
   const epics = await Promise.all(slugs.map((slug) => remoteEpicOf(root, slug)));
   const claims: RemoteClaims = new Map(slugs.map((slug, i) => [slug, epics[i] ?? null]));
   return { remote: "ok", claims };
+}
+
+async function runProject(root: string, args: Args): Promise<number> {
+  const [sub, target] = args.positional;
+  if (sub === "add" && target) {
+    const r = await addProject(root, target, { id: args.id, name: args.name, today: today() });
+    if (!r.ok) return fail(r.message, 1);
+    if (args.json) {
+      out(json(r));
+      return 0;
+    }
+    const main = dirname(dirname(await repoMapPmDir(root)));
+    out(
+      r.created
+        ? `registered ${r.project.id} (${r.project.url})\n`
+        : `already registered as ${r.project.id}\n`,
+    );
+    if (r.mapped) out(`mapped ${r.mapped}\n`);
+    if (r.written.length > 0) {
+      out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
+    }
+    return 0;
+  }
+  if (sub === "list" && !target) {
+    const pmDir = await repoMapPmDir(root);
+    const [catalog, map] = await Promise.all([loadCatalog(pmDir), readLocalRepoMap(pmDir)]);
+    const rows = await Promise.all(
+      catalog.projects.map(async (p) => ({
+        id: p.id,
+        name: p.name,
+        url: p.url,
+        availability: await availability(p, map),
+      })),
+    );
+    if (args.json) out(json(rows));
+    else if (rows.length === 0) out("no projects registered\n");
+    else {
+      for (const r of rows) {
+        out(`${r.id}  ${r.name}  ${r.url}  ${formatAvailability(r.availability)}\n`);
+      }
+    }
+    return 0;
+  }
+  return fail(USAGE);
 }
 
 async function runResearch(root: string, args: Args): Promise<number> {
@@ -437,6 +494,8 @@ export async function main(
   const root = await repoRoot(cwd);
   if (!root) return fail("not inside a git repository");
   if (args.cmd === "research") return runResearch(root, args);
+  // the catalog lives in the main checkout and needs no epics, so it works before docs/pm exists
+  if (args.cmd === "project") return runProject(root, args);
   // a reservation comes before any docs/pm exists on a cold start
   if (args.cmd === "claim" && args.draft) return runDraft(root, args);
   const opts = { staleDays: args.staleDays, today: today() };

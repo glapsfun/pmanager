@@ -503,3 +503,39 @@ describe("worktrees", () => {
     expect(r.stderr).toContain("--epic");
   });
 });
+
+describe("project command", () => {
+  async function target(origin: string) {
+    const dir = await makeTempDir("infra");
+    await initGitRepo(dir);
+    await gitOk(["remote", "add", "origin", origin], dir);
+    return dir;
+  }
+
+  test("add registers and maps; list shows availability", async () => {
+    const root = await localRepo();
+    const infra = await target("https://github.com/acme/infra.git");
+    const add = await run(["project", "add", infra, "--name", "Infra"], root);
+    expect(add.code).toBe(0);
+    expect(add.stdout).toContain("registered infra (https://github.com/acme/infra.git)");
+    expect(add.stdout).toContain("mapped ");
+    expect(add.stdout).toContain("files to commit:");
+    expect(add.stdout).toContain("docs/pm/projects/infra.md");
+    const list = await run(["project", "list"], root);
+    expect(list.code).toBe(0);
+    expect(list.stdout).toMatch(
+      /^infra\s+Infra\s+https:\/\/github\.com\/acme\/infra\.git\s+available$/m,
+    );
+    const json = JSON.parse((await run(["project", "list", "--json"], root)).stdout);
+    expect(json[0]).toMatchObject({ id: "infra", availability: { state: "available" } });
+  });
+
+  test("usage errors, refusals and an empty catalog", async () => {
+    const root = await localRepo();
+    expect((await run(["project", "add"], root)).code).toBe(2);
+    expect((await run(["project", "nope"], root)).code).toBe(2);
+    const self = await run(["project", "add", root], root);
+    expect(self.code).toBe(1);
+    expect((await run(["project", "list"], root)).stdout).toContain("no projects registered");
+  });
+});
