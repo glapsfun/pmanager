@@ -6,6 +6,7 @@ import { CLAIMS, playSteps, REGISTRY, STORY_END } from "../../ci/e2e/story";
 import { buildBaseAt, gitDateEnv, sh } from "../../ci/e2e/workspace";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { commonChecks } from "../graders/common";
+import { multiRepoContextChecks } from "../graders/multi-repo-context";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
 import { PM_TODAY } from "../skill-paths";
 import { CONTRACT_SENTENCE, type Scenario } from "./types";
@@ -47,5 +48,12 @@ export const multiRepoContext: Scenario = {
   task: MULTI_REPO_REQUEST,
   graderVersion: 1,
   buildFixture: buildMultiRepoContextFixture,
-  checks: [...commonChecks("spec"), epicAndPlan, tasksMin3, binaryAcceptance, draftAwaitsApproval],
+  checks: [
+    ...commonChecks("spec"),
+    epicAndPlan,
+    tasksMin3,
+    binaryAcceptance,
+    draftAwaitsApproval,
+    ...multiRepoContextChecks(),
+  ],
 };
