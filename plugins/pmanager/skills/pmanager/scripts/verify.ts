@@ -246,8 +246,10 @@ export async function sinceSha(
     return { since: { date: null, sha: r.stdout.trim(), reason: rule.reason } };
   }
   if (!rule.date) return { since: { date: null, sha: null, reason: rule.reason } };
+  // git reads a bare date as that day at the current time, which would drop
+  // the day's own commits; the window starts at the beginning of the day.
   const r = await gitTimed(
-    ["rev-list", "-1", "--abbrev-commit", `--before=${rule.date}`, "HEAD"],
+    ["rev-list", "-1", "--abbrev-commit", `--before=${rule.date} 00:00:00`, "HEAD"],
     cwd,
     timeoutMs,
   );
