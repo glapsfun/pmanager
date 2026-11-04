@@ -1,7 +1,7 @@
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { shiftDates } from "./dates";
-import { playStory } from "./story";
+import { join, resolve } from "node:path";
+import { daysBetween, shiftDates } from "./dates";
+import { playStory, STORY_END } from "./story";
 
 /** The day the four repos are created, before the story's first epic. */
 export const BASE_DAY = "2026-10-19";
@@ -131,4 +131,28 @@ export async function buildWorkspace(
   const ws = await buildBase(dir, opts);
   await playStory(ws, { shiftDays: opts.shiftDays ?? 0 });
   return ws;
+}
+
+function localDay(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// By hand: the story is shifted to end today, so a session opened in it sees fresh claims.
+if (import.meta.main) {
+  const [dir, ...rest] = Bun.argv.slice(2);
+  if (!dir) {
+    console.error("usage: bun ci/e2e/workspace.ts <dir> [--install [source]]");
+    process.exit(2);
+  }
+  const at = rest.indexOf("--install");
+  const next = rest[at + 1];
+  const thisCheckout = join(import.meta.dir, "..", "..");
+  const install = at === -1 ? undefined : next && !next.startsWith("--") ? next : thisCheckout;
+  const ws = await buildWorkspace(resolve(dir), {
+    install,
+    shiftDays: daysBetween(STORY_END, localDay()),
+  });
+  console.log(`workspace ready: ${join(ws.dir, "workspace")}`);
+  console.log(`start a session: cd ${ws.manager} && claude`);
 }

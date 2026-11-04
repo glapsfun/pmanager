@@ -243,7 +243,8 @@ Run `bun run setup` once after cloning. It installs dependencies for the tool, b
   - It needs the `claude` and `codex` CLIs, for `manifest` and the plugin install e2e. `bun ci/gate.ts install-clis` installs the pinned versions.
   - It checks the working tree, so it requires a clean one. Commit, stash or remove changes before you push.
 - `bun run gate` runs the same checks as the push hook, on demand.
-- `bun run e2e` runs the free end to end tests: a user's day with concurrent sessions, and installing the plugin into Claude Code and Codex in an isolated home.
+- `bun run e2e` runs the free end to end tests: a user's day with concurrent sessions, installing the plugin into Claude Code and Codex in an isolated home, and a multi-repo example where every pm feature has been used.
+- `bun ci/e2e/workspace.ts <dir> --install` builds that multi-repo example (manager, webshop, infra, argocd) with pmanager installed from this checkout, dated to end today. `cd` into its `workspace/manager` and start a session.
 - `bun run e2e:agents` runs the paid agent e2e, which can take hours. `bun run release check --agent-e2e` runs it on a release candidate; plain `check` skips it. It runs 3 runs of each of the 5 scenarios, caps Claude at 10 USD per run, and only `claude-code` blocks; `codex` is reported.
 
 Releases: `bun run release status`, then the steps in [RELEASING.md](RELEASING.md). The `release-guru` skill runs them from Claude Code or Codex.

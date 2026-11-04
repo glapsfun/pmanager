@@ -195,3 +195,58 @@ describe("claims", () => {
     expect(claim.stdout).toContain(`worktree: ${ws.worktree("argocd-sso-dex")}`);
   }, 120_000);
 });
+
+describe("whole workspace", () => {
+  let ws: Workspace;
+  const pm = (cwd: string, ...args: string[]) =>
+    pmProcess(cwd, args, { env: { PM_TODAY: STORY_END } });
+
+  beforeAll(async () => {
+    ws = await buildWorkspace(await makeTempDir("multi-repo-whole"));
+  }, 120_000);
+
+  test("research finds code in each target by URL", async () => {
+    const webshop = await pm(
+      ws.manager,
+      "research",
+      "healthz",
+      "--repo",
+      TARGETS.webshop,
+      "--no-gh",
+    );
+    expect(webshop.code).toBe(0);
+    expect(webshop.stdout).toContain("[main.go:");
+    const infra = await pm(ws.manager, "research", "staging", "--repo", TARGETS.infra, "--no-gh");
+    expect(infra.stdout).toContain("[envs/staging/main.tf:");
+    expect(
+      (await pm(ws.manager, "research", "probe", "--repo", TARGETS.argocd, "--no-gh")).code,
+    ).toBe(0);
+    const memory = await pm(ws.manager, "research", "health", "--no-gh");
+    expect(memory.stdout.split("\nmemory")[1]?.split("\ntests")[0] ?? "").toContain(
+      "webshop-healthcheck",
+    );
+  });
+
+  test("the built workspace is consistent", async () => {
+    expect((await pm(ws.manager, "check")).stdout).toContain("OK");
+    expect((await pm(ws.manager, "render")).stdout).toContain("nothing to render");
+  });
+
+  test("pm never touched a target repo", async () => {
+    for (const name of NAMES) {
+      const repo = ws.repos[name];
+      const authors = new Set((await gitOk(["log", "--format=%an"], repo)).trim().split("\n"));
+      expect([...authors].every((a) => a === "pm-example" || a === "implementer")).toBe(true);
+      expect((await gitOk(["branch", "--format=%(refname:short)"], repo)).trim()).toBe("main");
+      expect((await gitOk(["status", "--porcelain"], repo)).trim()).toBe("");
+      expect((await gitOk(["worktree", "list"], repo)).trim().split("\n")).toHaveLength(1);
+    }
+  });
+
+  test("a workspace path with a space builds and resolves the map", async () => {
+    const spaced = await buildWorkspace(join(await makeTempDir("multi repo"), "my ws"));
+    const h = await pm(spaced.manager, "handoff", "staging-environment", "T01");
+    expect(h.code).toBe(0);
+    expect(h.stdout).toMatch(new RegExp(`${TARGETS.infra.replaceAll(".", "\\.")} → [^\\n]*my ws`));
+  }, 120_000);
+});
