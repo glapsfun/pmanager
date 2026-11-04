@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    chart: ingress-nginx
+    targetRevision: 4.11.3
+    helm:
+      valuesObject:
+        controller:
+          service:
+            annotations:
+              # Created by the infra repo (modules/cluster, "<cluster_name>-ingress").
+              load-balancer.hetzner.cloud/name: prod-eu-ingress
+              load-balancer.hetzner.cloud/use-private-ip: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress-nginx
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
