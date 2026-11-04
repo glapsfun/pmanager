@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform -chdir=envs/prod init -backend=false
+      - run: terraform -chdir=envs/prod validate
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --recursive
+
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: lint
+    uses: pm-example/shared-workflows/.github/workflows/terraform-plan.yml@v1
+    with:
+      working-directory: envs/prod
+    secrets: inherit
+
+  apply:
+    if: github.event_name == 'push'
+    needs: lint
+    uses: pm-example/shared-workflows/.github/workflows/terraform-apply.yml@v1
+    with:
+      working-directory: envs/prod
+    secrets: inherit
