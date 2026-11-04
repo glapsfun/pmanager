@@ -15,7 +15,7 @@ import {
   pushSetUpstream,
   repoRoot,
 } from "./git";
-import { buildHandoff, loadLocalRepoMap, readLocalRepoMap } from "./handoff";
+import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
@@ -302,7 +302,7 @@ async function remoteClaims(
 async function runResearch(root: string, args: Args): Promise<number> {
   const keywords = normalizeKeywords(args.positional);
   if (keywords.length === 0) return fail(USAGE);
-  const map = await readLocalRepoMap(join(root, PM_DIR));
+  const map = await readLocalRepoMap(await repoMapPmDir(root));
   const resolved = await resolveTarget(root, args.repo, map);
   if ("error" in resolved) return fail(resolved.error);
   const report = await buildResearch({
@@ -570,8 +570,8 @@ export async function main(
       if (!slug || !taskId) return fail(USAGE);
       try {
         const source = await repoForEpic(root, repo, slug);
-        // the repo map is machine-local and gitignored: it lives in this checkout
-        const brief = buildHandoff(source, slug, taskId, await loadLocalRepoMap(repo.pmDir));
+        const map = await loadLocalRepoMap(await repoMapPmDir(root));
+        const brief = buildHandoff(source, slug, taskId, map);
         out(args.json ? json({ brief }) : brief);
         return 0;
       } catch (e) {
@@ -585,7 +585,7 @@ export async function main(
       if (!epic?.epic) return fail(`unknown epic ${slug}`);
       const task = taskById(epic, taskId);
       if (!task) return fail(`unknown task ${taskId} in ${slug}`);
-      const map = await readLocalRepoMap(repo.pmDir);
+      const map = await readLocalRepoMap(await repoMapPmDir(root));
       const resolved = await resolveRepos(root, epic, args.repo, map);
       if ("error" in resolved) return fail(resolved.error);
       const report = await buildVerify({

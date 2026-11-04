@@ -1,9 +1,21 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { getList, getString, sectionBody } from "./contract";
-import { epicBySlug, LOCAL_DIR, type PmRepo, taskById } from "./repo";
+import { git } from "./git";
+import { epicBySlug, LOCAL_DIR, PM_DIR, type PmRepo, taskById } from "./repo";
 
 export const LOCAL_REPOS_FILE = "repos.json";
+
+/**
+ * The docs/pm whose .local holds the repo map. The map is per machine and
+ * gitignored, so an epic worktree has none of its own; it shares the main
+ * checkout's. Bare repos and separate git dirs keep the checkout's own.
+ */
+export async function repoMapPmDir(root: string): Promise<string> {
+  const r = await git(["rev-parse", "--git-common-dir"], root);
+  const common = r.code === 0 ? resolve(root, r.stdout.trim()) : "";
+  return basename(common) === ".git" ? join(dirname(common), PM_DIR) : join(root, PM_DIR);
+}
 
 export function parseLocalRepoMap(text: string): Record<string, string> {
   const parsed = JSON.parse(text) as unknown;
