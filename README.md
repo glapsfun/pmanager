@@ -291,6 +291,7 @@ and [bench/BENCH.md](bench/BENCH.md).
 | m0-null (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill / baseline-skill | 3 (0) | 33% / 100% | -0.08 | 73674 / 74920 | 28277 / 25246 | $0.89 / $0.83 | 276s / 285s | $10.67 |
 | m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | perf-bug-new-epic | with-skill | 3 | 67% | — | 72806 | 29234 | $0.86 | 290s | $5.50 |
 | m0-start (preliminary) | claude-code 2.1.283 | claude-sonnet-5 | feature-idea-epic | with-skill | 3 | 100% | — | 79164 | 31844 | $0.99 | 317s | $5.50 |
+| memory-recall-current | claude-code 2.1.317 | claude-sonnet-5 | memory-recall | with-skill | 10 | 50% | — | 87972 | 52648 | $1.07 | 398s | $10.39 |
 | pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
 | planning-traps-current | claude-code 2.1.312 | claude-sonnet-5 | planning-traps | with-skill | 10 | 20% | — | 83403 | 43988 | $0.96 | 466s | $9.41 |
 

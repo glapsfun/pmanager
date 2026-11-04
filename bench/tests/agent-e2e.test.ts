@@ -13,7 +13,7 @@ import {
 } from "../agent-e2e";
 import { main } from "../bench";
 import { parseArgs } from "../cli-args";
-import { SCENARIOS } from "../scenarios/registry";
+import { MEASUREMENT_SCENARIOS, SCENARIOS } from "../scenarios/registry";
 
 const cfg: AgentE2eConfig = {
   runs: 3,
@@ -39,6 +39,19 @@ function results(
 }
 
 describe("agentVerdict", () => {
+  test("release runs never include measurement scenarios", () => {
+    const measured = MEASUREMENT_SCENARIOS.map((s) => s.name);
+    const extra = measured.map((scenario) => ({
+      harness: "claude-code",
+      scenario,
+      success: false,
+    }));
+    const v = agentVerdict([...results(() => [true, true, true]), ...extra], cfg, []);
+    expect(v.rows.some((r) => measured.includes(r.scenario))).toBe(false);
+    expect(v.rows.filter((r) => r.harness === "claude-code")).toHaveLength(SCENARIOS.length);
+    expect(v.pass).toBe(true);
+  });
+
   test("2 of 3 passes a scenario; blocking harness decides", () => {
     const v = agentVerdict(
       results(() => [true, true, false]),
