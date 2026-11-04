@@ -193,9 +193,12 @@ cold start. Then gather evidence read-only, in this order of cost:
    `pm research` per open question. Both produce the same evidence form.
 
 The epic's `repos` list names the target repositories by remote URL.
-Resolve each through `docs/pm/.local/repos.json`; pass the mapped checkout
-as `--repo` and research there. A repo not checked out on this machine
-lowers the epic's confidence with that reason recorded; never clone.
+When `pm status` shows a `projects:` block, take those URLs from it and pass
+`--repo <id>`; tell the user about a target that is not registered, with the
+`pm project add <path>` fix. Without a catalog, resolve each URL through
+`docs/pm/.local/repos.json` and pass the mapped checkout as `--repo`.
+Research there. A repo not checked out on this machine lowers the epic's
+confidence with that reason recorded; never clone.
 
 Every finding lands in the ledger as `[source] fact`. Behavioral evidence
 (measurements, logs, repro) outranks stated evidence (what the request
