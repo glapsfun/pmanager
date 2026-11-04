@@ -210,6 +210,15 @@ describe("sinceSha", () => {
     const bad = await sinceSha(dir, { ref: "nope", reason: "--since" }, 30_000);
     expect(bad.error).toContain("--since nope");
   });
+  test("a commit made on the bound date stays inside the window", async () => {
+    const dir = await makeTempDir("since");
+    await initGitRepo(dir);
+    await commitDated(dir, "before", "2026-09-10T10:00:00");
+    const before = (await gitOk(["rev-parse", "--short", "HEAD"], dir)).trim();
+    await commitDated(dir, "same day", "2026-09-12T00:00:01");
+    const r = await sinceSha(dir, { date: "2026-09-12", reason: "task updated" }, 30_000);
+    expect(r.since.sha).toBe(before);
+  });
 });
 
 describe("resolveTarget + resolveRepos", () => {
