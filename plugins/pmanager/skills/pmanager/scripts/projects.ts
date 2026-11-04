@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/pro
 import { dirname, join } from "node:path";
 import { formatFmValue, getString, parseDoc } from "./contract";
 import { git, repoRoot } from "./git";
-import { LOCAL_REPOS_FILE, loadLocalRepoMap, repoMapPmDir } from "./handoff";
+import { LOCAL_REPOS_FILE, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
 import { repoShortName } from "./render";
 import { LOCAL_DIR, PROJECTS_DIR } from "./repo";
 import { lookupMapped, normalizeRepoUrl, sameRepo } from "./repo-url";
@@ -208,4 +208,80 @@ export async function addProject(
     await writeFile(join(pmDir, LOCAL_DIR, LOCAL_REPOS_FILE), `${JSON.stringify(map, null, 2)}\n`);
   }
   return { ok: true, project, created, mapped: path, written };
+}
+
+export interface Candidate {
+  path: string;
+  origin: string | null;
+  suggestedId: string;
+  state: "new" | "registered" | "another checkout" | "no origin";
+  id?: string;
+}
+
+async function hasGitEntry(dir: string): Promise<boolean> {
+  try {
+    await stat(join(dir, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Git repos beside the main checkout, as registration suggestions. Reads only
+ * each sibling's origin; registers nothing and writes nothing.
+ */
+export async function discoverSiblings(root: string): Promise<Candidate[]> {
+  const pmDir = await repoMapPmDir(root);
+  const mainRoot = dirname(dirname(pmDir));
+  const parent = dirname(mainRoot);
+  const [skip, managerOrigin, catalog, map] = await Promise.all([
+    managerCheckouts(mainRoot),
+    originOf(mainRoot),
+    loadCatalog(pmDir),
+    readLocalRepoMap(pmDir),
+  ]);
+  const real = (p: string) => realpath(p).catch(() => p);
+  const out: Candidate[] = [];
+  const entries = (await readdir(parent, { withFileTypes: true }))
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+  for (const name of entries) {
+    const path = join(parent, name);
+    if (!(await hasGitEntry(path)) || skip.has(await real(path))) continue;
+    const origin = await originOf(path);
+    // Another clone of the manager is still the manager, never a target.
+    if (origin !== null && managerOrigin !== null && sameRepo(origin, managerOrigin)) continue;
+    if (origin === null) {
+      out.push({ path, origin, suggestedId: name.toLowerCase(), state: "no origin" });
+      continue;
+    }
+    const suggestedId = defaultProjectId(origin);
+    const project = catalog.projects.find((p) => sameRepo(p.url, origin));
+    if (!project) {
+      out.push({ path, origin, suggestedId, state: "new" });
+      continue;
+    }
+    const mapped = lookupMapped(map, project.url);
+    const here = mapped !== undefined && (await real(mapped)) === (await real(path));
+    out.push({
+      path,
+      origin,
+      suggestedId,
+      state: here ? "registered" : "another checkout",
+      id: project.id,
+    });
+  }
+  return out;
+}
+
+export function formatCandidate(c: Candidate): string {
+  const state =
+    c.state === "registered"
+      ? `registered as ${c.id}`
+      : c.state === "another checkout"
+        ? `another checkout of ${c.id}`
+        : c.state;
+  return `${c.path}  ${c.origin ?? "-"}  ${state}`;
 }

@@ -16,7 +16,14 @@ import {
   repoRoot,
 } from "./git";
 import { buildHandoff, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
-import { addProject, availability, formatAvailability, loadCatalog } from "./projects";
+import {
+  addProject,
+  availability,
+  discoverSiblings,
+  formatAvailability,
+  formatCandidate,
+  loadCatalog,
+} from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
@@ -56,6 +63,7 @@ commands
   project add <path|url> [--id ID] [--name NAME]
                                 register a project in the manager's docs/pm/projects and map its checkout; commits nothing
   project list                  registered projects and their availability on this machine
+  project discover              git repos beside this manager, as registration suggestions; writes nothing
   handoff <slug> <task-id>      print an execution brief
   research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
@@ -363,6 +371,13 @@ async function runProject(root: string, args: Args): Promise<number> {
         out(`${r.id}  ${r.name}  ${r.url}  ${formatAvailability(r.availability)}\n`);
       }
     }
+    return 0;
+  }
+  if (sub === "discover" && !target) {
+    const candidates = await discoverSiblings(root);
+    if (args.json) out(json(candidates));
+    else if (candidates.length === 0) out("no sibling repositories\n");
+    else for (const c of candidates) out(`${formatCandidate(c)}\n`);
     return 0;
   }
   return fail(USAGE);

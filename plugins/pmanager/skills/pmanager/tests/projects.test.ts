@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   addProject,
   availability,
+  type Candidate,
+  discoverSiblings,
   loadCatalog,
   lookupMapped,
   normalizeRepoUrl,
@@ -237,5 +239,69 @@ describe("availability", () => {
       path: argocd,
       origin: "https://github.com/acme/argocd.git",
     });
+  });
+});
+
+describe("discoverSiblings", () => {
+  /** The manager `a` (with its clone `b` and a claimed epic's worktree) among target repos. */
+  async function workspace() {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    expect((await runPm(["claim", "app-performance"], a, { env: { PM_HARNESS: "t" } })).code).toBe(
+      0,
+    );
+    const parent = dirname(a);
+    const repo = async (name: string, origin?: string) => {
+      const dir = join(parent, name);
+      await mkdir(dir);
+      await initGitRepo(dir);
+      if (origin) await gitOk(["remote", "add", "origin", origin], dir);
+      return dir;
+    };
+    const infra = await repo("infra", HTTPS_INFRA);
+    const argocd = await repo("argocd", "https://github.com/acme/argocd.git");
+    await repo("infra-copy", "git@github.com:acme/infra.git");
+    await repo("scratch");
+    await mkdir(join(parent, "plain"));
+    return { a, parent, infra, argocd };
+  }
+  const states = (cs: Candidate[]) =>
+    Object.fromEntries(
+      cs.map((c) => [c.path.split("/").pop(), c.id ? `${c.state} ${c.id}` : c.state]),
+    );
+
+  test("suggests target repos only, and writes nothing", async () => {
+    const { a } = await workspace();
+    const before = await gitOk(["status", "--porcelain", "-uall"], a);
+    expect(states(await discoverSiblings(a))).toEqual({
+      argocd: "new",
+      infra: "new",
+      "infra-copy": "new",
+      scratch: "no origin",
+    });
+    expect(await gitOk(["status", "--porcelain", "-uall"], a)).toBe(before);
+  });
+
+  test("knows registered projects and other checkouts of them", async () => {
+    const { a, infra, argocd } = await workspace();
+    await addProject(a, infra, opts);
+    await addProject(a, argocd, opts);
+    expect(states(await discoverSiblings(a))).toEqual({
+      argocd: "registered argocd",
+      infra: "registered infra",
+      "infra-copy": "another checkout infra",
+      scratch: "no origin",
+    });
+  });
+
+  test("the CLI prints one line per candidate, or JSON", async () => {
+    const { a, infra } = await workspace();
+    await addProject(a, infra, opts);
+    const text = await runPm(["project", "discover"], a);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toMatch(
+      /infra-copy\s+git@github\.com:acme\/infra\.git\s+another checkout of infra/,
+    );
+    expect(text.stdout).toMatch(/scratch\s+-\s+no origin/);
+    expect(JSON.parse((await runPm(["project", "discover", "--json"], a)).stdout)).toHaveLength(4);
   });
 });
