@@ -1,4 +1,5 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { daysBetween, shiftDates } from "./dates";
 import { playStory, STORY_END } from "./story";
@@ -24,6 +25,9 @@ export interface Workspace {
 }
 
 const FIXTURES = join(import.meta.dir, "fixtures", "multi-repo");
+/** The pmanager checkout this file lives in; the default --install source. */
+export const REPO_ROOT = join(import.meta.dir, "..", "..");
+const MARKER = ".pm-example-workspace";
 const AUTHOR = ["-c", "user.name=pm-example", "-c", "user.email=pm-example@example.invalid"];
 
 /** Runs a command; a non-zero exit throws with its stderr so a broken build step names itself. */
@@ -71,9 +75,22 @@ export async function buildBase(
 ): Promise<Workspace> {
   const root = join(dir, "workspace");
   const remotes = join(dir, "remotes");
+  const marker = join(dir, MARKER);
+  // Only replace what this builder made: <dir> may hold someone's own workspace/.
+  if (!existsSync(marker)) {
+    for (const path of [root, remotes]) {
+      if (existsSync(path) && (await readdir(path)).length > 0) {
+        throw new Error(`${path} exists and was not built by this script; choose another dir`);
+      }
+    }
+  }
   await rm(root, { recursive: true, force: true });
   await rm(remotes, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
+  await writeFile(
+    marker,
+    "built by ci/e2e/workspace.ts; rebuilding replaces workspace/ and remotes/\n",
+  );
   const env = gitDateEnv(shiftDates(BASE_DAY, opts.shiftDays ?? 0));
 
   const repos = {} as Record<TargetName, string>;
@@ -138,21 +155,36 @@ function localDay(d = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const USAGE = "usage: bun ci/e2e/workspace.ts <dir> [--install [source]]";
+
+export function parseCliArgs(
+  argv: string[],
+): { dir: string; install?: string } | { error: string } {
+  const [dir, ...rest] = argv;
+  if (!dir || dir.startsWith("-")) return { error: USAGE };
+  if (rest.length === 0) return { dir, install: undefined };
+  if (rest[0] !== "--install" || rest.length > 2 || rest[1]?.startsWith("-")) {
+    return { error: USAGE };
+  }
+  return { dir, install: rest[1] ?? REPO_ROOT };
+}
+
+/** The command to paste, quoted for a POSIX shell so a path with spaces still works. */
+export function sessionHint(manager: string): string {
+  return `cd '${manager.replaceAll("'", "'\\''")}' && claude`;
+}
+
 // By hand: the story is shifted to end today, so a session opened in it sees fresh claims.
 if (import.meta.main) {
-  const [dir, ...rest] = Bun.argv.slice(2);
-  if (!dir) {
-    console.error("usage: bun ci/e2e/workspace.ts <dir> [--install [source]]");
+  const args = parseCliArgs(Bun.argv.slice(2));
+  if ("error" in args) {
+    console.error(args.error);
     process.exit(2);
   }
-  const at = rest.indexOf("--install");
-  const next = rest[at + 1];
-  const thisCheckout = join(import.meta.dir, "..", "..");
-  const install = at === -1 ? undefined : next && !next.startsWith("--") ? next : thisCheckout;
-  const ws = await buildWorkspace(resolve(dir), {
-    install,
+  const ws = await buildWorkspace(resolve(args.dir), {
+    install: args.install,
     shiftDays: daysBetween(STORY_END, localDay()),
   });
   console.log(`workspace ready: ${join(ws.dir, "workspace")}`);
-  console.log(`start a session: cd ${ws.manager} && claude`);
+  console.log(`start a session: ${sessionHint(ws.manager)}`);
 }

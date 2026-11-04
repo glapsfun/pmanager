@@ -235,7 +235,7 @@ const STAGING: Step[] = [
         ['- [ ] `cluster_name = "staging-eu"`', '- [x] `cluster_name = "staging-eu"`'],
         [
           "from a workstation, per `AGENTS.md`)\n",
-          "from a workstation, per `AGENTS.md`)\n\n**unverified**: fmt, validate, tflint and the PR plan run in infra CI, which\nverify cannot see; the implementer reported them green on the pull request.\n",
+          "from a workstation, per `AGENTS.md`)\n\n**unverified** - CI checks: fmt, validate, tflint and the PR plan run in infra\nCI, which verify cannot see; the implementer reported them green on the pull\nrequest.\n",
         ],
         [
           "",
@@ -280,9 +280,10 @@ const STAGING: Step[] = [
       [SE_T02]: [
         ["status: in-progress", "status: done"],
         epicUpdated("2026-11-13", "2026-11-17"),
-        ["- [ ] CI shows", "- [x] CI shows"],
-        ["- [ ] The `staging-eu` Hetzner", "- [x] The `staging-eu` Hetzner"],
-        ["- [ ] A kubeconfig", "- [x] A kubeconfig"],
+        [
+          "lives, ready for T03\n",
+          "lives, ready for T03\n\n**unverified** - outside the repos: the CI apply run, the Hetzner servers and\nthe stored kubeconfig leave no evidence in infra or argocd; the implementer\nreported all three on the infra pull request.\n",
+        ],
         ["", "- 2026-11-17 status in-progress -> done; fixed by quota raise to 6 servers\n"],
       ],
       [SE_EPIC]: [epicUpdated("2026-11-13", "2026-11-17")],

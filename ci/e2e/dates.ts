@@ -1,5 +1,6 @@
 const DAY_MS = 86_400_000;
-const DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
+// Digit lookarounds, not \b: a date sits next to "_" in the memo and "T" in timestamps.
+const DATE = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g;
 
 function utc(year: number, month: number, day: number): number | null {
   const t = Date.UTC(year, month - 1, day);

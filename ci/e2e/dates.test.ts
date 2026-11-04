@@ -23,3 +23,8 @@ test("shiftDates moves History dates backwards", () => {
 test("daysBetween counts calendar days", () => {
   expect(daysBetween("2026-11-21", "2026-12-01")).toBe(10);
 });
+
+test("shiftDates moves dates next to underscores and a time", () => {
+  expect(shiftDates("_Last updated: 2026-10-20_", 1)).toBe("_Last updated: 2026-10-21_");
+  expect(shiftDates("2026-11-10T12:00:00", 1)).toBe("2026-11-11T12:00:00");
+});
