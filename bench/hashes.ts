@@ -4,7 +4,8 @@ import { join, relative } from "node:path";
 import { SKILL_DIR } from "./skill-paths";
 
 export const SKILL_SKIP = new Set(["node_modules", "bun.lock", ".git"]);
-export const FIXTURE_SKIP = new Set([".git", ".agents", ".claude"]);
+// .local holds pm's machine-local repo map, whose absolute paths differ on every build.
+export const FIXTURE_SKIP = new Set([".git", ".agents", ".claude", ".local"]);
 
 export function hashString(s: string): string {
   return `sha256:${createHash("sha256").update(s).digest("hex")}`;

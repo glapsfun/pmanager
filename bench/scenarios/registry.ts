@@ -1,5 +1,6 @@
 import { featureIdeaEpic } from "./feature-idea-epic";
 import { memoryRecall } from "./memory-recall";
+import { multiRepoContext } from "./multi-repo-context";
 import { perfBugNewEpic } from "./perf-bug-new-epic";
 import { planningTraps } from "./planning-traps";
 import { trackingUpdateMemory } from "./tracking-update-memory";
@@ -15,7 +16,7 @@ export const SCENARIOS: Scenario[] = [
 ];
 
 /** Reachable by name for experiments, but kept out of SCENARIOS, which every release e2e run iterates. */
-export const MEASUREMENT_SCENARIOS: Scenario[] = [memoryRecall];
+export const MEASUREMENT_SCENARIOS: Scenario[] = [memoryRecall, multiRepoContext];
 
 export function scenarioByName(name: string): Scenario | undefined {
   return [...SCENARIOS, ...MEASUREMENT_SCENARIOS].find((s) => s.name === name);

@@ -74,15 +74,15 @@ describe("condition prompts", () => {
   });
 });
 
-test("memory-recall is measurement only: found by name, never in the release set", () => {
-  expect(MEASUREMENT_SCENARIOS.map((s) => s.name)).toEqual(["memory-recall"]);
+test("measurement scenarios are found by name, never in the release set", () => {
+  expect(MEASUREMENT_SCENARIOS.map((s) => s.name)).toEqual(["memory-recall", "multi-repo-context"]);
   expect(scenarioByName("memory-recall")).toBe(memoryRecall);
-  expect(SCENARIOS.map((s) => s.name)).not.toContain("memory-recall");
+  expect(memoryRecall.graderVersion).toBe(2);
   for (const s of MEASUREMENT_SCENARIOS) {
+    expect(SCENARIOS.map((r) => r.name)).not.toContain(s.name);
     expect(s.task.endsWith(CONTRACT_SENTENCE)).toBe(true);
     expect(s.task.includes("pmanager")).toBe(false);
     expect(composePrompt(s, "with-skill")).toBe(`${SKILL_PREFIX}${s.task}`);
-    expect(s.graderVersion).toBe(2);
   }
 });
 
