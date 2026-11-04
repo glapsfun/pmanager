@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { exists, gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { pmProcess } from "./pm";
-import { buildBase, TARGETS, type TargetName } from "./workspace";
+import { STORY_END } from "./story";
+import { buildBase, buildWorkspace, TARGETS, type TargetName, type Workspace } from "./workspace";
 
 const NAMES = Object.keys(TARGETS) as TargetName[];
 
@@ -45,5 +46,33 @@ describe("base workspace", () => {
     const second = await buildBase(dir);
     expect(await commitCount(second.repos.infra)).toBe(1);
     expect(await exists(join(second.repos.infra, "stray.txt"))).toBe(false);
+  });
+});
+
+describe("story", () => {
+  let ws: Workspace;
+  const pm = (cwd: string, ...args: string[]) =>
+    pmProcess(cwd, args, { env: { PM_TODAY: STORY_END } });
+
+  beforeAll(async () => {
+    ws = await buildWorkspace(await makeTempDir("multi-repo-story"));
+  }, 120_000);
+
+  test("finished epic is merged on main and verifiable in two repos", async () => {
+    const status = await pm(ws.manager, "status");
+    expect(status.code).toBe(0);
+    expect(status.stdout).toMatch(/webshop-healthcheck\s+feature\s+done/);
+    expect(status.stdout).not.toMatch(/webshop-healthcheck[^\n]*\n\s*session:/);
+    expect(await exists(join(ws.manager, "docs/pm/pmanager-memo.md"))).toBe(true);
+    const t02 = await pm(ws.manager, "verify", "webshop-healthcheck", "T02");
+    expect(t02.code).toBe(0);
+    const firstCriterion = t02.stdout.split("\n- [")[1] ?? "";
+    expect(firstCriterion).toMatch(
+      /\[argocd:git log\] [0-9a-f]+ \S+ [^\n]*webshop-healthcheck T02/,
+    );
+    expect(t02.stdout).not.toContain("gaps:");
+    const t01 = await pm(ws.manager, "verify", "webshop-healthcheck", "T01");
+    expect(t01.stdout).toContain("[webshop:git log]");
+    expect(await gitOk(["branch", "-r"], ws.manager)).not.toContain("pm/webshop-healthcheck");
   });
 });

@@ -1,6 +1,7 @@
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { shiftDates } from "./dates";
+import { playStory } from "./story";
 
 /** The day the four repos are created, before the story's first epic. */
 export const BASE_DAY = "2026-10-19";
@@ -120,4 +121,14 @@ export async function buildBase(
   await writeFile(join(local, "repos.json"), `${JSON.stringify(map, null, 2)}\n`);
 
   return { dir, manager, remote, repos, worktree: (slug) => join(root, `manager-pm-${slug}`) };
+}
+
+/** The base workspace with the whole story played into it. */
+export async function buildWorkspace(
+  dir: string,
+  opts: { install?: string; shiftDays?: number } = {},
+): Promise<Workspace> {
+  const ws = await buildBase(dir, opts);
+  await playStory(ws, { shiftDays: opts.shiftDays ?? 0 });
+  return ws;
 }

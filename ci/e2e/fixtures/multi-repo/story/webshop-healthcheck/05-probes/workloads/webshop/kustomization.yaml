@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: webshop
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+images:
+  # Built by the webshop repo's release workflow; bump newTag to roll out a release.
+  - name: webshop
+    newName: ghcr.io/pm-example/webshop
+    newTag: 1.5.0
