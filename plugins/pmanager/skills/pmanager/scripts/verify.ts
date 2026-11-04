@@ -104,6 +104,20 @@ export function matchPaths(token: string, listed: string[]): string[] {
   return listed.filter((p) => !p.startsWith(SPEC_PREFIX) && pathMatches(token, p));
 }
 
+/**
+ * Multi-repo tasks often write paths from the workspace root (infra/envs/x.tf).
+ * Such a token belongs to the target repo its first segment names; null when
+ * it names none. Callers try the token as written first, so a repo with a
+ * top-level folder of its own name still matches.
+ */
+export function owningRepo(token: string, repos: string[]): string | null {
+  return repos.find((r) => r !== "." && token.startsWith(`${r}/`)) ?? null;
+}
+
+function withoutRepo(token: string, repo: string): string {
+  return token.startsWith(`${repo}/`) ? token.slice(repo.length + 1) : token;
+}
+
 const MEASURE =
   /\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|seconds|m|min|mins|minutes|h|hours|%|x|kb|mb|gb|rps|qps)\b|[<>]=?\s*\d|\b(?:under|below|over|above|at least|at most|within|less than|more than|max|min)\s+\d/i;
 const SNAKE = /\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b/g;
@@ -171,7 +185,9 @@ export function attachEvidence(
   for (const line of lines) {
     let hit = false;
     criteria.forEach((c, i) => {
-      const byPath = c.paths.some((t) => line.paths.some((p) => pathMatches(t, p)));
+      const byPath = c.paths.some((t) =>
+        line.paths.some((p) => pathMatches(t, p) || pathMatches(withoutRepo(t, line.repo), p)),
+      );
       if (byPath || c.idents.some((id) => identHits(id, line))) {
         attached[i]?.push(line);
         hit = true;
@@ -326,6 +342,8 @@ export async function resolveRepos(
 export interface VerifyProbeOptions {
   cwd: string;
   repo: string;
+  /** names of every target in this run, to tell which repo a prefixed path belongs to */
+  repos: string[];
   since: Since;
   taskId: string;
   slug: string;
@@ -376,7 +394,11 @@ export async function probeNamedPaths(o: VerifyProbeOptions, listed: string[]): 
   const missing: EvidenceLine[] = [];
   const files = new Set<string>();
   for (const token of [...o.tokens, ...o.extraFiles]) {
-    const matched = matchPaths(token, listed).slice(0, o.limit);
+    let matched = matchPaths(token, listed);
+    const owner = matched.length === 0 ? owningRepo(token, o.repos) : null;
+    if (owner && owner !== o.repo) continue;
+    if (owner) matched = matchPaths(withoutRepo(token, owner), listed);
+    matched = matched.slice(0, o.limit);
     // "and/or" is a token too; only report absence for things that look like files or dirs
     const looksLikeFile = /\.[A-Za-z0-9]+$|\/$/.test(token) || o.extraFiles.includes(token);
     if (matched.length === 0 && looksLikeFile) {
@@ -698,6 +720,7 @@ export async function buildVerify(opts: VerifyOptions): Promise<VerifyReport> {
   });
   const criteria = parseCriteria(opts.task.body);
   const shared: SharedProbeOptions = {
+    repos: opts.targets.map((t) => t.name),
     taskId: opts.task.id,
     slug: opts.epic.slug,
     tokens: scopeTokens(opts.task.body),
