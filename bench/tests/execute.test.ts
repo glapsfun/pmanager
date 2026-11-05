@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
@@ -159,6 +159,32 @@ describe("executeScenario", () => {
     expect(s.status).toBe("setup-error");
     expect(ran).toBe(false);
     expect(s.outcome).toBeNull();
+  });
+
+  test("cleanup removes the fixture's <dir>-pm-* siblings, not only the fixture", async () => {
+    const base = scenarioByName("perf-bug-new-epic");
+    if (!base) throw new Error("scenario missing");
+    const s: Scenario = {
+      ...base,
+      name: "with-siblings",
+      checks: [],
+      async buildFixture(dir) {
+        const info = await base.buildFixture(dir);
+        await mkdir(`${dir}-pm-workspace`);
+        await writeFile(join(`${dir}-pm-workspace`, "target.txt"), "a target repo\n");
+        return info;
+      },
+    };
+    const rawLogPath = join(await makeTempDir("raw"), "raw.jsonl");
+    const r = await executeScenario(
+      req(
+        s,
+        adapter(async () => ({})),
+        { rawLogPath },
+      ),
+    );
+    expect(await has(r.fixtureDir)).toBe(false);
+    expect(await has(`${r.fixtureDir}-pm-workspace`)).toBe(false);
   });
 
   test("artifacts: stderr, final message and docs-pm copy are written", async () => {

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { exists } from "./adapters/claude-code";
 import type { Adapter, RunOutcome } from "./adapters/types";
 import { installContract } from "./contract";
-import { linkSkill } from "./fixture";
+import { cleanupFixture, linkSkill } from "./fixture";
 import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
 import { type CheckOutcome, isSuccess, runChecks, scoreByKind, scoreChecks } from "./graders/types";
@@ -138,7 +138,8 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
     };
   } finally {
     if (!req.keep) {
-      await rm(fixtureDir, { recursive: true, force: true });
+      // A multi-repo fixture keeps targets and worktrees beside the fixture; a later attempt must not find them.
+      await cleanupFixture(fixtureDir);
       if (originBare) await rm(originBare, { recursive: true, force: true });
     }
   }

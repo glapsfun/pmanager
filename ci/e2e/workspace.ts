@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { daysBetween, shiftDates } from "./dates";
 import { playStory, STORY_END } from "./story";
 
@@ -91,19 +91,55 @@ export async function buildBase(
     marker,
     "built by ci/e2e/workspace.ts; rebuilding replaces workspace/ and remotes/\n",
   );
+  return createLayout(
+    { dir, manager: join(root, "manager"), targets: root, remote: join(remotes, "manager.git") },
+    opts,
+  );
+}
+
+/**
+ * The manager at `manager` itself (a bench fixture dir) and the targets and its
+ * remote under `<manager>-pm-workspace`, where pm's worktree cleanup already looks.
+ */
+export async function buildBaseAt(
+  manager: string,
+  opts: { shiftDays?: number } = {},
+): Promise<Workspace> {
+  if (existsSync(manager) && (await readdir(manager)).length > 0) {
+    throw new Error(`${manager} is not empty; the manager needs an empty directory`);
+  }
+  const rest = `${manager}-pm-workspace`;
+  await rm(rest, { recursive: true, force: true });
+  await mkdir(rest, { recursive: true });
+  return createLayout(
+    { dir: rest, manager, targets: rest, remote: join(rest, "remotes", "manager.git") },
+    opts,
+  );
+}
+
+interface Layout {
+  dir: string;
+  manager: string;
+  targets: string;
+  remote: string;
+}
+
+async function createLayout(
+  at: Layout,
+  opts: { install?: string; shiftDays?: number },
+): Promise<Workspace> {
+  const { dir, manager, remote } = at;
   const env = gitDateEnv(shiftDates(BASE_DAY, opts.shiftDays ?? 0));
 
   const repos = {} as Record<TargetName, string>;
   for (const name of Object.keys(TARGETS) as TargetName[]) {
-    repos[name] = join(root, name);
+    repos[name] = join(at.targets, name);
     await createRepo(repos[name], name, TARGETS[name], env);
   }
 
   // pm pushes claim branches, so the manager's origin must accept pushes.
-  const remote = join(remotes, "manager.git");
-  await mkdir(remotes, { recursive: true });
+  await mkdir(dirname(remote), { recursive: true });
   await sh(["git", "init", "-q", "--bare", "-b", "main", remote], dir);
-  const manager = join(root, "manager");
   await createRepo(manager, "manager", remote, env);
   // pm commits planning documents here; a CI runner may have no global git identity.
   await sh(["git", "config", "user.name", "pm-example"], manager);
@@ -137,7 +173,7 @@ export async function buildBase(
   );
   await writeFile(join(local, "repos.json"), `${JSON.stringify(map, null, 2)}\n`);
 
-  return { dir, manager, remote, repos, worktree: (slug) => join(root, `manager-pm-${slug}`) };
+  return { dir, manager, remote, repos, worktree: (slug) => `${manager}-pm-${slug}` };
 }
 
 /** The base workspace with the whole story played into it. */
