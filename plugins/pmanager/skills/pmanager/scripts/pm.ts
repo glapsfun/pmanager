@@ -573,6 +573,7 @@ export async function main(
         ...opts,
         catalog,
         catalogScope: target === main ? "main" : "epic",
+        epic: args.epic,
       });
       const { errors, warnings } = countBySeverity(findings);
       out(

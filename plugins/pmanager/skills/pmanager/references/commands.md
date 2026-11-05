@@ -79,7 +79,7 @@ New epic: `pm record` (SKILL.md Phase 6). The manual order:
 
 ## Rules the checker enforces
 
-Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…004,
+Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…005 (E-REF-005: a first-milestone task no task depends on, while none of the epic's tasks has started; reported only by `record` and `check --epic`, for that epic),
 rendered views E-RND-001…004, state E-ST-001…004, acceptance W-ACC-001 (an
 unchecked acceptance or exit criterion with a taste word such as "nicer" or
 "properly" and no number or command), history E-HIS-001 (a History line in

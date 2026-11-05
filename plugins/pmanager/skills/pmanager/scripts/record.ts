@@ -129,6 +129,7 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     today: opts.today,
     catalog: opts.catalog,
     catalogScope: "epic",
+    epic: slug,
   });
   const { errors, warnings } = countBySeverity(findings);
   const result: RecordResult = {

@@ -40,6 +40,13 @@ async function bundle(slug: string, extra = ""): Promise<string> {
   return `<!-- pm:file ${slug}/plan.md -->\n${plan.trimEnd()}\n${NEW_LINE}\n${extra}`;
 }
 
+/** A bundle section rewriting T02 so nothing depends on T01, the first milestone's task. */
+async function danglingT02(slug: string): Promise<string> {
+  const rel = "tasks/T02-add-order-items-index.md";
+  const raw = await readFile(join(import.meta.dir, "fixtures/webshop/docs/pm", SLUG, rel), "utf8");
+  return `<!-- pm:file ${slug}/${rel} -->\n${raw.replace("depends-on: [T01]", "depends-on: []")}`;
+}
+
 const rec = (cwd: string, stdin: string | undefined, ...more: string[]) =>
   run(["record", SLUG, "--kind", "spec", "-m", "spec app-performance", ...more], cwd, stdin);
 
@@ -197,6 +204,29 @@ describe("pm record", () => {
     const again = await rec(root, undefined);
     expect(again.code).toBe(0);
     expect(await logFiles(root)).toHaveLength(1);
+  });
+
+  test("a first-milestone task nothing depends on blocks the record of an unstarted plan", async () => {
+    const root = await localUnclaimed();
+    const r = await rec(root, await bundle(SLUG, await danglingT02(SLUG)), "--from", "-");
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("E-REF-005");
+    expect(r.stdout).toContain("not committed: check errors");
+  });
+
+  test("another epic's dangling task does not block this record", async () => {
+    const root = await localUnclaimed();
+    await addOtherEpic(root);
+    await writeFile(
+      join(root, "docs/pm/other/tasks/T02-add-order-items-index.md"),
+      (
+        await readFile(join(root, "docs/pm/other/tasks/T02-add-order-items-index.md"), "utf8")
+      ).replace("depends-on: [T01]", "depends-on: []"),
+    );
+    await gitOk(["commit", "-qam", "other T02 dangles"], root);
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("E-REF-005");
   });
 
   test("rerun with the same bundle reuses the log entry", async () => {

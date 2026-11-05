@@ -50,6 +50,19 @@ describe("environment", () => {
 });
 
 describe("check", () => {
+  test("check --epic reports E-REF-005 and exits 1; plain check does not", async () => {
+    const root = await localRepo();
+    const p = join(root, "docs/pm/app-performance/tasks/T02-add-order-items-index.md");
+    await writeFile(p, (await readFile(p, "utf8")).replace("depends-on: [T01]", "depends-on: []"));
+    // The edit changes plan.md's rendered task table; render it so only E-REF-005 is in question.
+    expect((await run(["render"], root)).code).toBe(0);
+    const epic = await run(["check", "--epic", "app-performance"], root);
+    expect(epic.code).toBe(1);
+    expect(epic.stdout).toContain("E-REF-005");
+    const plain = await run(["check"], root);
+    expect(plain.code).toBe(0);
+    expect(plain.stdout).not.toContain("E-REF-005");
+  });
   test("clean fixture exits 0", async () => {
     const r = await run(["check"], await localRepo());
     expect(r.code).toBe(0);
