@@ -75,7 +75,11 @@ describe("condition prompts", () => {
 });
 
 test("measurement scenarios are found by name, never in the release set", () => {
-  expect(MEASUREMENT_SCENARIOS.map((s) => s.name)).toEqual(["memory-recall", "multi-repo-context"]);
+  expect(MEASUREMENT_SCENARIOS.map((s) => s.name)).toEqual([
+    "memory-recall",
+    "multi-repo-context",
+    "multi-repo-context-asis",
+  ]);
   expect(scenarioByName("memory-recall")).toBe(memoryRecall);
   expect(memoryRecall.graderVersion).toBe(2);
   expect(scenarioByName("multi-repo-context")?.graderVersion).toBe(2);
