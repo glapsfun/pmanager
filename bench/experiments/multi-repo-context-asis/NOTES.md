@@ -44,9 +44,9 @@ Every attempt ran `pm status`, which prints the memo with "`webshop` to `argocd`
 - Eight attempts (all but p1 and p9) ran commands in the staging epic's worktree, whose copy of the memo has infra's conventions. p1 and p9 are also the two that never saw infra's `AGENTS.md`.
 - Nine attempts (all but p4) again passed several `--repo` flags to one `pm research` call (#53).
 
-## Grader bug (version 2; not fixed)
+## Grader bug (version 2), fixed in version 3
 
-5. `cross-repo-order` treats any argocd task that mentions "10%" or a weight as a switch, and passes if any one of them depends on both the release and the load balancer. In p4 that was T06, which validates the split after T05 makes it. False pass. A fix needs care: picking only the earliest switch, or requiring every switch to pass, misreads a canary workload that names `newTag` and rightly does not wait for the load balancer. It waits for the next run of this scenario.
+5. `cross-repo-order` treats any argocd task that mentions "10%" or a weight as a switch, and passes if any one of them depends on both the release and the load balancer. In p4 that was T06, which validates the split after T05 makes it. False pass. A fix needs care: picking only the earliest switch, or requiring every switch to pass, misreads a canary workload that names `newTag` and rightly does not wait for the load balancer. Version 3 takes the switch to be the task whose What to do sets the weight, ignoring one that comes after another such task; with no such task it falls back to version 2's candidates. Re-grading the twenty saved plans (both experiments) with version 3 gives exactly the hand verdicts. Pinned by the tests under "grader version 3" in `bench/tests/graders-multi-repo-context.test.ts`.
 
 ## Context
 

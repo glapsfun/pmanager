@@ -46,7 +46,7 @@ export async function buildMultiRepoContextFixture(dir: string): Promise<Fixture
 export const multiRepoContext: Scenario = {
   name: "multi-repo-context",
   task: MULTI_REPO_REQUEST,
-  graderVersion: 2,
+  graderVersion: 3,
   buildFixture: buildMultiRepoContextFixture,
   checks: [
     ...commonChecks("spec"),

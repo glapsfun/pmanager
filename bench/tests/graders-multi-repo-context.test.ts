@@ -336,6 +336,40 @@ describe("grader version 2", () => {
   });
 });
 
+// as-is p4: the switch skipped the webshop change, and a later validation task that did reach it passed v2.
+describe("grader version 3", () => {
+  const workload: T = {
+    id: "T04",
+    title: "Deploy the canary workload",
+    deps: ["T03"],
+    what: "In the argocd repo add workloads/webshop-canary with its own Deployment, its image tag set independently and bumped separately from the stable newTag.",
+    accept: "`kubeconform` passes for workloads/webshop-canary",
+  };
+  const weight: T = {
+    id: "T05",
+    title: "Send 10% of real traffic to the canary",
+    deps: ["T04"],
+    what: "In the argocd repo add an ingress in workloads/webshop-canary with canary-weight 10.",
+    accept: "`kubeconform` passes for workloads/webshop-canary",
+  };
+  const validate = (id: string, deps: string[]): T => ({
+    id,
+    title: "Validate the 10% canary split end-to-end",
+    deps,
+    what: "Sample shop.example.com responses and the ingress-nginx access logs, and confirm /version shows about a 10%/90% split between canary and stable.",
+    accept: "the observed split is within 7-13%",
+  });
+
+  test("a validation task after the switch does not stand in for it", async () => {
+    const plan = [VERSION, RELEASE, LB, workload, weight, validate("T06", ["T02", "T05"])];
+    expect((await grade(plan))["cross-repo-order"]).toBe(false);
+  });
+
+  test("a validation task after a correct switch still passes", async () => {
+    expect((await grade([...GOOD, validate("T05", ["T04"])]))["cross-repo-order"]).toBe(true);
+  });
+});
+
 describe("targetsOf", () => {
   test("reads the title and the work, not Context or Out of scope", async () => {
     const dir = await makeTempDir("mrc-attr");
