@@ -22,7 +22,9 @@ That clause counts every `cross-repo-order` failure, and the evidence says the r
 - Rule-arm p7 fails because the switch (T07) does not wait for the load balancer (T04); the version change is upstream. p10 fails because the version task's only dependent is a verification task (T04), not the switch (T05), which is as-is p4's shape. Neither fires the rule.
 - Both baseline failures are the rule's shape: in p3 and p4 the release half of the version work (T02) is depended on by nothing, and the rule fires on both final plans offline.
 
-So the rule fixed every case it caught, and the run's totals do not show it, because the arm's other failures come from shapes outside its reach and ten runs per arm carry noise of that size. Whether to ship it is the user's call against the rule as written.
+So the rule fixed every case it caught, and the run's totals do not show it, because the arm's other failures come from shapes outside its reach and ten runs per arm carry noise of that size.
+
+**Outcome: the rule ships** (user's decision, 2026-11-05), overriding the decision clause as written. Why: the clause counted every `cross-repo-order` failure, while the rule targets one shape; it fired in five runs and fixed that shape in all five; it costs nothing on plans it does not fire on and a median $0.06 per run overall. The two shapes it misses (a switch that skips the load balancer, and a version task whose only dependent is not the switch) stay open.
 
 ## Per attempt
 
