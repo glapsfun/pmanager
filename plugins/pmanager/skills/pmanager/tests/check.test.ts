@@ -138,10 +138,25 @@ describe("dangling first-milestone task (E-REF-005)", () => {
     }
   });
 
-  test("a done or descoped first-milestone task is exempt", async () => {
+  test("a descoped first-milestone task is exempt", async () => {
     const root = await dangling();
     await edit(root, T01, "status: todo", "status: descoped");
     expect(await epicRules(root, "app-performance")).toEqual([]);
+  });
+
+  test("a plan whose later milestones have no tasks never fires", async () => {
+    const root = await dangling();
+    await edit(root, T02, "milestone: M2", "milestone: M1");
+    await edit(root, T03, "milestone: M2", "milestone: M1");
+    await edit(root, T04, "milestone: M3", "milestone: M1");
+    expect(await epicRules(root, "app-performance")).toEqual([]);
+  });
+
+  test("a descoped dependent does not make a first-milestone task needed", async () => {
+    const root = await fixture();
+    await edit(root, T02, "status: todo", "status: descoped");
+    const f = await epicRules(root, "app-performance");
+    expect(f.map((x) => x.file)).toEqual([expect.stringContaining("T01-benchmark-orders.md")]);
   });
 
   test("a plan with one milestone never fires", async () => {

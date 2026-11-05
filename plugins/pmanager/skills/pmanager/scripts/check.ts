@@ -221,7 +221,6 @@ function milestonesOf(plan: ParsedDoc | null): Set<string> {
 }
 
 const STARTED = new Set(["in-progress", "done"]);
-const EXEMPT = new Set(["done", "descoped"]);
 
 /**
  * E-REF-005: a first-milestone task nothing depends on. In the #16 bench runs this is how
@@ -234,15 +233,14 @@ export const planGraphRules: Rule = (repo, opts) => {
   const status = (t: (typeof e.tasks)[number]) => getString(t.frontmatter, "status") ?? "";
   if (e.tasks.some((t) => STARTED.has(status(t)))) return [];
   const [first, ...later] = milestoneOrder(e.plan);
-  if (!first || later.length === 0) return [];
-  const needed = new Set(e.tasks.flatMap((t) => getList(t.frontmatter, "depends-on")));
-  return e.tasks
-    .filter(
-      (t) =>
-        getString(t.frontmatter, "milestone") === first &&
-        !EXEMPT.has(status(t)) &&
-        !needed.has(t.id),
-    )
+  const live = e.tasks.filter((t) => status(t) !== "descoped");
+  // Headings with no tasks yet are an unfinished plan, not a prerequisite nothing uses.
+  if (!first || !live.some((t) => later.includes(getString(t.frontmatter, "milestone") ?? ""))) {
+    return [];
+  }
+  const needed = new Set(live.flatMap((t) => getList(t.frontmatter, "depends-on")));
+  return live
+    .filter((t) => getString(t.frontmatter, "milestone") === first && !needed.has(t.id))
     .map((t) =>
       err(
         t.path,
