@@ -46,6 +46,11 @@ export interface CheckOptions {
    * catalog file in the main checkout never blocks an epic branch's check or record.
    */
   catalogScope?: "main" | "epic";
+  /**
+   * The epic being recorded or checked with --epic. Rules about the plan under work run
+   * only for it, so plain check never fails a plan already in use.
+   */
+  epic?: string;
 }
 
 type Rule = (repo: PmRepo, opts: CheckOptions) => Finding[];
@@ -205,12 +210,48 @@ export const identityRules: Rule = (repo) => {
   return out;
 };
 
-function milestonesOf(plan: ParsedDoc | null): Set<string> {
-  const set = new Set<string>();
-  if (!plan) return set;
-  for (const m of plan.body.matchAll(/^### (M\d+)\b/gm)) if (m[1]) set.add(m[1]);
-  return set;
+/** Milestone ids in the order plan.md lists them. */
+function milestoneOrder(plan: ParsedDoc | null): string[] {
+  if (!plan) return [];
+  return [...plan.body.matchAll(/^### (M\d+)\b/gm)].flatMap((m) => (m[1] ? [m[1]] : []));
 }
+
+function milestonesOf(plan: ParsedDoc | null): Set<string> {
+  return new Set(milestoneOrder(plan));
+}
+
+const STARTED = new Set(["in-progress", "done"]);
+const EXEMPT = new Set(["done", "descoped"]);
+
+/**
+ * E-REF-005: a first-milestone task nothing depends on. In the #16 bench runs this is how
+ * a plan that states "nothing works without T01" still let pm status offer later work first.
+ * Only while the plan has not started, so tracking updates on running epics are never blocked.
+ */
+export const planGraphRules: Rule = (repo, opts) => {
+  const e = repo.epics.find((x) => x.slug === opts.epic);
+  if (!e) return [];
+  const status = (t: (typeof e.tasks)[number]) => getString(t.frontmatter, "status") ?? "";
+  if (e.tasks.some((t) => STARTED.has(status(t)))) return [];
+  const [first, ...later] = milestoneOrder(e.plan);
+  if (!first || later.length === 0) return [];
+  const needed = new Set(e.tasks.flatMap((t) => getList(t.frontmatter, "depends-on")));
+  return e.tasks
+    .filter(
+      (t) =>
+        getString(t.frontmatter, "milestone") === first &&
+        !EXEMPT.has(status(t)) &&
+        !needed.has(t.id),
+    )
+    .map((t) =>
+      err(
+        t.path,
+        "E-REF-005",
+        `${t.id} (${first}) is a prerequisite of nothing: no task depends on it`,
+        `add ${t.id} to depends-on of each task that needs its result; if no task does, move it to the milestone whose state it serves`,
+      ),
+    );
+};
 
 function findCycle(epic: EpicRecord): string[] | null {
   const deps = new Map(epic.tasks.map((t) => [t.id, getList(t.frontmatter, "depends-on")]));
@@ -631,6 +672,7 @@ export const RULES = [
   "E-REF-002",
   "E-REF-003",
   "E-REF-004",
+  "E-REF-005",
   "E-RND-001",
   "E-RND-002",
   "E-RND-003",
@@ -655,6 +697,7 @@ const rules: Rule[] = [
   structureRules,
   identityRules,
   referenceRules,
+  planGraphRules,
   derivedViewRules,
   stateRules,
   acceptanceRules,

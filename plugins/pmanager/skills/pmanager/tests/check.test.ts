@@ -105,6 +105,56 @@ describe("identity and references", () => {
   });
 });
 
+describe("dangling first-milestone task (E-REF-005)", () => {
+  async function dangling() {
+    const root = await fixture();
+    await edit(root, T02, "depends-on: [T01]", "depends-on: []");
+    return root;
+  }
+  async function epicRules(root: string, epic?: string) {
+    return check(await loadPmRepo(root), { ...OPTS, epic }).filter((f) => f.rule === "E-REF-005");
+  }
+
+  test("fires for the epic under work, on the first-milestone task nothing depends on", async () => {
+    const f = await epicRules(await dangling(), "app-performance");
+    expect(f.map((x) => x.file)).toEqual([expect.stringContaining("T01-benchmark-orders.md")]);
+    expect(f[0]?.severity).toBe("error");
+    const fix = f[0]?.fix ?? "";
+    expect(fix.indexOf("depends-on")).toBeGreaterThanOrEqual(0);
+    expect(fix.indexOf("depends-on")).toBeLessThan(fix.indexOf("milestone"));
+  });
+
+  test("plain check and another epic's check never report it", async () => {
+    const root = await dangling();
+    expect(await epicRules(root)).toEqual([]);
+    expect(await epicRules(root, "other")).toEqual([]);
+  });
+
+  test("a started epic is exempt: a task in-progress or done", async () => {
+    for (const started of ["status: in-progress", "status: done"]) {
+      const root = await dangling();
+      await edit(root, T04, "status: todo", started);
+      expect(await epicRules(root, "app-performance")).toEqual([]);
+    }
+  });
+
+  test("a done or descoped first-milestone task is exempt", async () => {
+    const root = await dangling();
+    await edit(root, T01, "status: todo", "status: descoped");
+    expect(await epicRules(root, "app-performance")).toEqual([]);
+  });
+
+  test("a plan with one milestone never fires", async () => {
+    const root = await dangling();
+    await edit(root, T02, "milestone: M2", "milestone: M1");
+    await edit(root, T03, "milestone: M2", "milestone: M1");
+    await edit(root, T04, "milestone: M3", "milestone: M1");
+    const plan = join(root, PLAN);
+    await Bun.write(plan, (await readFile(plan, "utf8")).replace(/^### M[23]\b.*$/gm, ""));
+    expect(await epicRules(root, "app-performance")).toEqual([]);
+  });
+});
+
 describe("derived views", () => {
   test("E-RND-001 stale index and E-RND-002 stale plan table", async () => {
     const root = await fixture();
