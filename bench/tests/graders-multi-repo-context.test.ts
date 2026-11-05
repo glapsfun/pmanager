@@ -270,6 +270,72 @@ describe("realistic phrasings", () => {
   });
 });
 
+// Each case is a shape the multi-repo-context-cold hand audit found graded wrongly by version 1.
+describe("grader version 2", () => {
+  const LB_PR: T = {
+    ...LB,
+    what: "In the infra repo add an hcloud_load_balancer for the canary in modules/cluster and envs/prod. Run `terraform fmt -recursive` and `tflint --recursive` before opening the PR.",
+  };
+
+  test("conventions finds the CI hand-off under Out of scope, where a run wrote it", async () => {
+    const ci = {
+      ...LB_PR,
+      outOfScope:
+        "- Running `terraform apply` from a workstation: CI applies after merge per `infra/AGENTS.md`.",
+    };
+    expect((await grade([VERSION, RELEASE, ci, CANARY])).conventions).toBe(true);
+  });
+
+  test("an apply listed under Out of scope is not an instruction to run it", async () => {
+    const ci = { ...LB, outOfScope: "- Running `terraform plan`/`apply` locally." };
+    expect((await grade([VERSION, RELEASE, ci, CANARY])).conventions).toBe(true);
+  });
+
+  test("a clause saying Argo CD reverts a manual kubectl apply is a warning, not an instruction", async () => {
+    const warned = {
+      ...CANARY,
+      what: `${CANARY.what} Land this via PR; Argo CD's \`selfHeal: true\` reverts manual \`kubectl apply\`.`,
+    };
+    expect((await grade([VERSION, RELEASE, LB, warned])).conventions).toBe(true);
+  });
+
+  test("an argocd workload naming the webshop image is not the webshop release", async () => {
+    const workload: T = {
+      id: "T02",
+      title: "Deploy a webshop canary workload",
+      deps: ["T03"],
+      what: "In the argocd repo add a webshop-canary Deployment under workloads/webshop and an images entry with newName ghcr.io/pm-example/webshop, newTag pinned to the stable tag; this is what gets bumped to release a candidate to canary.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const weight: T = {
+      id: "T04",
+      title: "Send 10% of traffic to the canary",
+      deps: ["T02"],
+      what: "In the argocd repo add a canary ingress in workloads/webshop with canary-weight 10.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    expect((await grade([VERSION, workload, LB, weight]))["cross-repo-order"]).toBe(false);
+  });
+
+  test("a repo name inside an identifier or a channel does not place a task, so a DNS task is not the release", async () => {
+    const dns: T = {
+      id: "T02",
+      title: "Point a test hostname at the canary load balancer",
+      deps: ["T03"],
+      what: "Once `webshop-canary-direct` has an external IP, create the DNS record; ask in #infra or #webshop who owns the zone. This is the first release that needs a test hostname.",
+      accept: "the hostname resolves to the `webshop-canary-direct` Service's external IP",
+    };
+    const weight: T = {
+      id: "T04",
+      title: "Send 10% of traffic to the canary",
+      deps: ["T02"],
+      what: "In the argocd repo add a canary ingress in workloads/webshop with canary-weight 10.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    expect((await grade([VERSION, dns, LB, weight]))["cross-repo-order"]).toBe(false);
+  });
+});
+
 describe("targetsOf", () => {
   test("reads the title and the work, not Context or Out of scope", async () => {
     const dir = await makeTempDir("mrc-attr");
