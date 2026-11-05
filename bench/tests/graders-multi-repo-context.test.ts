@@ -336,6 +336,53 @@ describe("grader version 2", () => {
   });
 });
 
+// Found by the final review of version 3: a passing mention of the weight is not the switch.
+describe("grader version 4", () => {
+  test("a task saying it has no canary-weight is not the switch", async () => {
+    const workload: T = {
+      id: "T04",
+      title: "Run the canary Deployment",
+      deps: ["T03"],
+      what: "In the argocd repo add a canary Deployment under workloads/webshop-canary.",
+      accept: "`kubeconform` passes for workloads/webshop-canary",
+    };
+    const host: T = {
+      id: "T05",
+      title: "Expose the canary on its test hostname",
+      deps: ["T03", "T04"],
+      what: "In the argocd repo add an Ingress for canary.shop.example.com on the canary load balancer, with no canary-weight annotation, so it takes no real traffic.",
+      accept: "`kubeconform` passes for workloads/webshop-canary",
+    };
+    const weight: T = {
+      id: "T06",
+      title: "Send 10% of real traffic to the canary",
+      deps: ["T02", "T05"],
+      what: "In the argocd repo set newTag 1.6.0 on the canary and add canary-weight 10 to the main ingress.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const plan = [VERSION, RELEASE, LB, workload, host, weight];
+    expect((await grade(plan))["cross-repo-order"]).toBe(true);
+  });
+
+  test("a switch that routes a share without naming the weight is still the switch", async () => {
+    const routes: T = {
+      id: "T04",
+      title: "Send 10% of traffic to the canary",
+      deps: ["T03"],
+      what: "In the argocd repo add the nginx canary annotations in workloads/webshop routing 10% of requests to the canary.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const validate: T = {
+      id: "T05",
+      title: "Validate the canary split",
+      deps: ["T02", "T04"],
+      what: "In the argocd repo confirm the canary-weight annotation is 10 and sample /version for a 10/90 split.",
+      accept: "observed split within 7-13%",
+    };
+    expect((await grade([VERSION, RELEASE, LB, routes, validate]))["cross-repo-order"]).toBe(false);
+  });
+});
+
 // as-is p4: the switch skipped the webshop change, and a later validation task that did reach it passed v2.
 describe("grader version 3", () => {
   const workload: T = {

@@ -50,7 +50,10 @@ const NEGATED =
 const VIA_CI =
   /\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b[^.\n]*\b(?:plans?|appl(?:y|ies|ied|ying))\b|\b(?:plans?|appl(?:y|ies|ied|ying))\b[^.\n]*\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b/i;
 const SWITCHES_TRAFFIC = /\b10%|\bweight\b|\btraffic\b|\bnewTag\b|\bimage tag\b/i;
-const SETS_WEIGHT = /canary-weight|\bweight\b/i;
+// A clause that gives the canary a non-zero weight or share; "no canary-weight yet" does not.
+const SETS_SHARE =
+  /\b(?:canary-)?weight\b[^.\n]*?\b[1-9]\d*\b|\b(?:send\w*|rout(?:e|es|ed|ing)|shift\w*|mov(?:e|es|ed|ing)|split\w*)\b[^.\n]*?\b[1-9]\d*\s?%/i;
+const NO_SHARE = /\b(?:no|not|never|without|yet)\b/i;
 const RELEASES = /\breleas(?:e|es|ed|ing)\b|\btag\s+v?\d|\bv\d+\.\d+|\bpublish/i;
 const LOAD_BALANCER = /\bload balancer\b|\bhcloud_load_balancer\b|\bLB\b/i;
 
@@ -80,6 +83,14 @@ function sentences(text: string): string[] {
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function setsShare(t: TaskDoc): boolean {
+  return sentences(sectionBody(t.body, "What to do") ?? "").some((sentence) =>
+    sentence
+      .split(/[;,]|\bbut\b/)
+      .some((clause) => SETS_SHARE.test(clause) && !NO_SHARE.test(clause)),
+  );
 }
 
 function handApplies(text: string): boolean {
@@ -177,11 +188,9 @@ const crossRepoOrder = epicCheck(
   (e): CheckResult => {
     const candidates = tasksFor(e, "argocd").filter((t) => SWITCHES_TRAFFIC.test(work(t)));
     if (candidates.length === 0) return fail("no argocd task switches traffic or bumps the tag");
-    // The switch is the task that sets the weight; one after it (a validation, a runbook) also
+    // The switch is the task that gives the canary its share; one after it (a validation, a runbook) also
     // mentions the split and may reach the release without the switch itself waiting for it.
-    const weighted = candidates.filter((t) =>
-      SETS_WEIGHT.test(sectionBody(t.body, "What to do") ?? ""),
-    );
+    const weighted = candidates.filter(setsShare);
     const others = (t: TaskDoc) => new Set(weighted.map((w) => w.id).filter((id) => id !== t.id));
     const switches =
       weighted.length > 0 ? weighted.filter((t) => !reaches(e, t.id, others(t))) : candidates;
