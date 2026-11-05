@@ -12,20 +12,28 @@ import type { Check, CheckResult } from "./types";
 
 export type Target = TargetName;
 
-/** Paths and artifacts that place a task in a repo. */
+/**
+ * Paths and artifacts that place a task in a repo. The webshop image name is
+ * not one: argocd's kustomization names it too, so it made a canary workload
+ * look like the webshop release.
+ */
 const SIGNALS: Record<Target, RegExp> = {
   webshop:
-    /\b(?:main(?:_test)?\.go|go\.mod|Makefile|Dockerfile|release\.yml)\b|ghcr\.io\/pm-example\/webshop|\bGo\s+(?:service|handler|code)\b/i,
+    /\b(?:main(?:_test)?\.go|go\.mod|Makefile|Dockerfile|release\.yml)\b|\bGo\s+(?:service|handler|code)\b/i,
   infra: /\benvs\/|\bmodules\/|\.tf\b|\bhcloud_\w+/i,
   argocd:
     /\bapps\/|\bworkloads\/|\bkustomization\b|\bApplication\b|\bingress-nginx\b|\bcanary-weight\b/,
 };
 
-/** Repo names, used only when no path or artifact places the task, since tasks name other repos in passing. */
+/**
+ * Repo names, used only when no path or artifact places the task, since tasks
+ * name other repos in passing. A name inside an identifier (`webshop-canary`)
+ * or a channel (`#infra`) names a thing, not the repo.
+ */
 const NAMES: Record<Target, RegExp> = {
-  webshop: /\bwebshop\b/i,
-  infra: /\binfra\b/i,
-  argocd: /\bargo\s?cd\b/i,
+  webshop: /(?<![#\w-])webshop(?![\w-])/i,
+  infra: /(?<![#\w-])infra(?![\w-])/i,
+  argocd: /(?<![#\w-])argo\s?cd(?![\w-])/i,
 };
 
 const OWN_CHECKS: Record<Target, RegExp> = {
@@ -36,9 +44,9 @@ const OWN_CHECKS: Record<Target, RegExp> = {
 
 const MANAGER_COMMANDS = /\bbun\s+(?:run\s+)?(?:lint|test)\b/i;
 const HAND_APPLY = /\bterraform\s+apply\b|\bkubectl\s+apply\b/i;
-// A clause that names an apply only to forbid it, dry-run it, or hand it to CI is not an instruction to run it.
+// A clause that names an apply only to forbid it, dry-run it, hand it to CI, or warn that Argo CD reverts it is not an instruction to run it.
 const NEGATED =
-  /\b(?:never|not|no|don't|do not|without|instead of|CI|pipeline|PR|pull request|merge[ds]?|workflow|Actions)\b|--dry-run/i;
+  /\b(?:never|not|no|don't|do not|without|instead of|CI|pipeline|PR|pull request|merge[ds]?|workflow|Actions|revert(?:s|ed)?)\b|--dry-run/i;
 const VIA_CI =
   /\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b[^.\n]*\b(?:plans?|appl(?:y|ies|ied|ying))\b|\b(?:plans?|appl(?:y|ies|ied|ying))\b[^.\n]*\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b/i;
 const SWITCHES_TRAFFIC = /\b10%|\bweight\b|\btraffic\b|\bnewTag\b|\bimage tag\b/i;
@@ -57,6 +65,11 @@ function work(t: TaskDoc): string {
 /** What the task asks for, Notes included: checks are often listed there. */
 function asks(t: TaskDoc): string {
   return `${work(t)}\n${sectionBody(t.body, "Notes") ?? ""}`;
+}
+
+/** Where a task may say who applies its change: plans put "CI applies after merge" under Out of scope too. */
+function handoff(t: TaskDoc): string {
+  return `${asks(t)}\n${sectionBody(t.body, "Out of scope") ?? ""}`;
 }
 
 /** Wrapped lines joined, then split into sentences and list items. */
@@ -149,7 +162,7 @@ const conventions = epicCheck(
     if (byHand.length > 0) {
       return fail(`${byHand.map((t) => t.id).join(", ")} run an apply by hand`);
     }
-    const viaCi = infra.find((t) => sentences(asks(t)).some((x) => VIA_CI.test(x)));
+    const viaCi = infra.find((t) => sentences(handoff(t)).some((x) => VIA_CI.test(x)));
     return viaCi
       ? pass(`${viaCi.id} leaves plan and apply to CI or a pull request`)
       : fail("no infra task routes plan or apply through CI or a pull request");

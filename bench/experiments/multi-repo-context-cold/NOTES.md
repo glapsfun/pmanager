@@ -16,7 +16,7 @@ Ten runs of `multi-repo-context`, all `completed`: claude-code 2.1.318, claude-s
 
 Six of seven checks need nothing: no profile is built for commands, CI checks or conventions. `cross-repo-order` failed three times, so the rule's next step is the as-is run: the same request ten times on the full example (memo and story epics as they are), with the user's go-ahead. The full memo already says "`webshop` to `argocd`: a release reaches the cluster only when `newTag` is bumped in `workloads/webshop/kustomization.yaml`", so that run tests directly whether a memo line closes the gap. If it does not, part 4 (relationship map) is designed and rerun on this scenario with and without it.
 
-Before that run, the three grader bugs below need fixing, because the as-is run uses the same checks.
+The grader bugs below are fixed in version 2, which the as-is run uses.
 
 ## Per attempt
 
@@ -58,13 +58,18 @@ In each, the 10% traffic task never reaches the webshop version change through `
 
 In p7 and p9 the plan text knew the order and the `depends-on` edge was dropped. Only p10 shows no sign of it. So at least two of the three are a consistency slip within the plan, not missing repo knowledge.
 
-## Grader bugs (version 1; not yet fixed)
+## Grader bugs (version 1), fixed in version 2
 
-Re-graded by hand above. Each one needs a fix and a test before any further run of this scenario.
+Re-graded by hand above. Each is pinned by a test under "grader version 2" in `bench/tests/graders-multi-repo-context.test.ts`.
 
 1. `conventions` does not read Out of scope. p2's infra task T01 says "Running `terraform apply` from a workstation: CI applies after merge per `infra/AGENTS.md`" under Out of scope, and the grader found no CI routing. False fail.
 2. `conventions` reads a warning as an instruction. p5's T03 says "land this via PR; Argo CD's `selfHeal: true` reverts manual `kubectl apply`". The second clause has no negation word, so it counted as a hand apply. False fail.
-3. `cross-repo-order` treats the argocd canary workload as a webshop release. In p7 (T03) and p10 (T04), the workload task names `ghcr.io/pm-example/webshop` (a webshop signal) and words like "release a candidate", so it was placed in webshop as well and counted as the release the switch depends on. False pass in both.
+3. `cross-repo-order` treats the argocd canary workload as a webshop release. In p7 (T03) and p10 (T04), the workload task names `ghcr.io/pm-example/webshop` (a webshop signal) and words like "release a candidate", so it was placed in webshop as well and counted as the release the switch depends on. False pass in p7. Version 2 drops the image name as a webshop signal, since argocd's kustomization names it too.
+4. Found by re-grading with the first three fixed: in p10, T06 (a DNS task) was placed in webshop and infra by the name fallback, which matched `webshop-canary-direct`, `#webshop` and `#infra`, and "a release that needs a test hostname" made it the release. Version 2 ignores a repo name inside a hyphenated identifier or a channel. False pass in p10.
+
+Version 2 also reads Out of scope for the CI hand-off (bug 1; an apply listed there is still never an instruction) and treats a clause about Argo CD reverting an apply as a warning (bug 2).
+
+Re-grading the ten saved plans with version 2 gives exactly the hand verdicts: `own-checks-argocd` fails p4, `cross-repo-order` fails p7, p9 and p10, and every other check passes in every attempt.
 
 ## Other findings
 
