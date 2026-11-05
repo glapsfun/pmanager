@@ -50,10 +50,12 @@ const NEGATED =
 const VIA_CI =
   /\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b[^.\n]*\b(?:plans?|appl(?:y|ies|ied|ying))\b|\b(?:plans?|appl(?:y|ies|ied|ying))\b[^.\n]*\b(?:CI|pipeline|pull request|PR|workflow|Actions)\b/i;
 const SWITCHES_TRAFFIC = /\b10%|\bweight\b|\btraffic\b|\bnewTag\b|\bimage tag\b/i;
-// A clause that gives the canary a non-zero weight or share; "no canary-weight yet" does not.
+// Gives the canary a non-zero share: the number right after "weight" (so "canary-weight 0 for
+// image 1.6.0" is none), or a send/route/shift verb before a percentage.
 const SETS_SHARE =
-  /\b(?:canary-)?weight\b[^.\n]*?\b[1-9]\d*\b|\b(?:send\w*|rout(?:e|es|ed|ing)|shift\w*|mov(?:e|es|ed|ing)|split\w*)\b[^.\n]*?\b[1-9]\d*\s?%/i;
-const NO_SHARE = /\b(?:no|not|never|without|yet)\b/i;
+  /\bweight\b[\s:=]*(?:(?:of|to|at)\s+)?["'`]?[1-9]\d*\b|\b(?:send\w*|rout(?:e|es|ed|ing)|shift\w*|mov(?:e|es|ed|ing)|split\w*)\b[^.\n]*?\b[1-9]\d*\s?%/i;
+// Only a negation before the share cancels it: "without touching the stable Deployment" after it does not.
+const NO_SHARE = /\b(?:no|not|never|without|don't|do not)\b/i;
 const RELEASES = /\breleas(?:e|es|ed|ing)\b|\btag\s+v?\d|\bv\d+\.\d+|\bpublish/i;
 const LOAD_BALANCER = /\bload balancer\b|\bhcloud_load_balancer\b|\bLB\b/i;
 
@@ -86,10 +88,12 @@ function sentences(text: string): string[] {
 }
 
 function setsShare(t: TaskDoc): boolean {
-  return sentences(sectionBody(t.body, "What to do") ?? "").some((sentence) =>
-    sentence
-      .split(/[;,]|\bbut\b/)
-      .some((clause) => SETS_SHARE.test(clause) && !NO_SHARE.test(clause)),
+  const text = `${getString(t.frontmatter, "title") ?? ""}\n${sectionBody(t.body, "What to do") ?? ""}`;
+  return sentences(text).some((sentence) =>
+    sentence.split(/[;,]|\bbut\b/).some((clause) => {
+      const m = SETS_SHARE.exec(clause);
+      return m !== null && !NO_SHARE.test(clause.slice(0, m.index));
+    }),
   );
 }
 
