@@ -50,6 +50,24 @@ describe("environment", () => {
 });
 
 describe("check", () => {
+  test("check --epic reports E-REF-005 and exits 1; plain check does not", async () => {
+    const root = await localRepo();
+    const p = join(root, "docs/pm/app-performance/tasks/T02-add-order-items-index.md");
+    await writeFile(p, (await readFile(p, "utf8")).replace("depends-on: [T01]", "depends-on: []"));
+    // The edit changes plan.md's rendered task table; render it so only E-REF-005 is in question.
+    expect((await run(["render"], root)).code).toBe(0);
+    const epic = await run(["check", "--epic", "app-performance"], root);
+    expect(epic.code).toBe(1);
+    expect(epic.stdout).toContain("E-REF-005");
+    const plain = await run(["check"], root);
+    expect(plain.code).toBe(0);
+    expect(plain.stdout).not.toContain("E-REF-005");
+  });
+  test("check --epic with an unknown slug exits 2 and names it", async () => {
+    const r = await run(["check", "--epic", "app-perfromance"], await localRepo());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("unknown epic app-perfromance");
+  });
   test("clean fixture exits 0", async () => {
     const r = await run(["check"], await localRepo());
     expect(r.code).toBe(0);
@@ -384,6 +402,18 @@ describe("worktrees", () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     await run(["claim", "app-performance"], a);
     expect((await run(["check", "--epic", "app-performance"], a)).code).toBe(0);
+  });
+  test("check --epic reports E-REF-005 from the worktree's tasks", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    await run(["claim", "app-performance"], a);
+    const p = join(
+      worktreePath(a, "app-performance"),
+      "docs/pm/app-performance/tasks/T02-add-order-items-index.md",
+    );
+    await writeFile(p, (await readFile(p, "utf8")).replace("depends-on: [T01]", "depends-on: []"));
+    const r = await run(["check", "--epic", "app-performance"], a);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("E-REF-005");
   });
   test("status shows the worktree path for a claimed epic", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());

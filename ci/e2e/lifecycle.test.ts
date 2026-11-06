@@ -31,10 +31,15 @@ test("a user's day: draft, record, verify, render, check, status, release", asyn
   const worktree = /worktree: (.+)/.exec(claim.stdout)?.[1] ?? "";
   expect(worktree).not.toBe("");
 
-  const bundle = await epicBundle(SLUG, ["epic.md", "plan.md", "tasks/T01-benchmark-orders.md"], {
-    harness: "e2e",
-    id: sid,
-  });
+  // T02 depends on T01, so the first milestone's task is a prerequisite of something (E-REF-005).
+  const bundle = await epicBundle(
+    SLUG,
+    ["epic.md", "plan.md", "tasks/T01-benchmark-orders.md", "tasks/T02-add-order-items-index.md"],
+    {
+      harness: "e2e",
+      id: sid,
+    },
+  );
   const record = await pmProcess(
     a,
     [
