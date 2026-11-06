@@ -477,6 +477,56 @@ describe("pm research (cli)", () => {
     expect(tight.stdout.length).toBeLessThan(pruned.stdout.length);
     expect((await runPm(["research", "invoice", "--budget", "299"], dir)).code).toBe(2);
   });
+  test("several --repo: each researched, in flag order, one header each; --json is an array", async () => {
+    const root = await orchestrationRepo();
+    const svc = await seededRepo({ "svc/orders.go": "package orders\n" });
+    const infra = await seededRepo({ "envs/orders.tf": "# orders\n" });
+    await writeTree(root, {
+      "docs/pm/.local/repos.json": JSON.stringify({ "glapsfun/svc": svc, "glapsfun/infra": infra }),
+    });
+    const args = [
+      "research",
+      "orders",
+      "--no-gh",
+      "--repo",
+      "glapsfun/infra",
+      "--repo",
+      "glapsfun/svc",
+    ];
+    const r = await runPm(args, root);
+    expect(r.code).toBe(0);
+    expect(r.stdout.split("\n").filter((l) => l.startsWith("research: "))).toHaveLength(2);
+    expect(r.stdout.indexOf("[envs/orders.tf:1]")).toBeGreaterThan(-1);
+    expect(r.stdout.indexOf("[envs/orders.tf:1]")).toBeLessThan(
+      r.stdout.indexOf("[svc/orders.go:1]"),
+    );
+    const json = JSON.parse((await runPm([...args, "--json"], root)).stdout);
+    expect(json).toHaveLength(2);
+    expect(json[1].probes.files.lines.join("\n")).toContain("svc/orders.go");
+  });
+  test("one bad --repo among several fails before any research", async () => {
+    const root = await orchestrationRepo();
+    const svc = await seededRepo({ "svc/orders.go": "package orders\n" });
+    await writeTree(root, { "docs/pm/.local/repos.json": JSON.stringify({ "glapsfun/svc": svc }) });
+    const r = await runPm(
+      ["research", "orders", "--no-gh", "--repo", "nope", "--repo", "glapsfun/svc"],
+      root,
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("unknown repo nope");
+    expect(r.stdout).toBe("");
+  });
+  test("a repo named twice, by name and by path, is researched once", async () => {
+    const root = await orchestrationRepo();
+    const svc = await seededRepo({ "svc/orders.go": "package orders\n" });
+    await writeTree(root, { "docs/pm/.local/repos.json": JSON.stringify({ "glapsfun/svc": svc }) });
+    const r = await runPm(
+      ["research", "orders", "--no-gh", "--repo", "glapsfun/svc", "--repo", svc],
+      root,
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout.split("\n").filter((l) => l.startsWith("research: "))).toHaveLength(1);
+  });
   test("--repo resolves a mapped name, a path, and rejects unknown names", async () => {
     const root = await orchestrationRepo();
     const target = await seededRepo({ "svc/orders.go": "package orders\n" });
