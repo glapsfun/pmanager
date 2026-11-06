@@ -40,6 +40,12 @@ describe("nextTask", () => {
     await setStatus(root, "T02-add-order-items-index.md", "blocked");
     expect(nextTask(await firstEpic(root))?.id).toBe("T04");
   });
+  test("a ready task of an earlier milestone comes before a higher priority in a later one", async () => {
+    const root = await fixture();
+    const p = join(root, "docs/pm/app-performance/tasks/T01-benchmark-orders.md");
+    await Bun.write(p, (await readFile(p, "utf8")).replace("priority: must", "priority: could"));
+    expect(nextTask(await firstEpic(root))?.id).toBe("T01");
+  });
   test("null when nothing is ready", async () => {
     const root = await fixture();
     await setStatus(root, "T01-benchmark-orders.md", "blocked");
