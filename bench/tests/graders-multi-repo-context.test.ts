@@ -336,6 +336,155 @@ describe("grader version 2", () => {
   });
 });
 
+// Found by the code review of version 4: what counts as giving the canary its share.
+describe("grader version 5", () => {
+  const workload: T = {
+    id: "T04",
+    title: "Run the canary Deployment",
+    deps: ["T03"],
+    what: "In the argocd repo add a canary Deployment under workloads/webshop-canary.",
+    accept: "`kubeconform` passes for workloads/webshop-canary",
+  };
+
+  test("canary-weight 0 followed by another number is no share", async () => {
+    const host: T = {
+      id: "T05",
+      title: "Expose the canary on its test hostname",
+      deps: ["T03", "T04"],
+      what: "In the argocd repo add the canary Ingress in workloads/webshop-canary with canary-weight 0 for image 1.6.0.",
+      accept: "`kubeconform` passes for workloads/webshop-canary",
+    };
+    const weight: T = {
+      id: "T06",
+      title: "Send 10% of real traffic to the canary",
+      deps: ["T02", "T05"],
+      what: "In the argocd repo add canary-weight 10 to the main ingress in workloads/webshop.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const plan = [VERSION, RELEASE, LB, workload, host, weight];
+    expect((await grade(plan))["cross-repo-order"]).toBe(true);
+  });
+
+  test("a negation after the weight does not cancel it", async () => {
+    const weight: T = {
+      id: "T05",
+      title: "Shift traffic to the canary",
+      deps: ["T04"],
+      what: "In the argocd repo add canary-weight 10 to the main ingress in workloads/webshop without touching the stable Deployment.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const validate: T = {
+      id: "T06",
+      title: "Validate the canary split",
+      deps: ["T02", "T05"],
+      what: "In the argocd repo confirm the canary-weight annotation is 10 and sample /version for a 10/90 split.",
+      accept: "observed split within 7-13%",
+    };
+    const plan = [VERSION, RELEASE, LB, workload, weight, validate];
+    expect((await grade(plan))["cross-repo-order"]).toBe(false);
+  });
+
+  test("a switch that states its share only in its title is the switch", async () => {
+    const weight: T = {
+      id: "T05",
+      title: "Send 10% of real traffic to the canary",
+      deps: ["T04"],
+      what: "In the argocd repo add the nginx canary annotations to workloads/webshop.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const settle: T = {
+      id: "T06",
+      title: "Keep the canary at its share and sample it",
+      deps: ["T02", "T05"],
+      what: "In the argocd repo set canary-weight 10 permanently in workloads/webshop and sample /version.",
+      accept: "observed split within 7-13%",
+    };
+    const plan = [VERSION, RELEASE, LB, workload, weight, settle];
+    expect((await grade(plan))["cross-repo-order"]).toBe(false);
+  });
+});
+
+// Found by the final review of version 3: a passing mention of the weight is not the switch.
+describe("grader version 4", () => {
+  test("a task saying it has no canary-weight is not the switch", async () => {
+    const workload: T = {
+      id: "T04",
+      title: "Run the canary Deployment",
+      deps: ["T03"],
+      what: "In the argocd repo add a canary Deployment under workloads/webshop-canary.",
+      accept: "`kubeconform` passes for workloads/webshop-canary",
+    };
+    const host: T = {
+      id: "T05",
+      title: "Expose the canary on its test hostname",
+      deps: ["T03", "T04"],
+      what: "In the argocd repo add an Ingress for canary.shop.example.com on the canary load balancer, with no canary-weight annotation, so it takes no real traffic.",
+      accept: "`kubeconform` passes for workloads/webshop-canary",
+    };
+    const weight: T = {
+      id: "T06",
+      title: "Send 10% of real traffic to the canary",
+      deps: ["T02", "T05"],
+      what: "In the argocd repo set newTag 1.6.0 on the canary and add canary-weight 10 to the main ingress.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const plan = [VERSION, RELEASE, LB, workload, host, weight];
+    expect((await grade(plan))["cross-repo-order"]).toBe(true);
+  });
+
+  test("a switch that routes a share without naming the weight is still the switch", async () => {
+    const routes: T = {
+      id: "T04",
+      title: "Send 10% of traffic to the canary",
+      deps: ["T03"],
+      what: "In the argocd repo add the nginx canary annotations in workloads/webshop routing 10% of requests to the canary.",
+      accept: "`kubeconform` passes for workloads/webshop",
+    };
+    const validate: T = {
+      id: "T05",
+      title: "Validate the canary split",
+      deps: ["T02", "T04"],
+      what: "In the argocd repo confirm the canary-weight annotation is 10 and sample /version for a 10/90 split.",
+      accept: "observed split within 7-13%",
+    };
+    expect((await grade([VERSION, RELEASE, LB, routes, validate]))["cross-repo-order"]).toBe(false);
+  });
+});
+
+// as-is p4: the switch skipped the webshop change, and a later validation task that did reach it passed v2.
+describe("grader version 3", () => {
+  const workload: T = {
+    id: "T04",
+    title: "Deploy the canary workload",
+    deps: ["T03"],
+    what: "In the argocd repo add workloads/webshop-canary with its own Deployment, its image tag set independently and bumped separately from the stable newTag.",
+    accept: "`kubeconform` passes for workloads/webshop-canary",
+  };
+  const weight: T = {
+    id: "T05",
+    title: "Send 10% of real traffic to the canary",
+    deps: ["T04"],
+    what: "In the argocd repo add an ingress in workloads/webshop-canary with canary-weight 10.",
+    accept: "`kubeconform` passes for workloads/webshop-canary",
+  };
+  const validate = (id: string, deps: string[]): T => ({
+    id,
+    title: "Validate the 10% canary split end-to-end",
+    deps,
+    what: "Sample shop.example.com responses and the ingress-nginx access logs, and confirm /version shows about a 10%/90% split between canary and stable.",
+    accept: "the observed split is within 7-13%",
+  });
+
+  test("a validation task after the switch does not stand in for it", async () => {
+    const plan = [VERSION, RELEASE, LB, workload, weight, validate("T06", ["T02", "T05"])];
+    expect((await grade(plan))["cross-repo-order"]).toBe(false);
+  });
+
+  test("a validation task after a correct switch still passes", async () => {
+    expect((await grade([...GOOD, validate("T05", ["T04"])]))["cross-repo-order"]).toBe(true);
+  });
+});
+
 describe("targetsOf", () => {
   test("reads the title and the work, not Context or Out of scope", async () => {
     const dir = await makeTempDir("mrc-attr");

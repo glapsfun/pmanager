@@ -83,3 +83,9 @@ A `done` task must have every acceptance criterion checked, or the line
 `blocked` task must name the blocker under Notes (rule E-ST-001). A
 `descoped` task must be listed on the plan's `- Won't (this epic):` line with
 its reason (rule E-ST-002). `pm check` enforces all three.
+
+While no task has started, a first-milestone task that no task lists in
+`depends-on` fails `pm record` (rule E-REF-005): add it to the `depends-on`
+of each task that needs its result, or move it to the milestone whose state
+it serves. Only a task that no task needs gets the optional field
+`standalone: <why no task needs it>`.

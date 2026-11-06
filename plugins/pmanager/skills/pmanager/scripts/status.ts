@@ -1,5 +1,5 @@
 import { relative } from "node:path";
-import { isStale } from "./check";
+import { isStale, milestoneOrder } from "./check";
 import type { RemoteEpic } from "./claim";
 import { getList, getString, type Session, sessionOf } from "./contract";
 import { type Availability, formatAvailability } from "./projects";
@@ -81,11 +81,14 @@ export function nextTask(epic: EpicRecord): TaskDoc | null {
       status.get(t.id) === "todo" &&
       getList(t.frontmatter, "depends-on").every((d) => status.get(d) === "done"),
   );
-  ready.sort((a, b) => {
-    const ra = RANK[getString(a.frontmatter, "priority") ?? ""] ?? 9;
-    const rb = RANK[getString(b.frontmatter, "priority") ?? ""] ?? 9;
-    return ra === rb ? a.id.localeCompare(b.id) : ra - rb;
-  });
+  const order = milestoneOrder(epic.plan);
+  // A milestone the plan does not list sorts after every listed one.
+  const stage = (t: TaskDoc) => {
+    const i = order.indexOf(getString(t.frontmatter, "milestone") ?? "");
+    return i < 0 ? order.length : i;
+  };
+  const rank = (t: TaskDoc) => RANK[getString(t.frontmatter, "priority") ?? ""] ?? 9;
+  ready.sort((a, b) => stage(a) - stage(b) || rank(a) - rank(b) || a.id.localeCompare(b.id));
   return ready[0] ?? null;
 }
 

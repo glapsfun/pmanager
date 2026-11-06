@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "id": "dangling-task-paired-v4",
+  "createdAt": "2026-11-05T15:10:10.277Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.318",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill",
+    "baseline-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 1500,
+  "repoSha": "e7aefcb",
+  "repoDirty": false,
+  "skillVersion": "0.11.0",
+  "skillHash": "sha256:81a7f50c022bdc67ea83256c8ac65151f8d969c7b8746da3901a9a9aedcc042b",
+  "contractHash": "sha256:7744d795e259f41a6339a29871d57d20c928d18d0470f814cbfac49907bdd078",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "multi-repo-context",
+      "version": 1,
+      "promptHash": "sha256:2171486e2c079ce3cf869c4497d3a5a9682b1e69a0c9a82c4be8a5a603c3d252",
+      "fixtureHash": "sha256:e917bfc44ec8c0ea2a9f7c4a576cd8354568639d2de71b73b2d97fbe92b95d42",
+      "graderVersion": 4
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "dangling-task-paired-v4-p1-multi-repo-context-with-skill",
+      "pair": 1,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p1-multi-repo-context-baseline-skill",
+      "pair": 1,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p2-multi-repo-context-baseline-skill",
+      "pair": 2,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p2-multi-repo-context-with-skill",
+      "pair": 2,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p3-multi-repo-context-with-skill",
+      "pair": 3,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p3-multi-repo-context-baseline-skill",
+      "pair": 3,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p4-multi-repo-context-baseline-skill",
+      "pair": 4,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p4-multi-repo-context-with-skill",
+      "pair": 4,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p5-multi-repo-context-with-skill",
+      "pair": 5,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p5-multi-repo-context-baseline-skill",
+      "pair": 5,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p6-multi-repo-context-baseline-skill",
+      "pair": 6,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p6-multi-repo-context-with-skill",
+      "pair": 6,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p7-multi-repo-context-with-skill",
+      "pair": 7,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p7-multi-repo-context-baseline-skill",
+      "pair": 7,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p8-multi-repo-context-baseline-skill",
+      "pair": 8,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p8-multi-repo-context-with-skill",
+      "pair": 8,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p9-multi-repo-context-with-skill",
+      "pair": 9,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p9-multi-repo-context-baseline-skill",
+      "pair": 9,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p10-multi-repo-context-baseline-skill",
+      "pair": 10,
+      "scenario": "multi-repo-context",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "dangling-task-paired-v4-p10-multi-repo-context-with-skill",
+      "pair": 10,
+      "scenario": "multi-repo-context",
+      "condition": "with-skill",
+      "order": 2
+    }
+  ],
+  "baseline": {
+    "ref": "8e9723e",
+    "sha": "8e9723e9f532c5f1d41ac59dfc750e65d3b4dc94",
+    "skillHash": "sha256:e25d9b2a5b03d7225479ae43cac8a4fa8ebc556984d205d61cc2e09f7c9598ef"
+  }
+}

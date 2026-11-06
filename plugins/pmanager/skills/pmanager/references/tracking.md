@@ -131,5 +131,5 @@ durable was learned, `pm render --epic <slug> --session <id>`, `pm check
 --epic <slug>` to exit 0, then the scoped commit and push of `pm/<slug>` per
 `memory.md` (the single source for the command and its rules). Post a
 compact status after: the `pm status` line for the epic, tasks by status,
-current blockers, suggested next task (respecting `depends-on` and
-priority).
+current blockers, suggested next task (respecting `depends-on`, then
+milestone order, then priority).
