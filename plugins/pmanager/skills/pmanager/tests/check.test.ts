@@ -122,6 +122,7 @@ describe("dangling first-milestone task (E-REF-005)", () => {
     const fix = f[0]?.fix ?? "";
     expect(fix.indexOf("depends-on")).toBeGreaterThanOrEqual(0);
     expect(fix.indexOf("depends-on")).toBeLessThan(fix.indexOf("milestone"));
+    expect(fix.indexOf("milestone")).toBeLessThan(fix.indexOf("standalone:"));
   });
 
   test("plain check and another epic's check never report it", async () => {
@@ -135,6 +136,29 @@ describe("dangling first-milestone task (E-REF-005)", () => {
       const root = await dangling();
       await edit(root, T04, "status: todo", started);
       expect(await epicRules(root, "app-performance")).toEqual([]);
+    }
+  });
+
+  test("a task whose History shows it started exempts the epic, even when it is blocked now", async () => {
+    const root = await dangling();
+    await edit(root, T04, "status: todo", "status: blocked");
+    expect(await epicRules(root, "app-performance")).toHaveLength(1);
+    const p = join(root, T04);
+    await Bun.write(
+      p,
+      `${await readFile(p, "utf8")}\n## History\n\n- 2026-09-10 status todo -> in-progress\n- 2026-09-12 status in-progress -> blocked\n`,
+    );
+    expect(await epicRules(root, "app-performance")).toEqual([]);
+  });
+
+  test("a standalone reason exempts a first-milestone task; an empty one does not", async () => {
+    for (const [value, fires] of [
+      ["captures the baseline the later checks compare against", 0],
+      ['""', 1],
+    ] as const) {
+      const root = await dangling();
+      await edit(root, T01, "depends-on: []", `depends-on: []\nstandalone: ${value}`);
+      expect(await epicRules(root, "app-performance")).toHaveLength(fires);
     }
   });
 
