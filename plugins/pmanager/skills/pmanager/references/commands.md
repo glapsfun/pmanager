@@ -20,7 +20,7 @@ See SKILL.md Phase 0.
 | Command | When | Good result | On failure |
 | :--- | :--- | :--- | :--- |
 | `status [--json]` | Phase 0; status queries; before suggesting a task | exit 0; per epic: `slug type status title`, then `owner: session: tasks: updated:`, `repos: metric:`, blocked tasks, `next:` (the first ready task by milestone order, then priority); sessions carry `[remote]` / `[remote-only]` / `[stale]`; then `memo:` with the memo's hand-written sections (or `memo: absent`) | exit 2: not a git repo, say so; with no `docs/pm` (a cold start) it exits 0 and prints `memo: absent` |
-| `check [--json] [--stale-days N] [--epic <slug>]` | Phase 6 before commit; every update run; after any hand edit; pass `--epic <slug>` during an epic's run so it reads that epic's worktree | exit 0, `OK: no findings` or warnings only | exit 1: fix each finding at its file, rerun; never commit with errors; never edit rendered regions by hand |
+| `check [--json] [--stale-days N] [--epic <slug>]` | Phase 6 before commit; every update run; after any hand edit; pass `--epic <slug>` during an epic's run so it reads that epic's worktree and runs the plan rules (E-REF-005) for that epic | exit 0, `OK: no findings` or warnings only | exit 1: fix each finding at its file, rerun; never commit with errors; never edit rendered regions by hand; exit 2 `unknown epic <slug>`: take the slug from `status` |
 | `render [--epic <slug> --session ID]` | after writing or editing any epic/task/log file; after pulling `main`; during an epic's run pass `--epic <slug> --session <id>` so it writes in that epic's worktree | exit 0; prints rendered paths or `nothing to render` | never fails on valid input; if it writes something unexpected, run `check`; exit 1 `owned by …`: another session holds this epic; use your own id; if it may be the user's own earlier conversation (same harness, no id on your ledger), ask the user and on their confirmation pass that id with `--session <id>` (the refusal and `pm status` show it); `--force` only when the user wants to override someone else's claim |
 | `render --migrate` | `check` reports `W-LEG-001` or `E-RND-004` on pre-tool documents | prints `migrated <path>` lines, then rendered paths | ask the user before running it on a repo with a hand-maintained INDEX; it rewrites files |
 | `claim <slug> --harness NAME [--no-worktree]` | Phase 4, right after the user approves the epic and `epic.md` is written | exit 0; the epic's worktree is created at `<repo>-pm-<slug>` and named on the `worktree:` line, the epic files you wrote are moved there, and the branch is pushed; your own checkout keeps its branch, then `session: <id>` (keep it for --session) | exit 1 `owned by …`: stop, tell the user who owns it; exit 2: no remote, no epic file, or `worktree`: the sibling path is occupied, the branch is checked out elsewhere, or `git worktree add` failed — move it aside or pass `--no-worktree` |
@@ -79,7 +79,11 @@ New epic: `pm record` (SKILL.md Phase 6). The manual order:
 
 ## Rules the checker enforces
 
-Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…005 (E-REF-005: a first-milestone task no live task depends on and with no `standalone:` reason, while none of the epic's tasks has started (in progress or done, now or in its History) and a later milestone has tasks; reported only by `record` and `check --epic`, for that epic),
+Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…005
+(E-REF-005: a first-milestone task that no live task depends on and that has
+no `standalone:` reason, while no task of the epic is or was in progress or
+done and a later milestone has tasks; only `record` and `check --epic` report
+it, for that epic),
 rendered views E-RND-001…004, state E-ST-001…004, acceptance W-ACC-001 (an
 unchecked acceptance or exit criterion with a taste word such as "nicer" or
 "properly" and no number or command), history E-HIS-001 (a History line in

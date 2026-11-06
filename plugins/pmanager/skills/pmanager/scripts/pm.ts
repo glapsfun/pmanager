@@ -91,7 +91,7 @@ flags
   --no-gh                       skip the gh PR/issue probe
   --no-worktree                 claim/release: switch the current checkout instead of using a worktree
   --keep-worktree               release: leave the epic's worktree in place
-  --epic SLUG                   render/check: act in that epic's worktree
+  --epic SLUG                   render/check: act in that epic's worktree; check also runs E-REF-005 for it
   --session ID                  release, render --epic: the id pm claim printed for your session
   --force                       release, render --epic: act on another session's claim deliberately
   --title T                     claim --draft: the epic's one-line title
@@ -569,7 +569,12 @@ export async function main(
     case "check": {
       const target = await targetRoot(root, args);
       const { catalog, main } = await mainCatalog(root);
-      const findings = check(target === root ? repo : await loadPmRepo(target), {
+      const checked = target === root ? repo : await loadPmRepo(target);
+      // A mistyped slug would otherwise pass silently, skipping the rules for the plan under work.
+      if (args.epic && !checked.epics.some((e) => e.slug === args.epic)) {
+        return fail(`unknown epic ${args.epic}`);
+      }
+      const findings = check(checked, {
         ...opts,
         catalog,
         catalogScope: target === main ? "main" : "epic",
