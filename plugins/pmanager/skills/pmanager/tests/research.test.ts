@@ -504,6 +504,29 @@ describe("pm research (cli)", () => {
     expect(json).toHaveLength(2);
     expect(json[1].probes.files.lines.join("\n")).toContain("svc/orders.go");
   });
+  test("several --repo print the manager's memory once, in the first block", async () => {
+    const root = await orchestrationRepo();
+    const svc = await seededRepo({ "svc/orders.go": "package orders\n" });
+    const infra = await seededRepo({ "envs/orders.tf": "# orders\n" });
+    await writeTree(root, {
+      "docs/pm/.local/repos.json": JSON.stringify({ "glapsfun/svc": svc, "glapsfun/infra": infra }),
+    });
+    const args = [
+      "research",
+      "orders",
+      "--no-gh",
+      "--repo",
+      "glapsfun/infra",
+      "--repo",
+      "glapsfun/svc",
+    ];
+    const r = await runPm(args, root);
+    expect(r.stdout.split("[docs/pm/INDEX.md]")).toHaveLength(2);
+    expect(r.stdout).toContain("memory: see the first block");
+    const json = JSON.parse((await runPm([...args, "--json"], root)).stdout);
+    expect(json[0].probes.memory.total).toBeGreaterThan(0);
+    expect(json[1].probes.memory.error).toBe("see the first block");
+  });
   test("one bad --repo among several fails before any research", async () => {
     const root = await orchestrationRepo();
     const svc = await seededRepo({ "svc/orders.go": "package orders\n" });
