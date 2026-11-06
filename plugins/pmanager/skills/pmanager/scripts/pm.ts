@@ -52,7 +52,7 @@ import {
   type RemoteClaims,
   type RemoteState,
 } from "./status";
-import { buildVerify, formatVerify, resolveRepos, resolveTarget } from "./verify";
+import { buildVerify, formatVerify, type RepoTarget, resolveRepos, resolveTarget } from "./verify";
 import { removeWorktree, worktreeFor } from "./worktree";
 
 const USAGE = `usage: bun run scripts/pm.ts <command> [args] [flags]
@@ -74,7 +74,7 @@ commands
   project list                  registered projects and their availability on this machine
   project discover              git repos beside this manager, as registration suggestions; writes nothing
   handoff <slug> <task-id>      print an execution brief
-  research <keyword>... [--path P]... [--repo NAME|PATH] [--limit N] [--budget N] [--full] [--no-gh]
+  research <keyword>... [--path P]... [--repo NAME|PATH]... [--limit N] [--budget N] [--full] [--no-gh]
                                 one concurrent read-only sweep: files, history, docs, memory, tests, gh
   verify <slug> <task-id> [--repo NAME|PATH] [--since REF] [--files P]... [--limit N]
                                 read-only evidence per acceptance criterion from the task's files, commits and diff
@@ -84,7 +84,7 @@ flags
   --stale-days N                claim staleness threshold (default 14)
   --harness NAME                harness name recorded in claims (default: $PM_HARNESS, or claude-code when $CLAUDECODE is set)
   --path P                      git pathspec to scope research (repeatable)
-  --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo)
+  --repo NAME|PATH              target checkout: a docs/pm/.local/repos.json name or a path (default: this repo); research takes several
   --limit N                     max entries per research/verify section (default 20)
   --budget N                    research: output budget in estimated tokens (default 1500, minimum 300)
   --full                        research: print every probe line, no pruning
@@ -119,7 +119,7 @@ export interface Args {
   harness: string;
   migrate: boolean;
   paths: string[];
-  repo?: string;
+  repos: string[];
   limit: number;
   budget: number;
   full: boolean;
@@ -161,6 +161,7 @@ export function parseArgs(argv: string[]): Args | null {
     harness: defaultHarness(),
     migrate: false,
     paths: [],
+    repos: [],
     limit: 20,
     budget: DEFAULT_BUDGET,
     full: false,
@@ -232,7 +233,7 @@ export function parseArgs(argv: string[]): Args | null {
     } else if (a === "--repo") {
       const r = argv[++i];
       if (!r) return null;
-      args.repo = r;
+      args.repos.push(r);
     } else if (a === "--limit") {
       const n = Number.parseInt(argv[++i] ?? "", 10);
       if (!Number.isFinite(n) || n < 1) return null;
@@ -420,19 +421,29 @@ async function runResearch(root: string, args: Args): Promise<number> {
   if (keywords.length === 0) return fail(USAGE);
   const map = await readLocalRepoMap(await repoMapPmDir(root));
   const { catalog } = await mainCatalog(root);
-  const resolved = await resolveTarget(root, args.repo, map, catalog.projects);
-  if ("error" in resolved) return fail(resolved.error);
-  const report = await buildResearch({
-    root,
-    cwd: resolved.target.path,
-    keywords,
-    paths: args.paths,
-    limit: args.limit,
-    gh: !args.noGh,
-    ghCmd: process.env.PM_GH,
-  });
-  const view = args.full ? { ...report, pruned: null } : prune(report, args.budget);
-  out(args.json ? json(view) : formatResearch(view));
+  // Resolve every --repo before researching any, so one bad name costs no sweep.
+  const targets: RepoTarget[] = [];
+  for (const repoArg of args.repos.length > 0 ? args.repos : [undefined]) {
+    const resolved = await resolveTarget(root, repoArg, map, catalog.projects);
+    if ("error" in resolved) return fail(resolved.error);
+    if (!targets.some((t) => t.path === resolved.target.path)) targets.push(resolved.target);
+  }
+  const views = await Promise.all(
+    targets.map(async (t) => {
+      const report = await buildResearch({
+        root,
+        cwd: t.path,
+        keywords,
+        paths: args.paths,
+        limit: args.limit,
+        gh: !args.noGh,
+        ghCmd: process.env.PM_GH,
+      });
+      return args.full ? { ...report, pruned: null } : prune(report, args.budget);
+    }),
+  );
+  if (args.json) out(json(views.length === 1 ? views[0] : views));
+  else out(views.map(formatResearch).join("\n"));
   return 0;
 }
 
@@ -708,13 +719,16 @@ export async function main(
     case "verify": {
       const [slug, taskId] = args.positional;
       if (!slug || !taskId) return fail(USAGE);
+      if (args.repos.length > 1) {
+        return fail("verify takes one --repo; without one it checks every repo the epic lists");
+      }
       const epic = epicBySlug(await repoForEpic(root, repo, slug), slug);
       if (!epic?.epic) return fail(`unknown epic ${slug}`);
       const task = taskById(epic, taskId);
       if (!task) return fail(`unknown task ${taskId} in ${slug}`);
       const map = await readLocalRepoMap(await repoMapPmDir(root));
       const { catalog } = await mainCatalog(root);
-      const resolved = await resolveRepos(root, epic, args.repo, map, catalog.projects);
+      const resolved = await resolveRepos(root, epic, args.repos[0], map, catalog.projects);
       if ("error" in resolved) return fail(resolved.error);
       const report = await buildVerify({
         epic,

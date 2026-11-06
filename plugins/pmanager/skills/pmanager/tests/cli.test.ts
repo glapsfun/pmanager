@@ -260,6 +260,12 @@ describe("verify", () => {
     const notGit = await run(["verify", "app-performance", "T02", "--repo", plain], root);
     expect(notGit.code).toBe(2);
     expect(notGit.stderr).toContain("not inside a git repository");
+    const twice = await run(
+      ["verify", "app-performance", "T02", "--repo", ".", "--repo", "."],
+      root,
+    );
+    expect(twice.code).toBe(2);
+    expect(twice.stderr).toContain("verify takes one --repo");
   });
   test("usage lists verify", async () => {
     const r = await run([], await localRepo());
