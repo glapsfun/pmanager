@@ -46,6 +46,18 @@ describe("nextTask", () => {
     await Bun.write(p, (await readFile(p, "utf8")).replace("priority: must", "priority: could"));
     expect(nextTask(await firstEpic(root))?.id).toBe("T01");
   });
+  test("within one milestone, priority decides before id", async () => {
+    const root = await fixture();
+    const dir = join(root, "docs/pm/app-performance/tasks");
+    const t01 = join(dir, "T01-benchmark-orders.md");
+    const t04 = join(dir, "T04-restore-pagination.md");
+    await Bun.write(
+      t01,
+      (await readFile(t01, "utf8")).replace("priority: must", "priority: could"),
+    );
+    await Bun.write(t04, (await readFile(t04, "utf8")).replace("milestone: M3", "milestone: M1"));
+    expect(nextTask(await firstEpic(root))?.id).toBe("T04");
+  });
   test("null when nothing is ready", async () => {
     const root = await fixture();
     await setStatus(root, "T01-benchmark-orders.md", "blocked");
