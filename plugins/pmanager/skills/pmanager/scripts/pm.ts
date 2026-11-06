@@ -43,7 +43,7 @@ import {
 // Folders under docs/pm that are not epics, so no epic may take their name.
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
-import { buildResearch, formatResearch, normalizeKeywords } from "./research";
+import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import {
   buildStatus,
@@ -428,9 +428,9 @@ async function runResearch(root: string, args: Args): Promise<number> {
     if ("error" in resolved) return fail(resolved.error);
     if (!targets.some((t) => t.path === resolved.target.path)) targets.push(resolved.target);
   }
-  const views = await Promise.all(
-    targets.map(async (t) => {
-      const report = await buildResearch({
+  const reports = await Promise.all(
+    targets.map((t) =>
+      buildResearch({
         root,
         cwd: t.path,
         keywords,
@@ -438,9 +438,12 @@ async function runResearch(root: string, args: Args): Promise<number> {
         limit: args.limit,
         gh: !args.noGh,
         ghCmd: process.env.PM_GH,
-      });
-      return args.full ? { ...report, pruned: null } : prune(report, args.budget);
-    }),
+      }),
+    ),
+  );
+  // Before pruning, so the budget the repeated memory lines would take goes to the other sections.
+  const views = memoryOnce(reports).map((r) =>
+    args.full ? { ...r, pruned: null } : prune(r, args.budget),
   );
   if (args.json) out(json(views.length === 1 ? views[0] : views));
   else out(views.map(formatResearch).join("\n"));
