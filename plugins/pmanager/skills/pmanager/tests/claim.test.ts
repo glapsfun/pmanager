@@ -100,7 +100,7 @@ describe("claim", () => {
     expect(await listRemoteBranches(a, "pm/")).toEqual(["pm/app-performance"]);
   });
 
-  test("release then claim by another session: branch still marks it taken", async () => {
+  test("release then claim by another session: the released epic is claimed from its branch", async () => {
     const { a, b } = await remoteWithClones(await unclaimedSeed());
     const c = await claim(a, SLUG, OPTS);
     if (!c.ok) throw new Error(c.message);
@@ -112,8 +112,61 @@ describe("claim", () => {
     expect(rel.ok).toBe(true);
     expect(await remoteSessionOf(b, SLUG)).toBeNull();
     const again = await claim(b, SLUG, { ...OPTS, harness: "pi" });
-    expect(again.ok).toBe(false);
-    if (!again.ok) expect(again.reason).toBe("taken");
+    expect(again.ok).toBe(true);
+    await expectClaimed(b, SLUG);
+    const wt = worktreePath(b, SLUG);
+    expect(await readFile(join(wt, EPIC), "utf8")).toContain("harness: pi");
+    expect(await gitOk(["log", "-1", "--format=%s"], wt)).toContain("claim app-performance");
+    expect(await gitOk(["log", "--format=%s", "origin/pm/app-performance"], b)).toContain(
+      "release app-performance",
+    );
+  });
+
+  test("a draft that exists only on its released branch is claimed again", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    const files = await unclaimedSeed();
+    await writeTree(a, {
+      "docs/pm/brand-new/epic.md": (files[EPIC] ?? "").replaceAll("app-performance", "brand-new"),
+    });
+    const c = await claim(a, "brand-new", OPTS);
+    if (!c.ok) throw new Error(c.message);
+    const rel = await release(a, "brand-new", { ...OPTS, session: c.session });
+    expect(rel.ok).toBe(true);
+    const r = await claim(b, "brand-new", { ...OPTS, harness: "pi" });
+    expect(r.ok).toBe(true);
+    await expectClaimed(b, "brand-new");
+    const epic = join(worktreePath(b, "brand-new"), "docs/pm/brand-new/epic.md");
+    expect(await readFile(epic, "utf8")).toContain("harness: pi");
+  });
+
+  test("--takeover of a released epic claims it, whatever its updated date", async () => {
+    const { a } = await remoteWithClones(await unclaimedSeed());
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
+    expect((await release(a, SLUG, { ...OPTS, session: c.session })).ok).toBe(true);
+    expect((await claim(a, SLUG, { ...OPTS, harness: "pi", takeover: true })).ok).toBe(true);
+  });
+
+  test("an abandoned epic stays taken", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
+    expect((await release(a, SLUG, { ...OPTS, session: c.session, abandon: true })).ok).toBe(true);
+    const r = await claim(b, SLUG, { ...OPTS, harness: "pi" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("taken");
+  });
+
+  test("a rejected push when claiming a released epic is push-failed, not a concurrent claim", async () => {
+    const { bare, a, b } = await remoteWithClones(await unclaimedSeed());
+    const c = await claim(a, SLUG, OPTS);
+    if (!c.ok) throw new Error(c.message);
+    expect((await release(a, SLUG, { ...OPTS, session: c.session })).ok).toBe(true);
+    await installPreReceiveHook(bare, 'echo "rejected by policy" >&2; exit 1');
+    const r = await claim(b, SLUG, { ...OPTS, harness: "pi" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("push-failed");
+    expect(await localBranchExists(b, "pm/app-performance")).toBe(true);
   });
 
   test("takeover allowed only on stale claim and records previous owner", async () => {

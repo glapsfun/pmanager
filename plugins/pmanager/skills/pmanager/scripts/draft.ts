@@ -104,10 +104,17 @@ async function present(path: string): Promise<boolean> {
   );
 }
 
-/** A slug whose origin/pm/<slug> exists: name the owner, or say the slug is spent. */
+/** A slug whose origin/pm/<slug> exists: name the owner, point at claim, or say the slug is spent. */
 async function takenOnOrigin(root: string, slug: string, branch: string): Promise<DraftOutcome> {
   const remote = await remoteEpicOf(root, slug);
   const owner = remote?.session ?? undefined;
+  if (!owner && remote && remote.status !== "abandoned") {
+    return {
+      ok: false,
+      reason: "taken",
+      message: `${slug} is released and unowned (status ${remote.status}, branch ${branch}); continue it with pm claim ${slug}, or pick another slug`,
+    };
+  }
   if (!owner) {
     return {
       ok: false,

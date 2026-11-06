@@ -294,9 +294,7 @@ describe("claims", () => {
     expect(statusBlock(s.stdout, "argocd-sso-dex")).toContain("session: unowned");
   }, 120_000);
 
-  // Known pm bug: claim treats an existing pm/<slug> branch as owned even when its
-  // epic carries no session, so a released draft reads "owned by unknown since unknown".
-  test.failing("a released draft can be claimed again", async () => {
+  test("a released draft can be claimed again", async () => {
     const ws = await buildWorkspace(await makeTempDir("multi-repo-reclaim"));
     const take = await as(ws.manager, "claude-code", "claim", "argocd-sso-dex", "--takeover");
     const id = /session: ([0-9a-f]{6})/.exec(take.stdout)?.[1] ?? "";
