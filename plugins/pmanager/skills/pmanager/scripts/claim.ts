@@ -151,9 +151,13 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     };
   }
   await fetchOrigin(root);
-  const takenBy = (await remoteBranchExists(root, branch))
-    ? ((await remoteSessionOf(root, slug)) ?? { harness: "unknown", claimed: "", branch })
-    : null;
+  const onRemote = await remoteBranchExists(root, branch);
+  const remote = onRemote ? await remoteEpicOf(root, slug) : null;
+  // A released epic has no session and is free to claim from its branch. An abandoned one, or a
+  // branch without the epic, still counts as taken: abandon spends the slug.
+  const free = remote !== null && remote.session === null && remote.status !== "abandoned";
+  const takenBy =
+    onRemote && !free ? (remote?.session ?? { harness: "unknown", claimed: "", branch }) : null;
 
   if (takenBy && !opts.takeover) {
     return {
@@ -165,7 +169,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   }
   // A fresh claim needs the epic on the current branch. A takeover gets the
   // file from the claimed branch itself, checked below after the checkout.
-  if (!takenBy && !(await localEpicExists(root, slug))) {
+  if (!onRemote && !(await localEpicExists(root, slug))) {
     return { ok: false, reason: "no-epic", message: `no ${epicRel(slug)} on the current branch` };
   }
 
@@ -188,21 +192,21 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
     if (previousBranch !== branch) {
       if (await localBranchExists(root, branch)) await checkoutBranch(root, branch, false);
       else {
-        await checkoutBranch(root, branch, true, takenBy ? `origin/${branch}` : undefined);
+        await checkoutBranch(root, branch, true, onRemote ? `origin/${branch}` : undefined);
         created = true;
       }
     }
   } else {
     const wt = await ensureWorktree(root, slug, {
       branch,
-      startPoint: takenBy ? `origin/${branch}` : undefined,
+      startPoint: onRemote ? `origin/${branch}` : undefined,
     });
     if (!wt.ok) return { ok: false, reason: "worktree", message: wt.message };
     target = wt.path;
     created = wt.created;
   }
   const pmDir = join(target, PM_DIR);
-  if (takenBy) {
+  if (onRemote) {
     await git(["pull", "-q", "--ff-only", "origin", branch], target);
     if (!(await localEpicExists(target, slug))) {
       return {
@@ -211,6 +215,8 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
         message: `no ${epicRel(slug)} on ${branch} either; nothing to take over`,
       };
     }
+  }
+  if (takenBy) {
     const planPath = await appendPlanChangelog(
       target,
       slug,
@@ -229,7 +235,7 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
       }),
     );
   } else {
-    await movePendingEpic(root, target, slug);
+    if (!onRemote) await movePendingEpic(root, target, slug);
     paths.push(
       await writeLogEntry(pmDir, {
         date: opts.today,
@@ -266,7 +272,10 @@ export async function claim(root: string, slug: string, opts: ClaimOptions): Pro
   // concurrent claim won; anything else (hook, permissions, network) keeps
   // every local change in place.
   await fetchOrigin(root);
-  const concurrent = !takenBy && (await remoteBranchExists(root, branch));
+  // A released epic's branch was there all along: only a session on it means another claim won.
+  const concurrent =
+    !takenBy &&
+    (free ? (await remoteSessionOf(root, slug)) !== null : await remoteBranchExists(root, branch));
   if (concurrent) {
     const owner = (await remoteSessionOf(root, slug)) ?? {
       harness: "unknown",

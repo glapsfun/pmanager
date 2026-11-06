@@ -290,6 +290,22 @@ describe("draftClaim", () => {
     expect(again.message).toBe("csv-export is already abandoned");
   });
 
+  test("--draft on a released, not abandoned, slug points at pm claim", async () => {
+    const { a, b } = await remoteWithClones(await unclaimedSeed());
+    const d = await draftClaim(a, "csv-export", OPTS);
+    if (!d.ok) throw new Error(d.message);
+    const opts = { harness: "claude-code", today: "2026-09-29", session: d.session };
+    expect((await release(a, "csv-export", opts)).ok).toBe(true);
+    const r = await draftClaim(b, "csv-export", { ...OPTS, harness: "pi" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("taken");
+      expect(r.message).toBe(
+        "csv-export is released and unowned (status draft, branch pm/csv-export); continue it with pm claim csv-export, or pick another slug",
+      );
+    }
+  });
+
   test("a forced abandon records whose claim it overrode", async () => {
     const { a } = await remoteWithClones(await unclaimedSeed());
     const d0 = await draftClaim(a, "csv-export", OPTS);
