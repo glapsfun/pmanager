@@ -24,6 +24,7 @@ import {
   TASK_V1_FIELDS,
 } from "./contract";
 import type { Finding } from "./findings";
+import { type Command, namesCommand, type Profile, partId, resolvePart } from "./profile";
 import { type Catalog, renderProjectsIndex, sameRepo } from "./projects";
 import {
   LOG_END,
@@ -37,6 +38,8 @@ import {
 import { type EpicRecord, epicId, type PmRepo } from "./repo";
 
 export interface CheckOptions {
+  /** stored profiles by project id; the part and release-link rules read them */
+  profiles?: Map<string, Profile>;
   staleDays: number;
   today: string;
   /** the main checkout's project catalog; absent or empty means no catalog rules */
@@ -263,6 +266,135 @@ export const planGraphRules: Rule = (repo, opts) => {
         `add ${t.id} to depends-on of each task that needs its result; if no task does, move it to the milestone whose state it serves; only if it serves none, give it standalone: <why no task needs it>`,
       ),
     );
+};
+
+/** Title, work, criteria and notes: where a task names the commands it runs. */
+function taskText(t: EpicRecord["tasks"][number]): string {
+  return [
+    getString(t.frontmatter, "title") ?? "",
+    sectionBody(t.body, "What to do") ?? "",
+    sectionBody(t.body, "Acceptance criteria") ?? "",
+    sectionBody(t.body, "Notes") ?? "",
+  ].join("\n");
+}
+
+function reachesAny(e: EpicRecord, from: string, targets: Set<string>): boolean {
+  const deps = new Map(e.tasks.map((t) => [t.id, getList(t.frontmatter, "depends-on")]));
+  const seen = new Set<string>();
+  const stack = [...(deps.get(from) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    if (targets.has(id)) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stack.push(...(deps.get(id) ?? []));
+  }
+  return false;
+}
+
+/**
+ * E-PRT-001..003 and E-REL-001..002: for the epic under work, while unstarted, and only when its
+ * repos have stored profiles. In #16's multi-stack run planners never named the chart's CI checks
+ * and 9 of 10 never moved the chart's image tag after the release.
+ */
+export const partRules: Rule = (repo, opts) => {
+  const e = repo.epics.find((x) => x.slug === opts.epic);
+  if (!e?.epic || !opts.profiles || !opts.catalog || e.tasks.some(started)) return [];
+  const repos = getList(e.epic.frontmatter, "repos");
+  const profiles = new Map<string, Profile>();
+  for (const project of opts.catalog.projects) {
+    const p = opts.profiles.get(project.id);
+    if (p && repos.some((u) => sameRepo(u, project.url))) profiles.set(project.id, p);
+  }
+  if (profiles.size === 0) return [];
+  const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
+  const known = [...profiles]
+    .flatMap(([id, p]) => p.parts.map((x) => partId(id, x.folder)))
+    .join(", ");
+  const quote = (cs: Command[]) => cs.map((c) => `\`${c.text}\` (${c.source})`).join(", ");
+  const out: Finding[] = [];
+  const named = new Map<string, string[]>();
+  for (const t of live) {
+    if (!("parts" in t.frontmatter)) {
+      out.push(
+        err(
+          t.path,
+          "E-PRT-001",
+          `${t.id} does not say which parts it changes`,
+          `add parts: [...] with ids from pm research (${known}), or parts: [] when it changes none`,
+        ),
+      );
+      continue;
+    }
+    const ids = getList(t.frontmatter, "parts");
+    named.set(t.id, ids);
+    const text = taskText(t);
+    for (const id of ids) {
+      const hit = resolvePart(id, profiles);
+      if (!hit) {
+        out.push(
+          err(
+            t.path,
+            "E-PRT-002",
+            `${t.id} names ${id}, which no stored profile has`,
+            `use one of ${known}`,
+          ),
+        );
+        continue;
+      }
+      const checks = hit.part.commands.filter((c) => c.role === "check");
+      if (checks.length > 0 && !checks.some((c) => namesCommand(text, c))) {
+        out.push(
+          err(
+            t.path,
+            "E-PRT-003",
+            `${t.id} changes ${id} but names none of its checks`,
+            `name one of ${quote(checks)} in What to do or Acceptance criteria`,
+          ),
+        );
+      }
+    }
+  }
+  if (getString(e.epic.frontmatter, "no-release")?.trim()) return out;
+  for (const [project, p] of profiles) {
+    for (const link of p.links.filter((l) => l.release)) {
+      const source = partId(project, link.source.folder);
+      const consumer = partId(project, link.consumer.folder);
+      const changed = live.filter((t) => named.get(t.id)?.includes(source));
+      const release =
+        p.parts
+          .find((x) => x.folder === link.source.folder)
+          ?.commands.filter((c) => c.role === "release") ?? [];
+      if (changed.length === 0 || release.length === 0) continue;
+      const releasers = new Set(
+        live.filter((t) => release.some((c) => namesCommand(taskText(t), c))).map((t) => t.id),
+      );
+      if (releasers.size === 0) {
+        out.push(
+          err(
+            e.epic.path,
+            "E-REL-001",
+            `${changed.map((t) => t.id).join(", ")} change ${source}, and no task releases it`,
+            `add a task that runs ${quote(release)} after those changes, or set no-release: <why> on the epic when it ships no release`,
+          ),
+        );
+      }
+      const movers = live.filter(
+        (t) => named.get(t.id)?.includes(consumer) && taskText(t).includes(link.consumer.key),
+      );
+      if (!movers.some((t) => releasers.has(t.id) || reachesAny(e, t.id, releasers))) {
+        out.push(
+          err(
+            e.epic.path,
+            "E-REL-002",
+            `no task naming ${consumer} moves ${link.consumer.key} after ${source}'s release`,
+            `add a task with parts: [${consumer}] that sets ${link.consumer.key} in ${link.consumer.file} to the released version and depends on the release task`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
 };
 
 function findCycle(epic: EpicRecord): string[] | null {
@@ -685,6 +817,11 @@ export const RULES = [
   "E-REF-003",
   "E-REF-004",
   "E-REF-005",
+  "E-PRT-001",
+  "E-PRT-002",
+  "E-PRT-003",
+  "E-REL-001",
+  "E-REL-002",
   "E-RND-001",
   "E-RND-002",
   "E-RND-003",
@@ -710,6 +847,7 @@ const rules: Rule[] = [
   identityRules,
   referenceRules,
   planGraphRules,
+  partRules,
   derivedViewRules,
   stateRules,
   acceptanceRules,

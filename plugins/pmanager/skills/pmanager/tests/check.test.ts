@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFile, unlink } from "node:fs/promises";
+import { cp, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { check } from "../scripts/check";
+import { type CheckOptions, check } from "../scripts/check";
+import { extractProfile, type Profile } from "../scripts/profile";
 import { type Catalog, type Project, renderProjectsIndex } from "../scripts/projects";
 import { loadPmRepo } from "../scripts/repo";
-import { copyFixture, makeTempDir, writeTree } from "./helpers";
+import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 const OPTS = { staleDays: 14, today: "2026-09-15" };
 
@@ -536,5 +537,156 @@ describe("project catalog", () => {
     expect(only(dup, "E-PRJ-001")).toHaveLength(1);
     expect(only(await findings([infra], { index: "stale\n" }), "W-PRJ-002")).toHaveLength(1);
     expect(only(await findings([infra]), "W-PRJ-002")).toEqual([]);
+  });
+});
+
+const ORDERS_URL = "https://github.com/pm-example/orders.git";
+const ORDERS_DIR = join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders");
+const TASKS = [T01, T02, T03, T04];
+let ordersProfile: Promise<Profile> | null = null;
+
+function profileOfOrders(): Promise<Profile> {
+  ordersProfile ??= (async () => {
+    const dir = await makeTempDir("check-orders");
+    await cp(ORDERS_DIR, dir, { recursive: true });
+    await initGitRepo(dir);
+    await gitOk(["add", "-A"], dir);
+    await gitOk(["commit", "-q", "-m", "seed"], dir);
+    return extractProfile(dir);
+  })();
+  return ordersProfile;
+}
+
+const CATALOG: Catalog = {
+  projects: [{ id: "orders", name: "orders", url: ORDERS_URL, added: "2026-09-01", file: "" }],
+  invalid: [],
+  index: null,
+};
+
+/** The fixture epic planned against orders, every task naming no parts unless set. */
+async function partFixture(): Promise<string> {
+  const root = await fixture();
+  await edit(root, EPIC, "  - git@github.com:glapsfun/webshop.git", `  - ${ORDERS_URL}`);
+  for (const t of TASKS) await edit(root, t, "\ndepends-on:", "\nparts: []\ndepends-on:");
+  return root;
+}
+
+/** Sets a task's parts and appends text to its Notes. */
+async function setTask(root: string, task: string, parts: string, notes = "") {
+  await edit(root, task, "parts: []", `parts: ${parts}`);
+  if (notes)
+    await Bun.write(join(root, task), `${await readFile(join(root, task), "utf8")}\n${notes}\n`);
+}
+
+async function partRules(root: string, opts: Partial<CheckOptions> = {}) {
+  const profiles = new Map([["orders", await profileOfOrders()]]);
+  return check(await loadPmRepo(root), {
+    ...OPTS,
+    epic: "app-performance",
+    catalog: CATALOG,
+    profiles,
+    ...opts,
+  }).filter((f) => /^E-(PRT|REL)-/.test(f.rule));
+}
+const ids = (fs: { rule: string; file: string }[]) =>
+  fs.map((f) => `${f.rule} ${f.file.split("/").pop()}`);
+
+describe("parts and release links (E-PRT, E-REL)", () => {
+  test("E-PRT-001: a task with no parts field; parts: [] passes every rule", async () => {
+    const root = await partFixture();
+    expect(await partRules(root)).toEqual([]);
+    await edit(root, T01, "parts: []\n", "");
+    expect(ids(await partRules(root))).toEqual(["E-PRT-001 T01-benchmark-orders.md"]);
+  });
+
+  test("E-PRT-002: a folder that is no part, and an unknown repo", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders/cmd]");
+    expect(ids(await partRules(root))).toEqual(["E-PRT-002 T01-benchmark-orders.md"]);
+    const repo = await partFixture();
+    await setTask(repo, T01, "[ordrs]");
+    expect(ids(await partRules(repo))).toEqual(["E-PRT-002 T01-benchmark-orders.md"]);
+  });
+
+  test("E-PRT-003: a part named with none of its checks", async () => {
+    const lint = await partFixture();
+    await setTask(lint, T01, "[orders/deploy/chart]", "`helm lint deploy/chart` passes");
+    expect(ids(await partRules(lint))).toEqual(["E-PRT-003 T01-benchmark-orders.md"]);
+    const unit = await partFixture();
+    await setTask(unit, T01, "[orders/deploy/chart]", "`helm unittest deploy/chart` passes");
+    expect(await partRules(unit)).toEqual([]);
+    const plan = await partFixture();
+    await setTask(plan, T01, "[orders/infra/terraform]", "run `terraform plan` and review it");
+    expect(ids(await partRules(plan))).toEqual(["E-PRT-003 T01-benchmark-orders.md"]);
+  });
+
+  test("E-REL-001: the service changes and no task names its release", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    expect(ids(await partRules(root))).toEqual(["E-REL-001 epic.md", "E-REL-002 epic.md"]);
+  });
+
+  test("E-REL-002: the chart's tag must move after the release", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    await setTask(root, T02, "[orders]", "run `make release`; `make test` passes");
+    await setTask(
+      root,
+      T04,
+      "[orders/deploy/chart]",
+      "set image.tag; `helm unittest deploy/chart` passes",
+    );
+    expect(ids(await partRules(root))).toEqual(["E-REL-002 epic.md"]);
+    await edit(root, T04, "depends-on: []", "depends-on: [T02]");
+    expect(await partRules(root)).toEqual([]);
+    const one = await partFixture();
+    await setTask(
+      one,
+      T01,
+      "[orders, orders/deploy/chart]",
+      "run `make release`, then set image.tag; `make test` and `helm unittest deploy/chart` pass",
+    );
+    expect(await partRules(one)).toEqual([]);
+  });
+
+  test("no-release on the epic turns the release rules off", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    await edit(
+      root,
+      EPIC,
+      "primary-metric:",
+      "no-release: a refactor, nothing ships\nprimary-metric:",
+    );
+    expect(await partRules(root)).toEqual([]);
+  });
+
+  test("silent for a started epic, plain check, another epic, and repos without a profile", async () => {
+    const root = await partFixture();
+    await edit(root, T01, "parts: []\n", "");
+    expect(await partRules(root, { epic: undefined })).toEqual([]);
+    expect(await partRules(root, { epic: "other" })).toEqual([]);
+    expect(await partRules(root, { profiles: new Map() })).toEqual([]);
+    await edit(root, T04, "status: todo", "status: in-progress");
+    expect(await partRules(root)).toEqual([]);
+  });
+});
+
+describe("a repo id with no root part", () => {
+  test("means the whole repo: its shared checks apply", async () => {
+    const base = await profileOfOrders();
+    const shared: Profile["shared"] = [
+      { text: "tflint --recursive", role: "check", source: "AGENTS.md:1" },
+    ];
+    const noRoot = { ...base, parts: base.parts.filter((p) => p.folder !== ""), shared };
+    const profiles = new Map([["orders", noRoot]]);
+    const missing = await partFixture();
+    await setTask(missing, T01, "[orders]", "add envs/staging");
+    expect(ids(await partRules(missing, { profiles }))).toEqual([
+      "E-PRT-003 T01-benchmark-orders.md",
+    ]);
+    const named = await partFixture();
+    await setTask(named, T01, "[orders]", "`tflint --recursive` passes");
+    expect(await partRules(named, { profiles })).toEqual([]);
   });
 });

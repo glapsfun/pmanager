@@ -6,6 +6,7 @@ import { claimBranch } from "./claim";
 import { countBySeverity, type Finding, formatFindings } from "./findings";
 import { fetchOrigin, git, hasRemote, headBranch, pushSetUpstream } from "./git";
 import { writeLogEntry } from "./log";
+import { loadProfiles } from "./profile";
 import type { Catalog } from "./projects";
 import { applyRender } from "./render";
 import { loadPmRepo, PM_DIR } from "./repo";
@@ -130,6 +131,7 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     catalog: opts.catalog,
     catalogScope: "epic",
     epic: slug,
+    profiles: opts.catalog ? await loadProfiles(opts.catalog) : undefined,
   });
   const { errors, warnings } = countBySeverity(findings);
   const result: RecordResult = {

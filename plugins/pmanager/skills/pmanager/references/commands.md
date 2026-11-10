@@ -85,6 +85,12 @@ Structure E-STR-001…005, identity E-ID-001…003, references E-REF-001…005
 no `standalone:` reason, while no task of the epic is or was in progress or
 done and a later milestone has tasks; only `record` and `check --epic` report
 it, for that epic),
+parts E-PRT-001…003 and release links E-REL-001…002 (for the epic under work,
+while unstarted, when its repos have a stored profile: a task with no `parts:`,
+an unknown part id, a part named with none of its checks; a released part
+changed with no task naming its release command, or no task naming the
+consumer part that moves the release link's key, such as `image.tag`, after
+the release; `no-release: <why>` on the epic turns the release rules off),
 rendered views E-RND-001…004, state E-ST-001…004, acceptance W-ACC-001 (an
 unchecked acceptance or exit criterion with a taste word such as "nicer" or
 "properly" and no number or command), history E-HIS-001 (a History line in

@@ -164,3 +164,44 @@ describe("partId and namesCommand", () => {
     expect(namesCommand("tflint is clean", c("tflint --recursive"))).toBe(true);
   });
 });
+
+describe("extraction details found in the example repos", () => {
+  test("CI setup lines are skipped and continued lines joined", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "svc/go.mod": "module svc\n",
+        ".github/workflows/v.yml":
+          "on:\n  pull_request:\njobs:\n  v:\n    steps:\n      - run: |\n          curl -sSL https://example.invalid/t.tgz | tar xz\n          ./bin/tool -a \\\n            -b dir/\n",
+      }),
+    );
+    const cs = p.parts[0]?.commands.map((c) => c.text) ?? [];
+    expect(cs).toEqual(["./bin/tool -a -b dir/"]);
+  });
+
+  test("root docs apply to every part, and are shared, when the root is not a part", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "envs/prod/main.tf": 'resource "x" "y" {}\n',
+        "modules/net/main.tf": 'resource "x" "z" {}\n',
+        "AGENTS.md":
+          "Run `tflint --recursive` before every commit.\n\nNever run `terraform apply` from a workstation.\n",
+      }),
+    );
+    for (const part of p.parts) {
+      expect(texts(part.commands, "check")).toContain("tflint --recursive");
+      expect(texts(part.commands, "forbidden")).toContain("terraform apply");
+    }
+    expect(texts(p.shared, "check")).toContain("tflint --recursive");
+  });
+
+  test("a command's head skips flags", () => {
+    const c: Command = {
+      text: "terraform -chdir=envs/prod validate",
+      role: "check",
+      source: "x:1",
+    };
+    expect(namesCommand("run terraform validate", c)).toBe(true);
+    expect(namesCommand("run terraform plan", c)).toBe(false);
+    expect(namesCommand("`yamllint .` passes", { ...c, text: "yamllint -s ." })).toBe(true);
+  });
+});

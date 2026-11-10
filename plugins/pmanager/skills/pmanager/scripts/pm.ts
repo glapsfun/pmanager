@@ -637,6 +637,7 @@ export async function main(
         catalog,
         catalogScope: target === main ? "main" : "epic",
         epic: args.epic,
+        profiles: await loadProfiles(catalog),
       });
       const { errors, warnings } = countBySeverity(findings);
       out(

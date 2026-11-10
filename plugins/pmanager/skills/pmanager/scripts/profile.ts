@@ -40,6 +40,8 @@ export interface Profile {
   links: Link[];
   /** files skipped, and why */
   notes: string[];
+  /** repo-wide commands: CI jobs with no path filter, and root docs when the root is not a part */
+  shared: Command[];
 }
 
 const STACKS: [RegExp, string][] = [
@@ -59,6 +61,9 @@ const TOOLS = new Set(
 const NEGATION = /\b(?:never|do not|don't|must not|avoid)\b/i;
 const DEPLOY = /^(?:terraform (?:plan|apply)|helm (?:upgrade|install)|kubectl (?:apply|rollout))\b/;
 const RELEASE = /^(?:make release|docker push|git tag)\b|\bpublish\b/;
+const SETUP = new Set(
+  "curl wget tar unzip cd echo export mkdir chmod cp mv rm ls cat sudo apt apt-get brew".split(" "),
+);
 const VERSION = /^v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?$/;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const GITLAB_RESERVED = new Set([
@@ -189,9 +194,9 @@ interface Job {
 
 function ciCommands(raw: string, file: string, lines: string[]): Command[] {
   const out: Command[] = [];
-  for (const l of lines.flatMap((x) => x.split("\n"))) {
-    const text = l.trim();
-    if (text === "" || text.startsWith("#")) continue;
+  for (const l of lines.flatMap((x) => x.replace(/\\\n\s*/g, " ").split("\n"))) {
+    const text = l.trim().replace(/\s+/g, " ");
+    if (text === "" || text.startsWith("#") || SETUP.has(text.split(" ")[0] ?? "")) continue;
     const role = roleOf(text, false);
     if (role) out.push({ text, role, source: `${file}:${lineOf(raw, text)}` });
   }
@@ -332,10 +337,20 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     }
   };
 
+  const shared: Command[] = [];
   for (const part of parts) {
     for (const name of ["AGENTS.md", "README.md"]) {
       const f = part.folder ? `${part.folder}/${name}` : name;
       if (files.includes(f)) add(part, docCommands(await read(f), f));
+    }
+  }
+  // A root that is not a part still speaks for the whole repo (infra's AGENTS.md).
+  if (!folders.includes("")) {
+    for (const name of ["AGENTS.md", "README.md"]) {
+      if (!files.includes(name)) continue;
+      const cs = docCommands(await read(name), name);
+      shared.push(...cs);
+      for (const part of parts) add(part, cs);
     }
   }
 
@@ -363,6 +378,11 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     const own = files.filter((f) => partOf(f) === part.folder);
     for (const j of jobs) if (covers(j.filters, own)) add(part, j.commands);
   }
+  for (const j of jobs) {
+    if (j.filters.includes(null)) {
+      for (const c of j.commands) if (!shared.some((x) => x.text === c.text)) shared.push(c);
+    }
+  }
 
   const found: (Literal & { folder: string })[] = [];
   for (const f of files) {
@@ -387,7 +407,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links.push({ value: c.value, source: end(s), consumer: end(c), release });
     }
   }
-  return { revision, parts, links, notes };
+  return { revision, parts, links, notes, shared };
 }
 
 export function partId(projectId: string, folder: string): string {
@@ -399,10 +419,11 @@ function head(text: string): string {
   const t = text.trim().split(/\s+/);
   const first = t[0] ?? "";
   if (first.includes("/")) return posix.basename(first);
-  const second = t[1];
-  if (!second || second.startsWith("-") || second.includes("/") || second.startsWith("."))
-    return first;
-  return second === "run" && t[2] ? `${first} run ${t[2]}` : `${first} ${second}`;
+  // The first word after the flags is the subcommand: terraform -chdir=x validate.
+  const rest = t.slice(1).filter((x) => !x.startsWith("-"));
+  const second = rest[0];
+  if (!second || !/^[a-z][\w-]*$/.test(second)) return first;
+  return second === "run" && rest[1] ? `${first} run ${rest[1]}` : `${first} ${second}`;
 }
 
 export function namesCommand(text: string, c: Command): boolean {
@@ -452,7 +473,7 @@ export function readProfile(raw: string): Profile | null {
   try {
     const p = JSON.parse(block) as Profile;
     return Array.isArray(p.parts) && Array.isArray(p.links) && typeof p.revision === "string"
-      ? p
+      ? { ...p, shared: Array.isArray(p.shared) ? p.shared : [] }
       : null;
   } catch {
     return null;
@@ -512,4 +533,23 @@ export function formatPartsBlock(
     ...lines.slice(0, cap),
     `  ... ${lines.length - cap} more in docs/pm/projects/${projectId}.md`,
   ];
+}
+
+/** The project and folder a part id names, by the longest project id that prefixes it. */
+export function resolvePart(
+  id: string,
+  profiles: Map<string, Profile>,
+): { project: string; part: Part } | null {
+  const project = [...profiles.keys()]
+    .filter((p) => id === p || id.startsWith(`${p}/`))
+    .sort((a, b) => b.length - a.length)[0];
+  if (project === undefined) return null;
+  const folder = id === project ? "" : id.slice(project.length + 1);
+  const profile = profiles.get(project);
+  const part = profile?.parts.find((x) => x.folder === folder);
+  if (part) return { project, part };
+  // The bare repo id of a repo without a root part means the whole repo, as for a new folder.
+  if (folder === "" && profile)
+    return { project, part: { folder: "", stacks: [], commands: profile.shared } };
+  return null;
 }

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { getList, getString, sectionBody } from "./contract";
 import { git } from "./git";
-import type { Command, Part, Profile, Role } from "./profile";
+import { type Command, type Profile, type Role, resolvePart } from "./profile";
 import { epicBySlug, LOCAL_DIR, PM_DIR, type PmRepo, taskById } from "./repo";
 import { lookupMapped } from "./repo-url";
 
@@ -58,20 +58,6 @@ export function resolveRepo(url: string, map: Record<string, string>): string | 
 
 function trimmed(body: string, heading: string): string {
   return (sectionBody(body, heading) ?? "").trim() || "(empty)";
-}
-
-/** The project and folder a part id names, by the longest project id that prefixes it. */
-function resolvePart(
-  id: string,
-  profiles: Map<string, Profile>,
-): { project: string; part: Part } | null {
-  const project = [...profiles.keys()]
-    .filter((p) => id === p || id.startsWith(`${p}/`))
-    .sort((a, b) => b.length - a.length)[0];
-  if (project === undefined) return null;
-  const folder = id === project ? "" : id.slice(project.length + 1);
-  const part = profiles.get(project)?.parts.find((x) => x.folder === folder);
-  return part ? { project, part } : null;
 }
 
 function partLines(ids: string[], profiles: Map<string, Profile>): string[] {

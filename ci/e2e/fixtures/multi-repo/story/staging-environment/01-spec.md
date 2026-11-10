@@ -241,6 +241,7 @@ title: Add a staging Terraform environment in infra
 status: todo
 priority: must
 depends-on: []
+parts: [infra]
 estimate: M
 owner: unassigned
 updated: 2026-11-04
@@ -303,6 +304,7 @@ title: Merge the staging environment and capture cluster access for Argo CD
 status: todo
 priority: must
 depends-on: [T01]
+parts: []
 estimate: S
 owner: unassigned
 updated: 2026-11-04
@@ -358,6 +360,7 @@ title: Register the staging cluster as a remote Argo CD destination
 status: todo
 priority: must
 depends-on: [T02]
+parts: []
 estimate: M
 owner: unassigned
 updated: 2026-11-04
@@ -418,6 +421,7 @@ title: Split webshop manifests into a kustomize base plus prod/staging overlays
 status: todo
 priority: must
 depends-on: []
+parts: [argocd/workloads/webshop]
 estimate: M
 owner: unassigned
 updated: 2026-11-04
@@ -482,6 +486,7 @@ title: Add a staging ingress-nginx Argo CD Application
 status: todo
 priority: must
 depends-on: [T03]
+parts: [argocd]
 estimate: S
 owner: unassigned
 updated: 2026-11-04
@@ -524,6 +529,8 @@ and its own destination (registered in T03), or the staging webshop Ingress
 
 ## Notes
 
+CI runs yamllint and kubeconform on the change.
+
 Evidence: [argocd/apps/ingress-nginx.yaml].
 <!-- pm:file staging-environment/tasks/T06-staging-webshop-application.md -->
 ---
@@ -534,6 +541,7 @@ title: Add a staging webshop Argo CD Application
 status: todo
 priority: must
 depends-on: [T03, T04, T05]
+parts: [argocd]
 estimate: S
 owner: unassigned
 updated: 2026-11-04
@@ -579,6 +587,8 @@ place first — the last piece of M3.
 
 ## Notes
 
+CI runs yamllint and kubeconform on the change.
+
 Evidence: [argocd/apps/webshop.yaml].
 <!-- pm:file staging-environment/tasks/T07-validate-staging-first-workflow.md -->
 ---
@@ -589,6 +599,7 @@ title: Validate the staging-first workflow end-to-end
 status: todo
 priority: must
 depends-on: [T06]
+parts: []
 estimate: S
 owner: unassigned
 updated: 2026-11-04
