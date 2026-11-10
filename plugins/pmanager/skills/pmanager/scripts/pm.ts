@@ -762,7 +762,8 @@ export async function main(
       try {
         const source = await repoForEpic(root, repo, slug);
         const map = await loadLocalRepoMap(await repoMapPmDir(root));
-        const brief = buildHandoff(source, slug, taskId, map);
+        const { catalog } = await mainCatalog(root);
+        const brief = buildHandoff(source, slug, taskId, map, await loadProfiles(catalog));
         out(args.json ? json({ brief }) : brief);
         return 0;
       } catch (e) {
