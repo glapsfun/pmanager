@@ -60,6 +60,8 @@ function trimmed(body: string, heading: string): string {
   return (sectionBody(body, heading) ?? "").trim() || "(empty)";
 }
 
+const LINKS_SHOWN = 5;
+
 function partLines(ids: string[], profiles: Map<string, Profile>): string[] {
   const out: string[] = [];
   const quote = (cs: Command[]) => cs.map((c) => `\`${c.text}\` (${c.source})`).join("; ");
@@ -80,11 +82,18 @@ function partLines(ids: string[], profiles: Map<string, Profile>): string[] {
       const cs = hit.part.commands.filter((c) => c.role === role);
       if (cs.length > 0) out.push(`  - ${label}: ${quote(cs)}`);
     }
-    for (const l of profiles.get(hit.project)?.links ?? []) {
-      if (l.source.folder !== hit.part.folder && l.consumer.folder !== hit.part.folder) continue;
+    const touching = (profiles.get(hit.project)?.links ?? [])
+      .filter((l) => l.source.folder === hit.part.folder || l.consumer.folder === hit.part.folder)
+      .sort((a, b) => Number(b.release) - Number(a.release));
+    for (const l of touching.slice(0, LINKS_SHOWN)) {
       const kind = l.release ? "release link" : "link";
       out.push(
         `  - ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key} (\`${l.value}\`)`,
+      );
+    }
+    if (touching.length > LINKS_SHOWN) {
+      out.push(
+        `  - ${touching.length - LINKS_SHOWN} more links in docs/pm/projects/${hit.project}.md`,
       );
     }
   }

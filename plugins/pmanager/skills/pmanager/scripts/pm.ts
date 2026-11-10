@@ -10,6 +10,7 @@ import { countBySeverity, formatFindings } from "./findings";
 import {
   commitPaths,
   fetchOrigin,
+  git,
   hasRemote,
   listFetchedBranches,
   pushSetUpstream,
@@ -44,7 +45,7 @@ import {
 // Folders under docs/pm that are not epics, so no epic may take their name.
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
-import { formatPartsBlock, loadProfiles } from "./profile";
+import { formatPartsBlock, loadProfiles, profileInputChanged } from "./profile";
 import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import {
@@ -476,11 +477,21 @@ async function runResearch(root: string, args: Args): Promise<number> {
   );
   const profiles = await loadProfiles(catalog);
   // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
-  const parts = views.map((v, i) => {
-    const id = targets[i]?.name ?? "";
-    const p = profiles.get(id);
-    return p ? formatPartsBlock(id, p, v.ref) : null;
-  });
+  const parts = await Promise.all(
+    views.map(async (v, i) => {
+      const id = targets[i]?.name ?? "";
+      const p = profiles.get(id);
+      if (!p) return null;
+      // Stale only when a commit since the profile touched what it was read from.
+      let stale: string | null = null;
+      if (!p.revision.startsWith(v.ref)) {
+        const d = await git(["diff", "--name-only", p.revision, "HEAD"], targets[i]?.path ?? root);
+        const changed = d.code === 0 ? d.stdout.split("\n").filter(Boolean) : null;
+        if (changed === null || profileInputChanged(changed)) stale = v.ref;
+      }
+      return formatPartsBlock(id, p, stale);
+    }),
+  );
   if (args.json) {
     const withParts = views.map((v, i) => (parts[i] ? { ...v, parts: parts[i] } : v));
     out(json(withParts.length === 1 ? withParts[0] : withParts));

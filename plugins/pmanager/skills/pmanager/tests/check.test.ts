@@ -690,3 +690,33 @@ describe("a repo id with no root part", () => {
     expect(await partRules(named, { profiles })).toEqual([]);
   });
 });
+
+describe("final review: rules", () => {
+  test("I4: a profile with no parts and no shared commands asks nothing", async () => {
+    const root = await partFixture();
+    await edit(root, T01, "parts: []\n", "");
+    const empty: Profile = { revision: "r", parts: [], links: [], notes: [], shared: [] };
+    expect(await partRules(root, { profiles: new Map([["orders", empty]]) })).toEqual([]);
+  });
+
+  test("I8 and I1: hints offer the bare repo id and stay short on a big profile", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders/nope]");
+    const many: Profile = {
+      revision: "r",
+      parts: Array.from({ length: 40 }, (_, i) => ({
+        folder: `svc${i}`,
+        stacks: ["go"],
+        commands: [],
+      })),
+      links: [],
+      notes: [],
+      shared: [{ text: "tflint --recursive", role: "check", source: "AGENTS.md:1" }],
+    };
+    const [f] = await partRules(root, { profiles: new Map([["orders", many]]) });
+    expect(f?.rule).toBe("E-PRT-002");
+    expect(f?.fix).toContain("orders (whole repo)");
+    expect(f?.fix).toContain("more");
+    expect(f?.fix.length ?? 0).toBeLessThan(400);
+  });
+});

@@ -608,11 +608,11 @@ describe("pm research parts block", () => {
 
   test("a stale profile says so and names refresh", async () => {
     const { root, orders } = await managerWithOrders();
-    await writeTree(orders, { "NOTES.md": "later\n" });
+    await writeTree(orders, { "README.md": "# orders\n\nRun `make test`.\n" });
     await gitOk(["add", "-A"], orders);
     await gitOk(["commit", "-q", "-m", "later"], orders);
     const r = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
-    expect(r.stdout).toMatch(/stale: checkout at [0-9a-f]{7}; run pm project refresh orders/);
+    expect(r.stdout).toMatch(/stale: .*checkout at [0-9a-f]{7}.*pm project refresh orders/);
   });
 
   test("the parts block is outside pruning", async () => {
@@ -622,5 +622,58 @@ describe("pm research parts block", () => {
       root,
     );
     expect(r.stdout).toContain("ct lint --charts deploy/chart");
+  });
+});
+
+describe("final review: research parts block", () => {
+  async function managerWith(files: Record<string, string>, name: string) {
+    const root = await orchestrationRepo();
+    const dir = join(await makeTempDir("research-target"), name);
+    await writeTree(dir, files);
+    await initGitRepo(dir);
+    await gitOk(["add", "-A"], dir);
+    await gitOk(["commit", "-q", "-m", "seed"], dir);
+    await gitOk(["remote", "add", "origin", `https://github.com/acme/${name}.git`], dir);
+    const add = await runPm(["project", "add", dir], root);
+    if (add.code !== 0) throw new Error(add.stderr);
+    return { root, dir };
+  }
+
+  test("I8: a repo without a root part shows its bare id and shared checks", async () => {
+    const { root } = await managerWith(
+      {
+        "envs/prod/main.tf": 'x = "y"\n',
+        "AGENTS.md": "Run `tflint --recursive` before every commit.\n",
+      },
+      "infra",
+    );
+    const r = await runPm(["research", "anything", "--no-gh", "--repo", "infra"], root);
+    expect(r.stdout).toContain("infra (repo-wide): checks tflint --recursive");
+  });
+
+  test("I1: the block stays within its budget on a repo with many parts", async () => {
+    const files: Record<string, string> = {
+      ".github/workflows/ci.yml": `on: [push]\njobs:\n  t:\n    steps:\n${Array.from({ length: 10 }, (_, i) => `      - run: make check-${i} ${"x".repeat(90)}\n`).join("")}`,
+    };
+    for (let i = 0; i < 40; i++) files[`svc${String(i).padStart(2, "0")}/go.mod`] = "module x\n";
+    const { root } = await managerWith(files, "mono");
+    const r = await runPm(["research", "anything", "--no-gh", "--repo", "mono"], root);
+    const block = r.stdout.slice(r.stdout.indexOf("parts: mono"), r.stdout.indexOf("\nfiles"));
+    expect(block.length).toBeLessThan(1800);
+    expect(block).toContain("same checks as mono/svc00");
+    expect(block).toContain("more");
+  });
+
+  test("I7: only a change to the profile's inputs makes it stale", async () => {
+    const { root, orders } = await managerWithOrders();
+    await writeTree(orders, { "internal/orders/new.go": "package orders\n" });
+    await gitOk(["add", "-A"], orders);
+    await gitOk(["commit", "-q", "-m", "code"], orders);
+    const code = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
+    expect(code.stdout).not.toContain("stale:");
+    await writeTree(orders, { "deploy/chart/values.yaml": "replicaCount: 3\n" });
+    await gitOk(["commit", "-q", "-am", "config"], orders);
+    const config = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
+    expect(config.stdout).toMatch(/stale: .*pm project refresh orders/);
   });
 });

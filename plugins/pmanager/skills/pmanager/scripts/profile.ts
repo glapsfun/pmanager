@@ -549,38 +549,83 @@ export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profil
 }
 
 /** Research's view of a stored profile: kept out of pruning, so it is short by construction. */
+/** Files whose change can change a profile; any other commit leaves it current. */
+const PROFILE_INPUT =
+  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|Makefile)$|\.tf$|(?:^|\/)values[^/]*\.ya?ml$/;
+
+export function profileInputChanged(changed: string[]): boolean {
+  return changed.some((f) => PROFILE_INPUT.test(f));
+}
+
+const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 3)}...` : s);
+
+/** A role's commands, a few at most, each clipped: research pays for this on every call. */
+function some(cs: Command[], role: Role, n: number): string {
+  const xs = cs.filter((c) => c.role === role).map((c) => clip(c.text));
+  return xs.length > n ? `${xs.slice(0, n).join("; ")} (+${xs.length - n} more)` : xs.join("; ");
+}
+
+/**
+ * Research's view of a stored profile, kept out of pruning, so it holds itself to a character
+ * budget: a few commands per part, parts with the same checks collapsed, the rest in the file.
+ */
 export function formatPartsBlock(
   projectId: string,
   p: Profile,
-  headSha: string,
-  cap = 20,
+  stale: string | null,
+  budget = 1500,
 ): string[] {
-  const lines = [`parts: ${projectId} @ ${p.revision.slice(0, 7)}`];
-  if (headSha && !p.revision.startsWith(headSha)) {
-    lines.push(`stale: checkout at ${headSha.slice(0, 7)}; run pm project refresh ${projectId}`);
+  const head = [`parts: ${projectId} @ ${p.revision.slice(0, 7)}`];
+  if (stale) {
+    head.push(
+      `stale: the repo's CI, docs or config changed (checkout at ${stale.slice(0, 7)}); tell the user to run pm project refresh ${projectId}`,
+    );
   }
-  const of = (part: Part, role: Role) =>
-    part.commands.filter((c) => c.role === role).map((c) => c.text);
+  const body: string[] = [];
+  if (!p.parts.some((x) => x.folder === "") && p.shared.length > 0) {
+    body.push(`  ${projectId} (repo-wide): checks ${some(p.shared, "check", 3) || "none known"}`);
+  }
+  const seen = new Map<string, string>();
   for (const part of p.parts) {
-    const say = [`checks ${of(part, "check").join("; ") || "none known"}`];
-    if (of(part, "release").length) say.push(`releases with ${of(part, "release").join("; ")}`);
-    if (of(part, "deploy").length) say.push(`deploys with ${of(part, "deploy").join("; ")}`);
-    if (of(part, "forbidden").length) say.push(`do not run ${of(part, "forbidden").join("; ")}`);
-    lines.push(
-      `  ${partId(projectId, part.folder)} (${part.stacks.join(", ")}): ${say.join(" · ")}`,
-    );
+    const id = partId(projectId, part.folder);
+    const key = JSON.stringify(part.commands.map((c) => [c.role, c.text]));
+    const same = seen.get(key);
+    if (same) {
+      body.push(`  ${id}: same checks as ${same}`);
+      continue;
+    }
+    seen.set(key, id);
+    const say = [`checks ${some(part.commands, "check", 3) || "none known"}`];
+    for (const [role, label] of [
+      ["release", "releases with"],
+      ["deploy", "deploys with"],
+      ["forbidden", "do not run"],
+    ] as [Role, string][]) {
+      const xs = some(part.commands, role, 2);
+      if (xs) say.push(`${label} ${xs}`);
+    }
+    body.push(`  ${id} (${part.stacks.join(", ")}): ${say.join(" · ")}`);
   }
-  for (const l of p.links) {
+  for (const l of [...p.links].sort((a, b) => Number(b.release) - Number(a.release))) {
     const kind = l.release ? "release link" : "link";
-    lines.push(
-      `  ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key} (${l.value})`,
+    body.push(
+      clip(
+        `  ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key}`,
+        120,
+      ),
     );
   }
-  if (lines.length <= cap) return lines;
-  return [
-    ...lines.slice(0, cap),
-    `  ... ${lines.length - cap} more in docs/pm/projects/${projectId}.md`,
-  ];
+  const out = [...head];
+  let used = out.join("\n").length;
+  for (const [i, line] of body.entries()) {
+    if (used + line.length + 1 > budget) {
+      out.push(`  ... ${body.length - i} more lines in docs/pm/projects/${projectId}.md`);
+      return out;
+    }
+    out.push(line);
+    used += line.length + 1;
+  }
+  return out;
 }
 
 /** The project and folder a part id names, by the longest project id that prefixes it. */

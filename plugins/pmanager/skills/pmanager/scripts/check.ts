@@ -304,13 +304,21 @@ export const partRules: Rule = (repo, opts) => {
   const profiles = new Map<string, Profile>();
   for (const project of opts.catalog.projects) {
     const p = opts.profiles.get(project.id);
-    if (p && repos.some((u) => sameRepo(u, project.url))) profiles.set(project.id, p);
+    // A repo pm found nothing in asks nothing of its tasks.
+    const empty = !p || (p.parts.length === 0 && p.shared.length === 0);
+    if (p && !empty && repos.some((u) => sameRepo(u, project.url))) profiles.set(project.id, p);
   }
   if (profiles.size === 0) return [];
   const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
-  const known = [...profiles]
-    .flatMap(([id, p]) => p.parts.map((x) => partId(id, x.folder)))
-    .join(", ");
+  // The ids a planner can use, capped: a hint repeated per task must stay short.
+  const allIds = [...profiles].flatMap(([id, p]) => [
+    ...(!p.parts.some((x) => x.folder === "") && p.shared.length > 0 ? [`${id} (whole repo)`] : []),
+    ...p.parts.map((x) => partId(id, x.folder)),
+  ]);
+  const known =
+    allIds.length > 10
+      ? `${allIds.slice(0, 10).join(", ")}, ${allIds.length - 10} more (pm research --repo <id> lists them)`
+      : allIds.join(", ");
   const quote = (cs: Command[]) => cs.map((c) => `\`${c.text}\` (${c.source})`).join(", ");
   const out: Finding[] = [];
   const named = new Map<string, string[]>();

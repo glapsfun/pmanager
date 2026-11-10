@@ -162,3 +162,31 @@ describe("buildHandoff with parts", () => {
     );
   });
 });
+
+describe("final review: handoff size", () => {
+  test("I1: links per part are capped", async () => {
+    const repo = await withParts("[orders/deploy/chart]");
+    const base = (await ordersProfiles()).get("orders") as Profile;
+    const end = (folder: string, i: number) => ({
+      folder,
+      file: `${folder}/f${i}`,
+      line: 1,
+      key: `k${i}`,
+    });
+    const links = Array.from({ length: 12 }, (_, i) => ({
+      value: `value-${i}`,
+      source: end("infra/terraform", i),
+      consumer: end("deploy/chart", i),
+      release: false,
+    }));
+    const brief = buildHandoff(
+      repo,
+      "app-performance",
+      "T01",
+      {},
+      new Map([["orders", { ...base, links }]]),
+    );
+    expect(brief.match(/^ {2}- link:/gm)?.length).toBe(5);
+    expect(brief).toContain("7 more links");
+  });
+});
