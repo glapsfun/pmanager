@@ -16,7 +16,7 @@ const ORDERS = join(import.meta.dir, "fixtures", "orders");
 // The example's own author, so two builds give the same orders commit.
 const AUTHOR = ["-c", "user.name=pm-example", "-c", "user.email=pm-example@example.invalid"];
 
-export const MULTI_STACK_REQUEST = `The orders service should let customers export their order history as a CSV file. It should work asynchronously: a customer asks for an export, gets an answer straight away, and downloads the file once it is ready. Export files are kept for 30 days, apart from the order data itself. Plan this as one epic with a plan and tasks the team can start next sprint. I won't be around for questions, note your assumptions. ${CONTRACT_SENTENCE}`;
+export const MULTI_STACK_REQUEST = `The orders service should let customers export their order history as a CSV file. It should work asynchronously: a customer asks for an export, gets an answer straight away, and downloads the file once it is ready. Export files live in their own storage, apart from the order data, and are deleted 30 days from when they are made. Plan this as one epic with a plan and tasks the team can start next sprint. I won't be around for questions, note your assumptions. ${CONTRACT_SENTENCE}`;
 
 /**
  * The cold multi-repo-context fixture plus `orders`, a monorepo whose Terraform

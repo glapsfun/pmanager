@@ -9,6 +9,8 @@ import { buildMultiStackRepoFixture, MULTI_STACK_REQUEST } from "../scenarios/mu
 import { CONTRACT_SENTENCE } from "../scenarios/types";
 import { PM_TODAY } from "../skill-paths";
 
+const ORDERS_TREE = "f89e6542d52d3e065cd3251311944f86c9c8c506";
+
 async function built(): Promise<{ dir: string; info: FixtureInfo; orders: string }> {
   const dir = join(await makeTempDir("bench-msr"), "fixture");
   const info = await buildMultiStackRepoFixture(dir);
@@ -48,6 +50,11 @@ describe("multi-stack-repo fixture", () => {
     expect((await pmProcess(fx.dir, ["check"], { env: { PM_TODAY } })).code).toBe(0);
     expect((await gitOk(["status", "--porcelain"], fx.dir)).trim()).toBe("");
     expect(fx.info.epicSlugsBefore).toEqual([]);
+  });
+
+  test("the orders files are the ones the experiment's rubric records", async () => {
+    // hashFixture covers only the manager, so the orders content is pinned here and in RUBRIC.md.
+    expect((await gitOk(["rev-parse", "HEAD^{tree}"], fx.orders)).trim()).toBe(ORDERS_TREE);
   });
 
   test("each part's commands live only in that part's own file", () => {
@@ -105,6 +112,8 @@ describe("multi-stack-repo scenario", () => {
     const request = MULTI_STACK_REQUEST.slice(0, -CONTRACT_SENTENCE.length);
     expect(request).toContain("export");
     expect(request).toContain("30 days");
+    // Exports need storage of their own, so a plan cannot settle for a prefix of the orders bucket.
+    expect(request).toContain("their own storage");
     expect(request).not.toMatch(
       /terraform|helm|chart|bucket|\bmake\b|release|image|tag\b|deploy|infra|kubernetes|order of|before|after|pmanager/i,
     );
