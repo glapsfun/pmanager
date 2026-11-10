@@ -478,3 +478,38 @@ export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profil
   }
   return out;
 }
+
+/** Research's view of a stored profile: kept out of pruning, so it is short by construction. */
+export function formatPartsBlock(
+  projectId: string,
+  p: Profile,
+  headSha: string,
+  cap = 20,
+): string[] {
+  const lines = [`parts: ${projectId} @ ${p.revision.slice(0, 7)}`];
+  if (headSha && !p.revision.startsWith(headSha)) {
+    lines.push(`stale: checkout at ${headSha.slice(0, 7)}; run pm project refresh ${projectId}`);
+  }
+  const of = (part: Part, role: Role) =>
+    part.commands.filter((c) => c.role === role).map((c) => c.text);
+  for (const part of p.parts) {
+    const say = [`checks ${of(part, "check").join("; ") || "none known"}`];
+    if (of(part, "release").length) say.push(`releases with ${of(part, "release").join("; ")}`);
+    if (of(part, "deploy").length) say.push(`deploys with ${of(part, "deploy").join("; ")}`);
+    if (of(part, "forbidden").length) say.push(`do not run ${of(part, "forbidden").join("; ")}`);
+    lines.push(
+      `  ${partId(projectId, part.folder)} (${part.stacks.join(", ")}): ${say.join(" · ")}`,
+    );
+  }
+  for (const l of p.links) {
+    const kind = l.release ? "release link" : "link";
+    lines.push(
+      `  ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key} (${l.value})`,
+    );
+  }
+  if (lines.length <= cap) return lines;
+  return [
+    ...lines.slice(0, cap),
+    `  ... ${lines.length - cap} more in docs/pm/projects/${projectId}.md`,
+  ];
+}

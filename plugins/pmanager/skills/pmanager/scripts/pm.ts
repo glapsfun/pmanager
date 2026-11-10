@@ -44,6 +44,7 @@ import {
 // Folders under docs/pm that are not epics, so no epic may take their name.
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
+import { formatPartsBlock, loadProfiles } from "./profile";
 import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import {
@@ -473,8 +474,23 @@ async function runResearch(root: string, args: Args): Promise<number> {
   const views = memoryOnce(reports).map((r) =>
     args.full ? { ...r, pruned: null } : prune(r, args.budget),
   );
-  if (args.json) out(json(views.length === 1 ? views[0] : views));
-  else out(views.map(formatResearch).join("\n"));
+  const profiles = await loadProfiles(catalog);
+  // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
+  const parts = views.map((v, i) => {
+    const id = targets[i]?.name ?? "";
+    const p = profiles.get(id);
+    return p ? formatPartsBlock(id, p, v.ref) : null;
+  });
+  if (args.json) {
+    const withParts = views.map((v, i) => (parts[i] ? { ...v, parts: parts[i] } : v));
+    out(json(withParts.length === 1 ? withParts[0] : withParts));
+  } else {
+    const blocks = views.map((v, i) => {
+      const [header, ...rest] = formatResearch(v).split("\n");
+      return [header, ...(parts[i] ?? []), ...rest].join("\n");
+    });
+    out(blocks.join("\n"));
+  }
   return 0;
 }
 

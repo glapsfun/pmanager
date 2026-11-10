@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod } from "node:fs/promises";
+import { chmod, cp } from "node:fs/promises";
 import { join } from "node:path";
 import {
   buildResearch,
@@ -572,5 +572,55 @@ describe("pm research (cli)", () => {
     );
     expect(notGit.code).toBe(2);
     expect(notGit.stderr).toContain("not inside a git repository");
+  });
+});
+
+const ORDERS_FIXTURE = join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders");
+
+/** A manager with the bench's orders monorepo registered from a committed checkout. */
+async function managerWithOrders(): Promise<{ root: string; orders: string }> {
+  const root = await orchestrationRepo();
+  const orders = join(await makeTempDir("research-orders"), "orders");
+  await cp(ORDERS_FIXTURE, orders, { recursive: true });
+  await initGitRepo(orders);
+  await gitOk(["add", "-A"], orders);
+  await gitOk(["commit", "-q", "-m", "seed"], orders);
+  await gitOk(["remote", "add", "origin", "https://github.com/pm-example/orders.git"], orders);
+  const add = await runPm(["project", "add", orders], root);
+  if (add.code !== 0) throw new Error(add.stderr);
+  return { root, orders };
+}
+
+describe("pm research parts block", () => {
+  test("research --repo <id> prints the parts block before the evidence", async () => {
+    const { root } = await managerWithOrders();
+    const args = ["research", "exports", "--no-gh", "--repo", "orders"];
+    const r = await runPm(args, root);
+    expect(r.code).toBe(0);
+    const at = r.stdout.indexOf("parts: orders @ ");
+    expect(at).toBeGreaterThan(r.stdout.indexOf("research: "));
+    expect(at).toBeLessThan(r.stdout.indexOf("\nfiles"));
+    expect(r.stdout).toContain("helm unittest deploy/chart");
+    expect(r.stdout).toContain("image.tag");
+    const json = JSON.parse((await runPm([...args, "--json"], root)).stdout);
+    expect(json.parts.join("\n")).toContain("helm unittest deploy/chart");
+  });
+
+  test("a stale profile says so and names refresh", async () => {
+    const { root, orders } = await managerWithOrders();
+    await writeTree(orders, { "NOTES.md": "later\n" });
+    await gitOk(["add", "-A"], orders);
+    await gitOk(["commit", "-q", "-m", "later"], orders);
+    const r = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
+    expect(r.stdout).toMatch(/stale: checkout at [0-9a-f]{7}; run pm project refresh orders/);
+  });
+
+  test("the parts block is outside pruning", async () => {
+    const { root } = await managerWithOrders();
+    const r = await runPm(
+      ["research", "exports", "--no-gh", "--repo", "orders", "--budget", "300"],
+      root,
+    );
+    expect(r.stdout).toContain("ct lint --charts deploy/chart");
   });
 });
