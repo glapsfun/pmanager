@@ -1,16 +1,18 @@
-import { cp, readFile, writeFile } from "node:fs/promises";
+import { cp, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { daysBetween, shiftDates } from "../../ci/e2e/dates";
 import { pmProcess } from "../../ci/e2e/pm";
 import { STORY_END } from "../../ci/e2e/story";
 import { BASE_DAY, gitDateEnv, sh } from "../../ci/e2e/workspace";
+import { PARTS_END, PARTS_START } from "../../plugins/pmanager/skills/pmanager/scripts/profile";
+import { replaceBetweenMarkers } from "../../plugins/pmanager/skills/pmanager/scripts/render";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { multiStackRepoChecks, ORDERS_URL } from "../graders/multi-stack-repo";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
 import { PM_TODAY } from "../skill-paths";
 import { buildMultiRepoContextFixture } from "./multi-repo-context";
-import { CONTRACT_SENTENCE, type Scenario } from "./types";
+import { CONTRACT_SENTENCE, type Condition, type Scenario } from "./types";
 
 const ORDERS = join(import.meta.dir, "fixtures", "orders");
 // The example's own author, so two builds give the same orders commit.
@@ -50,11 +52,45 @@ export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureIn
   };
 }
 
+/** The baseline arm runs main's skill, which writes no profiles: it must not see this branch's. */
+async function prepareMultiStackCondition(
+  dir: string,
+  condition: Condition,
+  info: FixtureInfo,
+): Promise<FixtureInfo> {
+  if (condition !== "baseline-skill") return info;
+  const projects = join(dir, "docs", "pm", "projects");
+  let changed = false;
+  for (const name of await readdir(projects)) {
+    const path = join(projects, name);
+    const raw = await readFile(path, "utf8");
+    const bare = replaceBetweenMarkers(raw, PARTS_START, PARTS_END, "");
+    if (bare !== null && bare !== raw) {
+      await writeFile(path, bare);
+      changed = true;
+    }
+  }
+  if (!changed) return info;
+  await sh(["git", "add", "docs/pm/projects"], dir);
+  await sh(
+    ["git", "commit", "-q", "-m", "docs(pm): projects without profiles"],
+    dir,
+    gitDateEnv(PM_TODAY),
+  );
+  await sh(["git", "push", "-q", "origin", "main"], dir);
+  return {
+    ...info,
+    baselineSha: await headSha(dir),
+    originRefs: await lsRemoteRefs(dir, "origin"),
+  };
+}
+
 export const multiStackRepo: Scenario = {
   name: "multi-stack-repo",
   task: MULTI_STACK_REQUEST,
   graderVersion: 2,
   buildFixture: buildMultiStackRepoFixture,
+  prepareCondition: prepareMultiStackCondition,
   checks: [
     ...commonChecks("spec"),
     epicAndPlan,

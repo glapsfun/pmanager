@@ -88,8 +88,8 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
   const prompt = composePrompt(req.scenario, req.condition);
   const promptHash = hashString(prompt);
   try {
-    const info = await req.scenario.buildFixture(fixtureDir);
-    originBare = info.originBare;
+    const built = await req.scenario.buildFixture(fixtureDir);
+    originBare = built.originBare;
     await installContract(fixtureDir);
     const fixtureHash = await hashFixture(fixtureDir);
     if (req.expectedFixtureHash && req.expectedFixtureHash !== fixtureHash) {
@@ -98,6 +98,9 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
         { fixtureDir, fixtureHash, promptHash },
       );
     }
+    const info = req.scenario.prepareCondition
+      ? await req.scenario.prepareCondition(fixtureDir, req.condition, built)
+      : built;
     if (hasSkill(req.condition)) await linkSkill(fixtureDir, req.skillDir ?? SKILL_DIR);
     await mkdir(dirname(req.rawLogPath), { recursive: true });
     const extraArgs =

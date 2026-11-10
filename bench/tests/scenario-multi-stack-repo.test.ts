@@ -5,7 +5,11 @@ import { pmProcess } from "../../ci/e2e/pm";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { cleanupFixture, type FixtureInfo } from "../fixture";
 import { hashFixture } from "../hashes";
-import { buildMultiStackRepoFixture, MULTI_STACK_REQUEST } from "../scenarios/multi-stack-repo";
+import {
+  buildMultiStackRepoFixture,
+  MULTI_STACK_REQUEST,
+  multiStackRepo,
+} from "../scenarios/multi-stack-repo";
 import { CONTRACT_SENTENCE } from "../scenarios/types";
 import { PM_TODAY } from "../skill-paths";
 
@@ -91,6 +95,27 @@ describe("multi-stack-repo fixture", () => {
       ]);
     }
   });
+});
+
+describe("multi-stack-repo per condition", () => {
+  test("with-skill keeps the profiles; baseline-skill has none, committed as its new baseline", async () => {
+    const { dir, info } = await built();
+    const orders = () => readFile(join(dir, "docs/pm/projects/orders.md"), "utf8");
+    const same = await multiStackRepo.prepareCondition?.(dir, "with-skill", info);
+    expect(same?.baselineSha).toBe(info.baselineSha);
+    expect(await orders()).toContain("helm unittest deploy/chart");
+    const bare = await multiStackRepo.prepareCondition?.(dir, "baseline-skill", info);
+    const files = (await gitOk(["ls-files", "docs/pm/projects"], dir)).trim().split("\n");
+    for (const f of files) {
+      expect([f, (await readFile(join(dir, f), "utf8")).includes("pm:parts:start")]).toEqual([
+        f,
+        false,
+      ]);
+    }
+    expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+    expect(bare?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], dir)).trim());
+    expect(bare?.baselineSha).not.toBe(info.baselineSha);
+  }, 120_000);
 });
 
 describe("multi-stack-repo builds", () => {
