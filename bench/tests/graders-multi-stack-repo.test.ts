@@ -242,3 +242,120 @@ describe("multi-stack-repo grader", () => {
     );
   });
 });
+
+describe("plan wordings from the final review", () => {
+  const rollout = async (tasks: T[]) => (await grade(tasks)).passed["rollout-order"];
+
+  test("a producer that names its consumer's file is not judged as the consumer (A, C)", async () => {
+    const bucket = {
+      ...BUCKET,
+      what: `${BUCKET.what} The chart reads it in deploy/chart/values.yaml (T04).`,
+    };
+    expect(await rollout([bucket, WRITER, RELEASE, ROLLOUT])).toBe(true);
+    const release = { ...RELEASE, what: `${RELEASE.what} T04 then moves image.tag to it.` };
+    expect(await rollout([BUCKET, WRITER, release, ROLLOUT])).toBe(true);
+  });
+
+  test("one task that makes a link's both ends satisfies that link (D)", async () => {
+    const value: T = {
+      id: "T04",
+      title: "Pass the exports bucket to the chart",
+      deps: ["T01"],
+      what: "In deploy/chart/values.yaml add exports.bucket and pass EXPORTS_BUCKET in templates/deployment.yaml.",
+      accept: "`helm unittest deploy/chart` passes",
+    };
+    const releaseAndTag: T = {
+      id: "T05",
+      title: "Release 1.5.0 and roll it out",
+      deps: ["T02"],
+      what: "Run make release with VERSION 1.5.0, then set image.tag to 1.5.0 in deploy/chart/values.yaml.",
+      accept: "`ct lint --charts deploy/chart` passes",
+    };
+    expect(await rollout([BUCKET, WRITER, value, releaseAndTag])).toBe(true);
+  });
+
+  test("a bucket value under another key still counts as the bucket value (E)", async () => {
+    const chart = {
+      ...ROLLOUT,
+      what: "In deploy/chart/values.yaml add storage.exportsBucket and pass EXPORTS_BUCKET in templates/deployment.yaml; set image.tag to 1.5.0.",
+    };
+    expect(await rollout([BUCKET, WRITER, RELEASE, chart])).toBe(true);
+    expect(await rollout([BUCKET, WRITER, RELEASE, { ...chart, deps: ["T03"] }])).toBe(false);
+  });
+
+  test("a bucket named as a resource creates the bucket (F)", async () => {
+    const storage = {
+      ...BUCKET,
+      title: "Add exports storage",
+      what: "In infra/terraform/, add aws_s3_bucket.exports with a 30-day aws_s3_bucket_lifecycle_configuration and an exports_bucket_name output.",
+    };
+    expect((await grade([storage, WRITER, RELEASE, ROLLOUT])).passed["resource-home"]).toBe(true);
+  });
+
+  test("moving the image or bumping the tag sets the image tag (G, Q)", async () => {
+    const move = {
+      ...ROLLOUT,
+      what: "In deploy/chart/values.yaml set exports.bucket from the exports_bucket_name output and move the image to 1.5.0.",
+    };
+    expect(await rollout([BUCKET, WRITER, RELEASE, { ...move, deps: ["T01"] }])).toBe(false);
+    expect(await rollout([BUCKET, WRITER, RELEASE, move])).toBe(true);
+    const bump = {
+      ...ROLLOUT,
+      title: "Bump the tag in the orders Helm chart",
+      what: "Set it to 1.5.0 and add the exports bucket value.",
+    };
+    expect(await rollout([BUCKET, WRITER, RELEASE, { ...bump, deps: ["T01"] }])).toBe(false);
+    expect(await rollout([BUCKET, WRITER, RELEASE, bump])).toBe(true);
+  });
+
+  test("tagging v1.5.0 and pushing the image is the release (H)", async () => {
+    const cut = {
+      ...RELEASE,
+      title: "Cut 1.5.0",
+      what: "Bump VERSION in the Makefile to 1.5.0, tag v1.5.0 and push the image.",
+    };
+    expect(await rollout([BUCKET, WRITER, cut, ROLLOUT])).toBe(true);
+  });
+
+  test("a release mentioned in passing is not a release task (I)", async () => {
+    const writer = { ...WRITER, what: `${WRITER.what} Ships in the 1.5.0 release.` };
+    expect(await rollout([BUCKET, writer, { ...ROLLOUT, deps: ["T01", "T02"] }])).toBe(false);
+  });
+
+  test("a chart task that says where the tag comes from still borrows make test (O, P)", async () => {
+    const borrow = async (what: string, accept: string) =>
+      (await grade([BUCKET, WRITER, RELEASE, { ...ROLLOUT, what, accept }])).passed[
+        "no-borrowed-checks"
+      ];
+    expect(
+      await borrow(
+        "In deploy/chart/values.yaml set exports.bucket from the exports_bucket_name output and image.tag to the version `make release` pushed.",
+        "`make test` and `make lint` pass",
+      ),
+    ).toBe(false);
+    expect(
+      await borrow(
+        "In deploy/chart/values.yaml set exports.bucket and point the image at ghcr.io/pm-example/orders:1.5.0 (image.tag).",
+        "`make test` passes",
+      ),
+    ).toBe(false);
+  });
+
+  test("'not the infra repo' and an infra task that only reaches the bucket keep resource-home (J, V)", async () => {
+    const own = {
+      ...BUCKET,
+      title: "Add the exports bucket to the orders Terraform",
+      what: "Add the exports bucket and its output in the orders Terraform, not the infra repo.",
+    };
+    const j = await grade([own, WRITER, RELEASE, ROLLOUT]);
+    expect(j.passed["resource-home"]).toBe(true);
+    expect(j.passed["own-checks-terraform"]).toBe(true);
+    const egress: T = {
+      id: "T05",
+      title: "Let the cluster nodes reach the exports bucket",
+      what: "In the infra repo, open egress from modules/network to S3 so the orders pods reach the exports bucket.",
+      accept: "`terraform validate` passes",
+    };
+    expect((await grade([...GOOD, egress])).passed["resource-home"]).toBe(true);
+  });
+});

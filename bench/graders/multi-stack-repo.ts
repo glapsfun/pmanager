@@ -29,6 +29,10 @@ const WORDS: Record<Part, RegExp> = {
 };
 /** The workspace's own infra repo: work there is not the orders Terraform part. */
 const SHARED_INFRA = /\benvs\/|\bmodules\/|\binfra repo\b|pm-example\/infra\b/i;
+// "in the orders Terraform, not the infra repo" names the shared repo only to rule it out.
+const NOT_SHARED = /\b(?:not|never|instead of)\s+(?:in\s+)?the infra repo\b/gi;
+/** Changing the service's code; Makefile, image and release words only name where a tag comes from. */
+const SERVICE_CODE = /\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bGo\s+(?:service|handler|code)\b/i;
 
 const OWN_CHECKS: Record<Part, RegExp> = {
   service: /\bmake\s+(?:test|lint)\b|\bgo\s+test\b/i,
@@ -36,10 +40,16 @@ const OWN_CHECKS: Record<Part, RegExp> = {
   chart: /\bhelm\s+unittest\b|\bct\s+lint\b/i,
 };
 const MANAGER_COMMANDS = /\bbun\s+(?:run\s+)?(?:lint|test)\b/i;
-const BUCKET = /\bbucket\b/i;
-const IMAGE_TAG = /\bimage\.tag\b|\bimage tag\b/i;
-// An image reference has dots (ghcr.io), so the push may reach the tag anywhere on its line.
-const RELEASES = /\breleas(?:e|es|ed|ing)\b|\bmake\s+release\b|\bpush\w*\b[^\n]*?\borders:v?\d/i;
+// A substring: plans write exportsBucket, EXPORTS_BUCKET and aws_s3_bucket.exports.
+const BUCKET = /bucket/i;
+const CREATES_BUCKET = /aws_s3_bucket\b|\b(?:add|create|provision|new)\w*\b[^.\n]*bucket/i;
+/** Read only on chart tasks, where a bare "tag" or a versioned image is the image tag. */
+const IMAGE_TAG =
+  /\bimage\.tag\b|\bimage tag\b|\btag\b|\borders:v?\d|\bimage\b[^.\n]*?\bv?\d+\.\d+/i;
+// Release actions, not the word: "ships in the 1.5.0 release" is no release task. An image
+// reference has dots (ghcr.io), so a push may reach the image anywhere on its line.
+const RELEASES =
+  /^\s*release\b|\brelease\s+(?:orders|the service|v?\d)|\bcut\s+(?:v?\d|a release|the release)|\bmake\s+release\b|\btag\s+v?\d|\bpublish\w*\b|\bpush\w*\b[^\n]*?(?:\borders:v?\d|\bimage\b)/im;
 
 /** Where a task's part shows: its title and the work, never Context or Out of scope. */
 function work(t: TaskDoc): string {
@@ -56,8 +66,12 @@ function asks(t: TaskDoc): string {
 }
 
 function sharedInfra(t: TaskDoc): boolean {
-  const text = work(t);
+  const text = work(t).replace(NOT_SHARED, "");
   return SHARED_INFRA.test(text) && !/\binfra\/terraform\b/i.test(text);
+}
+
+function sharedBucket(t: TaskDoc): boolean {
+  return sharedInfra(t) && CREATES_BUCKET.test(work(t));
 }
 
 export function partsOf(t: TaskDoc): Part[] {
@@ -96,7 +110,7 @@ function reaches(e: EpicRecord, from: string, targets: Set<string>): boolean {
 /** The bucket's home, wherever the plan put it: ordering is graded apart from resource-home. */
 function bucketTasks(e: EpicRecord): TaskDoc[] {
   return e.tasks.filter(
-    (t) => (partsOf(t).includes("terraform") || sharedInfra(t)) && BUCKET.test(work(t)),
+    (t) => (partsOf(t).includes("terraform") || sharedInfra(t)) && CREATES_BUCKET.test(work(t)),
   );
 }
 
@@ -108,7 +122,7 @@ function ownChecks(part: Part): Check {
     (e): CheckResult => {
       const tasks = tasksIn(e, part);
       if (tasks.length === 0) {
-        if (part === "terraform" && e.tasks.some(sharedInfra)) {
+        if (part === "terraform" && e.tasks.some(sharedBucket)) {
           return skip(
             "no task works in orders' Terraform; the bucket went to the infra repo (resource-home)",
           );
@@ -130,13 +144,20 @@ const noBorrowedChecks = epicCheck(
   "outcome",
   "no task that changes only the Terraform part or only the chart names the service's checks",
   (e): CheckResult => {
+    const changes = (t: TaskDoc) =>
+      partsOf(t).filter((p) => p !== "service" || SERVICE_CODE.test(work(t)));
     const borrowed = e.tasks.filter((t) => {
-      const p = partsOf(t);
+      const p = changes(t);
       return p.length === 1 && p[0] !== "service" && OWN_CHECKS.service.test(asks(t));
     });
+    const several = e.tasks.filter((t) => changes(t).length > 1).map((t) => t.id);
+    const unchecked =
+      several.length > 0 ? `; not checked, several parts: ${several.join(", ")}` : "";
     return borrowed.length === 0
-      ? pass("no Terraform-only or chart-only task names the service's checks")
-      : fail(`${borrowed.map((t) => t.id).join(", ")} name the service's make test or make lint`);
+      ? pass(`no Terraform-only or chart-only task names the service's checks${unchecked}`)
+      : fail(
+          `${borrowed.map((t) => t.id).join(", ")} name the service's make test or make lint${unchecked}`,
+        );
   },
 );
 
@@ -145,7 +166,7 @@ const resourceHome = epicCheck(
   "outcome",
   "the new bucket is created in orders' own Terraform, not in the infra repo",
   (e): CheckResult => {
-    const shared = e.tasks.filter((t) => sharedInfra(t) && BUCKET.test(work(t)));
+    const shared = e.tasks.filter(sharedBucket);
     if (shared.length > 0) {
       return fail(`${shared.map((t) => t.id).join(", ")} create the bucket in the infra repo`);
     }
@@ -170,22 +191,32 @@ const rolloutOrder = epicCheck(
         .map((t) => t.id),
     );
     const misses: string[] = [];
+    const notes: string[] = [];
+    // A task that makes both ends of a link (creates the bucket and sets the value, or releases
+    // and sets the tag) satisfies it inside itself; the rubric passes it and notes it.
     for (const t of chart) {
       const text = work(t);
-      if (BUCKET.test(text) && !reaches(e, t.id, buckets)) {
-        misses.push(`${t.id} sets the bucket value without waiting for the bucket`);
+      if (BUCKET.test(text)) {
+        if (buckets.has(t.id)) notes.push(`${t.id} creates the bucket and sets its value`);
+        else if (!reaches(e, t.id, buckets)) {
+          misses.push(`${t.id} sets the bucket value without waiting for the bucket`);
+        }
       }
-      if (IMAGE_TAG.test(text) && !reaches(e, t.id, releases)) {
-        misses.push(`${t.id} sets the image tag without waiting for the release`);
+      if (IMAGE_TAG.test(text)) {
+        if (releases.has(t.id)) notes.push(`${t.id} releases and sets the tag`);
+        else if (!reaches(e, t.id, releases)) {
+          misses.push(`${t.id} sets the image tag without waiting for the release`);
+        }
       }
     }
     if (!chart.some((t) => BUCKET.test(work(t))))
       misses.push("no chart task sets the bucket value");
     if (!chart.some((t) => IMAGE_TAG.test(work(t))))
       misses.push("no chart task sets the image tag");
+    const noted = notes.length > 0 ? `; same task: ${notes.join("; ")}` : "";
     return misses.length === 0
-      ? pass(`${chart.map((t) => t.id).join(", ")} wait for the bucket and the release`)
-      : fail(misses.join("; "));
+      ? pass(`${chart.map((t) => t.id).join(", ")} wait for the bucket and the release${noted}`)
+      : fail(`${misses.join("; ")}${noted}`);
   },
 );
 
