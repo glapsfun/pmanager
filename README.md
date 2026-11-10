@@ -296,6 +296,7 @@ and [bench/BENCH.md](bench/BENCH.md).
 | memory-recall-current | claude-code 2.1.317 | claude-sonnet-5 | memory-recall | with-skill | 10 | 50% | — | 87972 | 52648 | $1.07 | 398s | $10.39 |
 | multi-repo-context-asis | claude-code 2.1.318 | claude-sonnet-5 | multi-repo-context-asis | with-skill | 10 | 70% | — | 107822 | 69664 | $1.38 | 461s | $13.67 |
 | multi-repo-context-cold | claude-code 2.1.318 | claude-sonnet-5 | multi-repo-context | with-skill | 10 | 60% | — | 104824 | 46460 | $1.32 | 492s | $12.95 |
+| multi-stack-repo-cold-2 | claude-code 2.1.321 | claude-sonnet-5 | multi-stack-repo | with-skill | 10 | 0% | — | 87087 | 39238 | $1.10 | 447s | $11.37 |
 | pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
 | planning-traps-current | claude-code 2.1.312 | claude-sonnet-5 | planning-traps | with-skill | 10 | 20% | — | 83403 | 43988 | $0.96 | 466s | $9.41 |
 

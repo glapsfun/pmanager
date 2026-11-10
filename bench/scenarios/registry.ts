@@ -2,6 +2,7 @@ import { featureIdeaEpic } from "./feature-idea-epic";
 import { memoryRecall } from "./memory-recall";
 import { multiRepoContext } from "./multi-repo-context";
 import { multiRepoContextAsIs } from "./multi-repo-context-asis";
+import { multiStackRepo } from "./multi-stack-repo";
 import { perfBugNewEpic } from "./perf-bug-new-epic";
 import { planningTraps } from "./planning-traps";
 import { trackingUpdateMemory } from "./tracking-update-memory";
@@ -21,6 +22,7 @@ export const MEASUREMENT_SCENARIOS: Scenario[] = [
   memoryRecall,
   multiRepoContext,
   multiRepoContextAsIs,
+  multiStackRepo,
 ];
 
 export function scenarioByName(name: string): Scenario | undefined {

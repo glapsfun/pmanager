@@ -1,0 +1,25 @@
+name: chart
+on:
+  pull_request:
+    paths: ["deploy/chart/**"]
+  push:
+    branches: [main]
+    paths: ["deploy/chart/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm plugin install https://github.com/helm-unittest/helm-unittest
+      - run: helm unittest deploy/chart
+      - uses: helm/chart-testing-action@v2
+      - run: ct lint --charts deploy/chart
+  deploy:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm upgrade --install orders deploy/chart --namespace orders
