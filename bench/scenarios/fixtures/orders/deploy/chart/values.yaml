@@ -1,0 +1,11 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/pm-example/orders
+  tag: "1.4.0"
+
+storage:
+  bucket: pm-example-orders-prod
+
+service:
+  port: 8080

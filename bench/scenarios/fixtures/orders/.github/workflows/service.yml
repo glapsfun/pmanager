@@ -1,0 +1,17 @@
+name: service
+on:
+  pull_request:
+    paths-ignore: ["infra/**", "deploy/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["infra/**", "deploy/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: make lint
+      - run: make test

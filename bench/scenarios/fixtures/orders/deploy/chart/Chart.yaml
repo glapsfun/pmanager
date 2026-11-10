@@ -1,0 +1,5 @@
+apiVersion: v2
+name: orders
+description: The orders service
+type: application
+version: 0.3.0

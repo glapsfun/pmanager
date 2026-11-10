@@ -1,0 +1,11 @@
+suite: deployment
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: passes the storage setting to the service
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ORDERS_BUCKET
+            value: pm-example-orders-prod
