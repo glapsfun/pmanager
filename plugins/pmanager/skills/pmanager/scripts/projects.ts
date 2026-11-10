@@ -222,8 +222,9 @@ export async function addProject(
   let profiled: string | null = null;
   if (created) {
     const a = await availability(project, await readLocalRepoMap(pmDir));
-    if (a.state === "available") {
-      const profile = await extractProfile(a.path);
+    const profile = a.state === "available" ? await extractProfile(a.path) : null;
+    // A checkout with no commits has nothing to read yet; refresh picks it up later.
+    if (profile && profile.revision !== "") {
       await writeFile(
         project.file,
         withProfile(await readFile(project.file, "utf8"), project.id, profile),
@@ -259,6 +260,10 @@ export async function refreshProjects(
       continue;
     }
     const profile = await extractProfile(a.path);
+    if (profile.revision === "") {
+      rows.push({ id: project.id, skipped: "no commits" });
+      continue;
+    }
     await writeFile(
       project.file,
       withProfile(await readFile(project.file, "utf8"), project.id, profile),

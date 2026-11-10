@@ -205,3 +205,145 @@ describe("extraction details found in the example repos", () => {
     expect(namesCommand("`yamllint .` passes", { ...c, text: "yamllint -s ." })).toBe(true);
   });
 });
+
+describe("final review: extraction", () => {
+  const cmd = (text: string): Command => ({ text, role: "check", source: "x:1" });
+
+  test("C1: every check names itself, flags and their values included", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "svc/go.mod": "module svc\n",
+        "svc/AGENTS.md":
+          "Run `terraform -chdir=envs/prod validate`, `python -m pytest`, `make -C svc test` and `npm --prefix web test`.\n",
+      }),
+    );
+    const checks = p.parts[0]?.commands.filter((c) => c.role === "check") ?? [];
+    expect(checks.map((c) => c.text)).toEqual([
+      "terraform -chdir=envs/prod validate",
+      "python -m pytest",
+      "make -C svc test",
+      "npm --prefix web test",
+    ]);
+    for (const c of checks)
+      expect([c.text, namesCommand(`run ${c.text} first`, c)]).toEqual([c.text, true]);
+    for (const c of (await extractProfile(await orders())).parts.flatMap((x) => x.commands)) {
+      expect([c.text, namesCommand(c.text, c)]).toEqual([c.text, true]);
+    }
+    expect(namesCommand("`make test` in svc", cmd("make -C svc test"))).toBe(true);
+    expect(namesCommand("Make sure it builds", cmd("make test"))).toBe(false);
+  });
+
+  test("C1: a chain splits into its commands", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "infra/main.tf": "x = 1\n",
+        "infra/AGENTS.md": "Run `terraform init -backend=false && terraform validate`.\n",
+      }),
+    );
+    expect(texts(p.parts[0]?.commands ?? [], "check")).toEqual([
+      "terraform init -backend=false",
+      "terraform validate",
+    ]);
+  });
+
+  test("I2: shell keywords, heredocs and setup are not checks; cd x && cmd keeps cmd", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "web/package.json": "{}\n",
+        ".github/workflows/t.yml":
+          'on: [push]\njobs:\n  t:\n    steps:\n      - run: |\n          if [ -n "$X" ]; then\n            make test\n          fi\n          cat > out.json <<\'JSON\'\n          {"ok": true}\n          JSON\n          cd web && npm test\n',
+      }),
+    );
+    expect(texts(p.parts[0]?.commands ?? [], "check")).toEqual(["make test", "npm test"]);
+  });
+
+  test("I2: only change triggers put a workflow on the parts", async () => {
+    const wf = (on: string) => `on:\n${on}\njobs:\n  t:\n    steps:\n      - run: make nightly\n`;
+    const p = await extractProfile(
+      await repoWith({
+        "svc/go.mod": "module svc\n",
+        ".github/workflows/a.yml": wf("  workflow_dispatch:"),
+        ".github/workflows/b.yml": wf('  schedule:\n    - cron: "0 3 * * *"'),
+        ".github/workflows/c.yml": wf('  push:\n    tags: ["v*"]'),
+        ".github/workflows/d.yml":
+          "on:\n  merge_group:\njobs:\n  t:\n    steps:\n      - run: make test\n",
+      }),
+    );
+    expect(texts(p.parts[0]?.commands ?? [], "check")).toEqual(["make test"]);
+  });
+
+  test("C2: a negation forbids only the command it governs", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "svc/go.mod": "module svc\n",
+        "svc/AGENTS.md": [
+          "Never push without running `make lint` first.",
+          "",
+          "Do not forget to run `make test`.",
+          "",
+          "Don't skip `go vet ./...`.",
+          "",
+          "Avoid flaky tests: run `make test-race` twice.",
+          "",
+          "Never run `terraform plan` or `terraform apply` from a workstation.",
+          "",
+          "| rule | command |",
+          "| :--- | :--- |",
+          "| never use | `kubectl delete ns prod` |",
+          "| always | `make check` |",
+          "",
+        ].join("\n"),
+      }),
+    );
+    const cs = p.parts[0]?.commands ?? [];
+    expect(texts(cs, "forbidden").sort()).toEqual([
+      "kubectl delete ns prod",
+      "terraform apply",
+      "terraform plan",
+    ]);
+    expect(texts(cs, "check")).toEqual(
+      expect.arrayContaining([
+        "make lint",
+        "make test",
+        "go vet ./...",
+        "make test-race",
+        "make check",
+      ]),
+    );
+  });
+
+  test("I3: GitLab changes: {paths} and extends", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "svc/go.mod": "module svc\n",
+        "web/package.json": "{}\n",
+        ".gitlab-ci.yml":
+          '.go:\n  script: ["go test ./..."]\nsvc:\n  extends: .go\n  rules:\n    - changes: ["svc/**/*"]\nweb:\n  script: ["npm test"]\n  rules:\n    - changes:\n        paths: ["web/**"]\n',
+      }),
+    );
+    const part = (f: string) => texts(p.parts.find((x) => x.folder === f)?.commands ?? [], "check");
+    expect(part("svc")).toEqual(["go test ./..."]);
+    expect(part("web")).toEqual(["npm test"]);
+  });
+
+  test("I5: a checkout with no commits gives no parts and a note, never a throw", async () => {
+    const dir = await makeTempDir("profile-empty");
+    await gitOk(["init", "-q", "-b", "main"], dir);
+    const p = await extractProfile(dir);
+    expect(p.parts).toEqual([]);
+    expect(p.revision).toBe("");
+    expect(p.notes.join("\n")).toContain("no commits");
+  });
+
+  test("Makefile ?= and += assignments link like :=", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        Makefile: "VERSION ?= 2.3.4\n",
+        "chart/Chart.yaml": "name: c\n",
+        "chart/values.yaml": 'image:\n  tag: "2.3.4"\n',
+      }),
+    );
+    expect(p.links.filter((l) => l.release).map((l) => l.source.key)).toEqual(["VERSION"]);
+  });
+});

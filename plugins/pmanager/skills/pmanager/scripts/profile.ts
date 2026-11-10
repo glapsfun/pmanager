@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
-import { gitOk } from "./git";
+import { git, gitOk } from "./git";
 import type { Catalog } from "./projects";
 import { replaceBetweenMarkers } from "./render";
 
@@ -53,17 +53,19 @@ const STACKS: [RegExp, string][] = [
   [/(^|\/)pyproject\.toml$/, "python"],
   [/(^|\/)Cargo\.toml$/, "rust"],
 ];
+// A command's first word; anything else (shell keywords, heredoc bodies, `git clone`) is not a check.
 const TOOLS = new Set(
-  "make go terraform tflint checkov helm ct kubectl kubeconform yamllint npm pnpm yarn bun cargo pytest uv docker git golangci-lint python pip".split(
+  "make go terraform tflint checkov helm ct kubectl kubeconform kustomize yamllint shellcheck hadolint npm npx pnpm yarn bun deno node cargo pytest tox nox ruff mypy uv poetry python pip docker golangci-lint eslint prettier jest vitest mvn gradle dotnet just task bundle rake rspec composer phpunit pre-commit".split(
     " ",
   ),
 );
-const NEGATION = /\b(?:never|do not|don't|must not|avoid)\b/i;
+// Forbidden only when the negation governs the span itself: "never run `a` or `b`", not
+// "never push without running `a`" or "do not forget `a`".
+const GOVERNS =
+  /\b(?:never|do not|don't|must not|avoid)\s+(?:(?:run|running|use|using|call|calling|execute|invoke)\s+)?(?:`[^`]*`\s*(?:,|or|and|nor)\s*)*[|:]?\s*$/i;
+const CHANGE_EVENTS = new Set(["push", "pull_request", "pull_request_target", "merge_group"]);
 const DEPLOY = /^(?:terraform (?:plan|apply)|helm (?:upgrade|install)|kubectl (?:apply|rollout))\b/;
 const RELEASE = /^(?:make release|docker push|git tag)\b|\bpublish\b/;
-const SETUP = new Set(
-  "curl wget tar unzip cd echo export mkdir chmod cp mv rm ls cat sudo apt apt-get brew".split(" "),
-);
 const VERSION = /^v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?$/;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const GITLAB_RESERVED = new Set([
@@ -102,6 +104,14 @@ function isCommand(span: string): boolean {
   return first.startsWith("./") || TOOLS.has(first);
 }
 
+/** `a && b` is two commands; `cd dir && make test` keeps make test. */
+function commandsIn(text: string): string[] {
+  return text
+    .split(/\s*&&\s*/)
+    .map((x) => x.trim().replace(/\s+/g, " "))
+    .filter(isCommand);
+}
+
 /** Paragraphs and list items, joined so a wrapped sentence keeps its negation. */
 function blocks(raw: string): { text: string; line: number }[] {
   const out: { text: string; line: number }[] = [];
@@ -109,7 +119,9 @@ function blocks(raw: string): { text: string; line: number }[] {
   let start = 0;
   raw.split("\n").forEach((l, i) => {
     const bullet = /^\s*(?:[-*]|\d+\.)\s/.test(l);
-    if (l.trim() === "" || bullet || /^#/.test(l)) {
+    // A table row is a block of its own: a "never" in one row must not negate the next.
+    const row = /^\s*\|/.test(l) || /^\s*\|/.test(cur[cur.length - 1] ?? "");
+    if (l.trim() === "" || bullet || row || /^#/.test(l)) {
       if (cur.length) out.push({ text: cur.join("\n"), line: start });
       cur = [];
     }
@@ -125,16 +137,17 @@ function docCommands(raw: string, file: string): Command[] {
   const out: Command[] = [];
   for (const b of blocks(raw)) {
     for (const m of b.text.matchAll(/`([^`\n]+)`/g)) {
-      const span = (m[1] ?? "").trim();
-      if (!isCommand(span)) continue;
       const at = m.index ?? 0;
       // The sentence holding the span, up to the span itself.
       const sentenceStart = Math.max(b.text.lastIndexOf(". ", at), b.text.lastIndexOf(".\n", at));
-      const before = b.text.slice(sentenceStart < 0 ? 0 : sentenceStart + 1, at);
-      const role = roleOf(span, NEGATION.test(before));
-      if (!role) continue;
+      const before = b.text
+        .slice(sentenceStart < 0 ? 0 : sentenceStart + 1, at)
+        .replace(/\s+/g, " ");
       const line = b.line + (b.text.slice(0, at).match(/\n/g)?.length ?? 0);
-      out.push({ text: span, role, source: `${file}:${line}` });
+      for (const text of commandsIn(m[1] ?? "")) {
+        const role = roleOf(text, GOVERNS.test(before));
+        if (role) out.push({ text, role, source: `${file}:${line}` });
+      }
     }
   }
   return out;
@@ -195,21 +208,27 @@ interface Job {
 function ciCommands(raw: string, file: string, lines: string[]): Command[] {
   const out: Command[] = [];
   for (const l of lines.flatMap((x) => x.replace(/\\\n\s*/g, " ").split("\n"))) {
-    const text = l.trim().replace(/\s+/g, " ");
-    if (text === "" || text.startsWith("#") || SETUP.has(text.split(" ")[0] ?? "")) continue;
-    const role = roleOf(text, false);
-    if (role) out.push({ text, role, source: `${file}:${lineOf(raw, text)}` });
+    for (const text of commandsIn(l)) {
+      const role = roleOf(text, false);
+      if (role) out.push({ text, role, source: `${file}:${lineOf(raw, text)}` });
+    }
   }
   return out;
 }
 
 function githubJobs(doc: Record<string, unknown>, raw: string, file: string): Job[] {
   const on = doc.on ?? doc.true;
+  // Only change triggers put a job on a part: dispatch, schedule and tag pushes run on no change.
   const filters: Filter[] = [];
-  if (typeof on === "string" || Array.isArray(on)) filters.push(null);
-  else if (on && typeof on === "object") {
-    for (const ev of Object.values(on as Record<string, unknown>)) {
+  if (typeof on === "string" || Array.isArray(on)) {
+    for (const ev of strings(on)) if (CHANGE_EVENTS.has(ev)) filters.push(null);
+  } else if (on && typeof on === "object") {
+    for (const [name, ev] of Object.entries(on as Record<string, unknown>)) {
+      if (!CHANGE_EVENTS.has(name)) continue;
       const e = (ev ?? {}) as Record<string, unknown>;
+      const tagsOnly =
+        (e.tags || e["tags-ignore"]) && !e.branches && !e.paths && !e["paths-ignore"];
+      if (tagsOnly) continue;
       if (e.paths) filters.push({ paths: strings(e.paths) });
       else if (e["paths-ignore"]) filters.push({ ignore: strings(e["paths-ignore"]) });
       else filters.push(null);
@@ -231,16 +250,25 @@ function gitlabJobs(doc: Record<string, unknown>, raw: string, file: string): Jo
   for (const [name, v] of Object.entries(doc)) {
     if (GITLAB_RESERVED.has(name) || name.startsWith(".") || !v || typeof v !== "object") continue;
     const job = v as Record<string, unknown>;
-    if (!("script" in job)) continue;
+    // extends: copies the script of the named (often hidden) jobs.
+    const base = strings(job.extends).map((x) => (doc[x] ?? {}) as Record<string, unknown>);
+    const script =
+      "script" in job ? job.script : base.map((b) => b.script).find((x) => x !== undefined);
+    if (script === undefined) continue;
+    // changes: is a list, or {paths: [...]} in its documented long form.
+    const changesOf = (c: unknown) => [
+      ...strings(c),
+      ...strings((c as Record<string, unknown>)?.paths),
+    ];
     const changes = [
       ...(Array.isArray(job.rules) ? job.rules : []).flatMap((r) =>
-        strings((r as Record<string, unknown>)?.changes),
+        changesOf((r as Record<string, unknown>)?.changes),
       ),
-      ...strings(((job.only ?? {}) as Record<string, unknown>).changes),
+      ...changesOf(((job.only ?? {}) as Record<string, unknown>).changes),
     ];
     out.push({
       filters: changes.length > 0 ? [{ paths: changes }] : [null],
-      commands: ciCommands(raw, file, strings(job.script)),
+      commands: ciCommands(raw, file, strings(script)),
     });
   }
   return out;
@@ -285,7 +313,7 @@ function literals(raw: string, file: string, notes: string[]): Literal[] {
     });
   } else if (base === "Makefile") {
     raw.split("\n").forEach((l, i) => {
-      const m = /^([A-Z][A-Z0-9_]*)\s*:?=\s*(\S+)\s*$/.exec(l);
+      const m = /^([A-Z][A-Z0-9_]*)\s*(?:::?=|[?+]?=)\s*(\S+)\s*$/.exec(l);
       if (m && linkable(m[2])) out.push({ value: m[2], file, line: i + 1, key: m[1] ?? "" });
     });
   } else if (/^values.*\.ya?ml$/.test(base) || /^kustomization\.ya?ml$/.test(base)) {
@@ -307,18 +335,34 @@ function literals(raw: string, file: string, notes: string[]): Literal[] {
   return out;
 }
 
+const LITERAL_FILE =
+  /\.tf$|(?:^|\/)Makefile$|(?:^|\/)values[^/]*\.ya?ml$|(?:^|\/)kustomization\.ya?ml$/;
 const isDeployConfig = (file: string) =>
   /^(?:values.*|kustomization)\.ya?ml$/.test(posix.basename(file));
 
 export async function extractProfile(checkout: string): Promise<Profile> {
-  const files = (await gitOk(["ls-files"], checkout)).split("\n").filter(Boolean);
-  const revision = (await gitOk(["rev-parse", "HEAD"], checkout)).trim();
   const notes: string[] = [];
+  const head = await git(["rev-parse", "HEAD"], checkout);
+  if (head.code !== 0) {
+    return {
+      revision: "",
+      parts: [],
+      links: [],
+      notes: ["no commits: nothing to read yet"],
+      shared: [],
+    };
+  }
+  const revision = head.stdout.trim();
+  const files = (await gitOk(["ls-files"], checkout)).split("\n").filter(Boolean);
   const folders = [
     ...new Set(files.filter((f) => STACKS.some(([re]) => re.test(f))).map(folderOf)),
   ].sort();
-  const partOf = (file: string): string | null =>
-    folders.filter((f) => inside(file, f)).sort((a, b) => b.length - a.length)[0] ?? null;
+  // Longest folder first, so the first match is the nearest enclosing part; computed once per file.
+  const byDepth = [...folders].sort((a, b) => b.length - a.length);
+  const nearest = new Map(files.map((f) => [f, byDepth.find((x) => inside(f, x)) ?? null]));
+  const partOf = (file: string): string | null => nearest.get(file) ?? null;
+  const ownFiles = new Map<string, string[]>(folders.map((x) => [x, []]));
+  for (const [f, folder] of nearest) if (folder !== null) ownFiles.get(folder)?.push(f);
   const parts: Part[] = folders.map((folder) => ({
     folder,
     stacks: [
@@ -375,7 +419,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     jobs.push(...gitlabJobs(doc, raw, f));
   }
   for (const part of parts) {
-    const own = files.filter((f) => partOf(f) === part.folder);
+    const own = ownFiles.get(part.folder) ?? [];
     for (const j of jobs) if (covers(j.filters, own)) add(part, j.commands);
   }
   for (const j of jobs) {
@@ -385,7 +429,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
   }
 
   const found: (Literal & { folder: string })[] = [];
-  for (const f of files) {
+  for (const f of files.filter((x) => LITERAL_FILE.test(x))) {
     const folder = partOf(f);
     if (folder === null) continue;
     for (const l of literals(await read(f), f, notes)) found.push({ ...l, folder });
@@ -414,23 +458,27 @@ export function partId(projectId: string, folder: string): string {
   return folder ? `${projectId}/${folder}` : projectId;
 }
 
-/** The words a task must contain for a command to count as named. */
-function head(text: string): string {
-  const t = text.trim().split(/\s+/);
-  const first = t[0] ?? "";
-  if (first.includes("/")) return posix.basename(first);
-  // The first word after the flags is the subcommand: terraform -chdir=x validate.
-  const rest = t.slice(1).filter((x) => !x.startsWith("-"));
-  const second = rest[0];
-  if (!second || !/^[a-z][\w-]*$/.test(second)) return first;
-  return second === "run" && rest[1] ? `${first} run ${rest[1]}` : `${first} ${second}`;
-}
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Lookarounds, so "helm unittest" can match tool and subcommand across one space.
+const word = (s: string) => `(?<![\\w-])${esc(s)}(?![\\w-])`;
 
+/**
+ * A task names a command when it holds the command itself, or the tool and its last plain word
+ * in order on one line (`make -C svc test` by "make test"); a path tool by its file name.
+ * Case matters, so "Make sure" never names make.
+ */
 export function namesCommand(text: string, c: Command): boolean {
-  const h = head(c.text)
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\s+/g, "\\s+");
-  return new RegExp(`(^|[^\\w-])${h}($|[^\\w-])`, "i").test(text);
+  const flat = (x: string) => x.replace(/\s+/g, " ").trim();
+  if (flat(text).includes(flat(c.text))) return true;
+  const t = flat(c.text).split(" ");
+  const first = t[0] ?? "";
+  if (first.includes("/")) return new RegExp(word(posix.basename(first))).test(text);
+  const sub = t
+    .slice(1)
+    .filter((x) => /^[a-z][\w-]*$/.test(x))
+    .pop();
+  if (!sub) return TOOLS.has(first) && new RegExp(word(first)).test(text);
+  return new RegExp(`${word(first)}[^\\n]*?${word(sub)}`).test(text);
 }
 
 export const PARTS_START = "<!-- pm:parts:start -->";

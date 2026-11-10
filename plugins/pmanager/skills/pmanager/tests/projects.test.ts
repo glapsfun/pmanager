@@ -380,3 +380,22 @@ describe("stored profiles", () => {
     expect(r.stderr).toContain("unknown project nope");
   });
 });
+
+describe("final review: checkouts with no commits", () => {
+  test("project add registers without a profile and refresh skips it, never failing", async () => {
+    const root = await manager();
+    const dir = join(await makeTempDir("targets"), "fresh");
+    await mkdir(dir);
+    await gitOk(["init", "-q", "-b", "main"], dir);
+    await gitOk(["remote", "add", "origin", "https://github.com/acme/fresh.git"], dir);
+    const add = await runPm(["project", "add", dir], root);
+    expect(add.code).toBe(0);
+    expect(add.stdout).toContain("files to commit:");
+    expect(await readFile(join(root, "docs/pm/projects/fresh.md"), "utf8")).not.toContain(
+      PARTS_START,
+    );
+    const refresh = await runPm(["project", "refresh"], root);
+    expect(refresh.code).toBe(0);
+    expect(refresh.stdout).toContain("fresh: no commits, not refreshed");
+  });
+});
