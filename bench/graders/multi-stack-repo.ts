@@ -15,10 +15,20 @@ export const ORDERS_URL = "https://github.com/pm-example/orders.git";
 export type Part = "service" | "terraform" | "chart";
 const PARTS: Part[] = ["service", "terraform", "chart"];
 
+/**
+ * Service work that names no Go path: the service is the repo root, so its README, its
+ * end-to-end tests and a VERSION bump in its Makefile change it. A folder's own README is
+ * that folder's.
+ */
+const SERVICE_WORK =
+  /(?<![\w./-])README\.md\b|\bend[- ]to[- ]end\b|\be2e\b|\bintegration(?:[- ]style)?\s+tests?\b|\bbump\w*\s+`?VERSION\b/i;
+
 /** Paths and artifacts first; the words only when no path places the task. */
 const PATHS: Record<Part, RegExp> = {
-  service:
-    /\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bMakefile\b|\bDockerfile\b|\bmake\s+release\b|\borders:v?\d/i,
+  service: new RegExp(
+    `${/\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bMakefile\b|\bDockerfile\b|\bmake\s+release\b|\borders:v?\d/.source}|${SERVICE_WORK.source}`,
+    "i",
+  ),
   terraform: /\binfra\/terraform\b|\.tf\b|\baws_s3_bucket\b|\btf-check\b/i,
   chart: /\bdeploy\/chart\b|\bvalues\.ya?ml\b|\bChart\.yaml\b|\bimage\.tag\b/i,
 };
@@ -32,7 +42,10 @@ const SHARED_INFRA = /\benvs\/|\bmodules\/|\binfra repo\b|pm-example\/infra\b/i;
 // "in the orders Terraform, not the infra repo" names the shared repo only to rule it out.
 const NOT_SHARED = /\b(?:not|never|instead of)\s+(?:in\s+)?the infra repo\b/gi;
 /** Changing the service's code; Makefile, image and release words only name where a tag comes from. */
-const SERVICE_CODE = /\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bGo\s+(?:service|handler|code)\b/i;
+const SERVICE_CODE = new RegExp(
+  `${/\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bGo\s+(?:service|handler|code)\b/.source}|${SERVICE_WORK.source}`,
+  "i",
+);
 
 const OWN_CHECKS: Record<Part, RegExp> = {
   service: /\bmake\s+(?:test|lint)\b|\bgo\s+test\b/i,

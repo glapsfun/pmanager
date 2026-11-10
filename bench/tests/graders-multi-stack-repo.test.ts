@@ -400,3 +400,68 @@ describe("grader version 2, from the multi-stack-repo-cold-2 hand audit", () => 
     expect((await grade([BUCKET, WRITER, deploy])).passed["rollout-order"]).toBe(true);
   });
 });
+
+describe("grader version 3, from the component-profiles-paired hand audit", () => {
+  const borrows = async (task: T) =>
+    !(await grade([...GOOD, { ...task, id: "T05" }])).passed["no-borrowed-checks"];
+
+  test("an end-to-end test task that also runs the chart's checks borrows nothing (p1 T09, p4 T06)", async () => {
+    expect(
+      await borrows({
+        id: "T05",
+        title: "End-to-end export test and documentation",
+        what: "Write an end-to-end test exercising request, status and download. Update `README.md` to document the new export endpoints.",
+        accept:
+          "passes via `make test`; `helm unittest deploy/chart` and `ct lint --charts deploy/chart` pass",
+      }),
+    ).toBe(false);
+  });
+
+  test("a test-and-docs task that mentions a Terraform-level check is a service task (p2 T08)", async () => {
+    expect(
+      await borrows({
+        id: "T05",
+        title: "End-to-end tests and docs for the export flow",
+        what: "Add an integration-style test exercising request, poll and download against a mocked export bucket. Add a test confirming the lifecycle rule is attached (terraform-level). Update `README.md` with the new endpoints.",
+        accept: "`make test` and `make lint` pass",
+      }),
+    ).toBe(false);
+  });
+
+  test("a task that adds service logging and updates the README is not Terraform-only (p5 T05)", async () => {
+    expect(
+      await borrows({
+        id: "T05",
+        title: "Verify 30-day expiration and add failure observability",
+        what: "Confirm the lifecycle rule via the Terraform plan output. Add a count/log line for stale jobs within the existing service process. Update `README.md` to document the exports bucket.",
+        accept: "`./scripts/tf-check.sh` passes, and `make test` and `make lint` both pass",
+      }),
+    ).toBe(false);
+  });
+
+  test("a release task that bumps VERSION and leaves the chart alone is a service task (p6 T09)", async () => {
+    expect(
+      await borrows({
+        id: "T05",
+        title: "Release the orders service image with the export feature",
+        what: "Bump `VERSION` in `Makefile` to 1.5.0. Run `make release`. Do not change deploy/chart values here; moving `image.tag` is the chart task's job.",
+        accept: "`make test` and `make lint` still pass against the bumped version",
+      }),
+    ).toBe(false);
+  });
+
+  test("an end-to-end verification task that also runs tf-check is not Terraform-only (p8 T08)", async () => {
+    expect(
+      await borrows({
+        id: "T05",
+        title: "Verify the full request-to-download flow end to end",
+        what: "Drive the full flow against a deployed instance. Confirm the export bucket's lifecycle configuration is set to 30 days.",
+        accept: "`make test`, `make lint`, and `./scripts/tf-check.sh` all pass",
+      }),
+    ).toBe(false);
+  });
+
+  test("a chart task's own README is not the service's README", async () => {
+    expect(await parts("Document the new values in deploy/chart/README.md.")).toEqual(["chart"]);
+  });
+});

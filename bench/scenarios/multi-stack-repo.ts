@@ -76,7 +76,7 @@ async function prepareMultiStackCondition(
 export const multiStackRepo: Scenario = {
   name: "multi-stack-repo",
   task: MULTI_STACK_REQUEST,
-  graderVersion: 2,
+  graderVersion: 3,
   buildFixture: buildMultiStackRepoFixture,
   prepareCondition: prepareMultiStackCondition,
   checks: [
