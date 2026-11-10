@@ -45,11 +45,11 @@ const BUCKET = /bucket/i;
 const CREATES_BUCKET = /aws_s3_bucket\b|\b(?:add|create|provision|new)\w*\b[^.\n]*bucket/i;
 /** Read only on chart tasks, where a bare "tag" or a versioned image is the image tag. */
 const IMAGE_TAG =
-  /\bimage\.tag\b|\bimage tag\b|\btag\b|\borders:v?\d|\bimage\b[^.\n]*?\bv?\d+\.\d+/i;
+  /\bimage\.tag\b|\bimage tag\b|\bimage version\b|\btag\b|\borders:v?\d|\bimage\b[^.\n]*?\bv?\d+\.\d+/i;
 // Release actions, not the word: "ships in the 1.5.0 release" is no release task. An image
 // reference has dots (ghcr.io), so a push may reach the image anywhere on its line.
 const RELEASES =
-  /^\s*release\b|\brelease\s+(?:orders|the service|v?\d)|\bcut\s+(?:v?\d|a release|the release)|\bmake\s+release\b|\btag\s+v?\d|\bpublish\w*\b|\bpush\w*\b[^\n]*?(?:\borders:v?\d|\bimage\b)/im;
+  /^\s*release\b|\brelease\s+(?:orders|the service|v?\d)|\bcut\s+(?:v?\d|a release|the release)|\bmake\s+release\b|\brelease (?:process|target)\b|`release` target|\btag\s+v?\d|\bpublish\w*\b|\bpush\w*\b[^\n]*?(?:\borders:v?\d|\bimage\b)/im;
 
 /** Where a task's part shows: its title and the work, never Context or Out of scope. */
 function work(t: TaskDoc): string {
@@ -74,12 +74,19 @@ function sharedBucket(t: TaskDoc): boolean {
   return sharedInfra(t) && CREATES_BUCKET.test(work(t));
 }
 
+// A test task cites the chart's tests as a pattern to follow; that alone is no chart change.
+const CHART_TESTS = /\bdeploy\/chart\/tests\/\S*/g;
+
 export function partsOf(t: TaskDoc): Part[] {
-  const text = work(t);
+  const text = work(t).replace(CHART_TESTS, "");
   const shared = sharedInfra(t);
   const keep = (p: Part) => !(shared && p === "terraform");
   const placed = PARTS.filter((p) => PATHS[p].test(text) && keep(p));
-  return placed.length > 0 ? placed : PARTS.filter((p) => WORDS[p].test(text) && keep(p));
+  if (placed.length > 0) return placed;
+  const worded = PARTS.filter((p) => WORDS[p].test(text) && keep(p));
+  if (worded.length > 0) return worded;
+  // An end-to-end test task names only endpoints, but where it runs (make test) places it.
+  return OWN_CHECKS.service.test(text) ? ["service"] : [];
 }
 
 /** Tasks no rule placed, so the hand audit sees what the graders skipped. */

@@ -359,3 +359,44 @@ describe("plan wordings from the final review", () => {
     expect((await grade([...GOOD, egress])).passed["resource-home"]).toBe(true);
   });
 });
+
+describe("grader version 2, from the multi-stack-repo-cold-2 hand audit", () => {
+  const unitOnly = { ...WRITER, accept: "unit tests cover the writer" };
+
+  test("a test task that cites the chart's tests as a pattern is a service task (p1 T10)", async () => {
+    const e2e: T = {
+      id: "T05",
+      title: "End-to-end test for the export happy path",
+      deps: ["T04"],
+      what: "Add an integration test (in CI, following whatever pattern `deploy/chart/tests/deployment_test.yaml` or the existing `make test` setup uses) that calls POST /orders/export and downloads the CSV.",
+      accept: "Test runs as part of `make test` or an equivalent CI step",
+    };
+    const { passed } = await grade([BUCKET, unitOnly, RELEASE, ROLLOUT, e2e]);
+    expect(passed["no-borrowed-checks"]).toBe(true);
+    expect(passed["own-checks-service"]).toBe(true);
+  });
+
+  test("an unplaced test task that names make test is a service task (p8 T06)", async () => {
+    const e2e: T = {
+      id: "T05",
+      title: "End-to-end integration test for the export flow",
+      deps: ["T04"],
+      what: "Call the request endpoint, poll the status endpoint until ready, then call the download endpoint and parse the CSV.",
+      accept: "The test runs in CI (`make test` or the project's existing test command)",
+    };
+    expect(
+      (await grade([BUCKET, unitOnly, RELEASE, ROLLOUT, e2e])).passed["own-checks-service"],
+    ).toBe(true);
+  });
+
+  test("bumping the image version through the Makefile's release target releases and sets the tag (p2 T10)", async () => {
+    const deploy: T = {
+      id: "T04",
+      title: "Deploy: Helm chart, rollout and docs",
+      deps: ["T01", "T02"],
+      what: "Add `storage.exportBucket` to `deploy/chart/values.yaml` and an `EXPORT_BUCKET` env var to `templates/deployment.yaml`, bump the chart/image version per the existing release process (`Makefile`'s `release` target).",
+      accept: "`helm unittest deploy/chart` passes",
+    };
+    expect((await grade([BUCKET, WRITER, deploy])).passed["rollout-order"]).toBe(true);
+  });
+});

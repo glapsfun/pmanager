@@ -53,7 +53,7 @@ export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureIn
 export const multiStackRepo: Scenario = {
   name: "multi-stack-repo",
   task: MULTI_STACK_REQUEST,
-  graderVersion: 1,
+  graderVersion: 2,
   buildFixture: buildMultiStackRepoFixture,
   checks: [
     ...commonChecks("spec"),
