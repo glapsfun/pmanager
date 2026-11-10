@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, realpath } from "node:fs/promises";
+import { cp, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { extractProfile, PARTS_END, PARTS_START, readProfile } from "../scripts/profile";
 import {
   addProject,
   availability,
@@ -313,5 +314,69 @@ describe("discoverSiblings", () => {
     );
     expect(text.stdout).toMatch(/scratch\s+-\s+no origin/);
     expect(JSON.parse((await runPm(["project", "discover", "--json"], a)).stdout)).toHaveLength(4);
+  });
+});
+
+const ORDERS_FIXTURE = join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders");
+const ORDERS_URL = "https://github.com/pm-example/orders.git";
+
+/** The bench's orders monorepo as a committed checkout with an origin. */
+async function ordersCheckout(): Promise<string> {
+  const dir = join(await makeTempDir("targets"), "orders");
+  await cp(ORDERS_FIXTURE, dir, { recursive: true });
+  await initGitRepo(dir);
+  await gitOk(["add", "-A"], dir);
+  await gitOk(["commit", "-q", "-m", "seed"], dir);
+  await gitOk(["remote", "add", "origin", ORDERS_URL], dir);
+  return dir;
+}
+
+describe("stored profiles", () => {
+  test("project add on an available checkout writes a parts section before Notes", async () => {
+    const root = await manager();
+    const orders = await ordersCheckout();
+    const r = await addProject(root, orders, opts);
+    if (!r.ok) throw new Error(r.message);
+    const text = await readFile(r.project.file, "utf8");
+    expect(text).toContain(PARTS_START);
+    expect(text).toContain("helm unittest deploy/chart");
+    expect(text.indexOf("## Notes")).toBeGreaterThan(text.indexOf(PARTS_END));
+    expect(readProfile(text)).toEqual(await extractProfile(orders));
+  });
+
+  test("project add by URL alone registers without a profile and says how to get one", async () => {
+    const root = await manager();
+    const r = await runPm(["project", "add", "https://github.com/acme/argocd.git"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("pm project refresh argocd");
+    const text = await readFile(join(root, "docs/pm/projects/argocd.md"), "utf8");
+    expect(text).not.toContain(PARTS_START);
+  });
+
+  test("project refresh keeps the user's notes and updates the revision", async () => {
+    const root = await manager();
+    const orders = await ordersCheckout();
+    const r = await addProject(root, orders, opts);
+    if (!r.ok) throw new Error(r.message);
+    const before = await readFile(r.project.file, "utf8");
+    await writeFile(
+      r.project.file,
+      before.replace("## Notes\n\nnone\n", "## Notes\n\nowned by team A\n"),
+    );
+    await writeTree(orders, { "README.md": "# orders\n\nRun `make test` before every commit.\n" });
+    await gitOk(["commit", "-q", "-am", "docs"], orders);
+    const head = (await gitOk(["rev-parse", "HEAD"], orders)).trim();
+    const out = await runPm(["project", "refresh"], root);
+    expect(out.code).toBe(0);
+    expect(out.stdout).toContain(`refreshed orders @ ${head.slice(0, 7)}`);
+    const after = await readFile(r.project.file, "utf8");
+    expect(after).toContain("## Notes\n\nowned by team A\n");
+    expect(readProfile(after)?.revision).toBe(head);
+  });
+
+  test("project refresh of an unknown id is a usage error", async () => {
+    const r = await runPm(["project", "refresh", "nope"], await manager());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("unknown project nope");
   });
 });

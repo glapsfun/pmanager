@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { formatFmValue, getString, parseDoc } from "./contract";
 import { git, repoRoot } from "./git";
 import { LOCAL_REPOS_FILE, loadLocalRepoMap, readLocalRepoMap, repoMapPmDir } from "./handoff";
+import { extractProfile, withProfile } from "./profile";
 import { repoShortName } from "./render";
 import { LOCAL_DIR, PROJECTS_DIR } from "./repo";
 import { isRemoteUrl, lookupMapped, normalizeRepoUrl, sameRepo } from "./repo-url";
@@ -142,7 +143,15 @@ export function defaultProjectId(url: string): string {
 }
 
 export type AddOutcome =
-  | { ok: true; project: Project; created: boolean; mapped: string | null; written: string[] }
+  | {
+      ok: true;
+      project: Project;
+      created: boolean;
+      mapped: string | null;
+      written: string[];
+      /** the revision its parts were read at, or null when no checkout was here */
+      profiled: string | null;
+    }
   | { ok: false; message: string };
 
 /** The main checkout and its worktrees: the manager is never its own target. */
@@ -209,7 +218,55 @@ export async function addProject(
     map[key] = path;
     await writeFile(join(pmDir, LOCAL_DIR, LOCAL_REPOS_FILE), `${JSON.stringify(map, null, 2)}\n`);
   }
-  return { ok: true, project, created, mapped: path, written };
+  // A new project gets its parts when its checkout is here; refreshProjects updates them later.
+  let profiled: string | null = null;
+  if (created) {
+    const a = await availability(project, await readLocalRepoMap(pmDir));
+    if (a.state === "available") {
+      const profile = await extractProfile(a.path);
+      await writeFile(
+        project.file,
+        withProfile(await readFile(project.file, "utf8"), project.id, profile),
+      );
+      profiled = profile.revision;
+    }
+  }
+  return { ok: true, project, created, mapped: path, written, profiled };
+}
+
+export type RefreshRow =
+  | { id: string; revision: string; parts: number }
+  | { id: string; skipped: string };
+
+/** Re-extracts every available project's parts, or one project's; writes, never commits. */
+export async function refreshProjects(
+  root: string,
+  id?: string,
+): Promise<{ ok: true; rows: RefreshRow[]; written: string[] } | { ok: false; message: string }> {
+  const pmDir = await repoMapPmDir(root);
+  const catalog = await loadCatalog(pmDir);
+  const projects =
+    id === undefined ? catalog.projects : catalog.projects.filter((p) => p.id === id);
+  if (id !== undefined && projects.length === 0)
+    return { ok: false, message: `unknown project ${id}` };
+  const map = await readLocalRepoMap(pmDir);
+  const rows: RefreshRow[] = [];
+  const written: string[] = [];
+  for (const project of projects) {
+    const a = await availability(project, map);
+    if (a.state !== "available") {
+      rows.push({ id: project.id, skipped: formatAvailability(a) });
+      continue;
+    }
+    const profile = await extractProfile(a.path);
+    await writeFile(
+      project.file,
+      withProfile(await readFile(project.file, "utf8"), project.id, profile),
+    );
+    rows.push({ id: project.id, revision: profile.revision, parts: profile.parts.length });
+    written.push(project.file);
+  }
+  return { ok: true, rows, written };
 }
 
 export interface Candidate {

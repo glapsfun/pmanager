@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { gitOk } from "./git";
+import type { Catalog } from "./projects";
+import { replaceBetweenMarkers } from "./render";
 
 export type Role = "check" | "deploy" | "release" | "forbidden";
 
@@ -408,4 +410,71 @@ export function namesCommand(text: string, c: Command): boolean {
     .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\s+/g, "\\s+");
   return new RegExp(`(^|[^\\w-])${h}($|[^\\w-])`, "i").test(text);
+}
+
+export const PARTS_START = "<!-- pm:parts:start -->";
+export const PARTS_END = "<!-- pm:parts:end -->";
+
+/** The generated section, markers included; only its json block is read back. */
+export function renderProfileSection(projectId: string, p: Profile): string {
+  const lines = [
+    PARTS_START,
+    "## Parts",
+    "",
+    `Extracted by pm from \`${p.revision.slice(0, 7)}\`; \`pm project refresh ${projectId}\` rewrites this section, never edit it by hand.`,
+    "",
+  ];
+  if (p.parts.length === 0) lines.push("No parts found.", "");
+  for (const part of p.parts) {
+    lines.push(`- \`${partId(projectId, part.folder)}\` (${part.stacks.join(", ") || "no stack"})`);
+    for (const c of part.commands) lines.push(`  - ${c.role}: \`${c.text}\` (${c.source})`);
+  }
+  if (p.links.length > 0) {
+    lines.push("", "Links:", "");
+    for (const l of p.links) {
+      const kind = l.release ? "release link" : "link";
+      lines.push(
+        `- ${kind} \`${l.value}\`: ${l.source.file}:${l.source.line} \`${l.source.key}\` to ${l.consumer.file}:${l.consumer.line} \`${l.consumer.key}\``,
+      );
+    }
+  }
+  for (const n of p.notes) lines.push(`- skipped ${n}`);
+  lines.push("", "```json", JSON.stringify(p), "```", PARTS_END);
+  return `${lines.join("\n")}\n`;
+}
+
+export function readProfile(raw: string): Profile | null {
+  const start = raw.indexOf(PARTS_START);
+  const end = raw.indexOf(PARTS_END);
+  if (start < 0 || end < start) return null;
+  const block = /```json\n([\s\S]*?)\n```/.exec(raw.slice(start, end))?.[1];
+  if (!block) return null;
+  try {
+    const p = JSON.parse(block) as Profile;
+    return Array.isArray(p.parts) && Array.isArray(p.links) && typeof p.revision === "string"
+      ? p
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Replaces the section, or puts it before the user's Notes, which it never touches. */
+export function withProfile(raw: string, projectId: string, p: Profile): string {
+  const section = renderProfileSection(projectId, p);
+  const replaced = replaceBetweenMarkers(raw, PARTS_START, PARTS_END, section);
+  if (replaced !== null) return replaced;
+  const notes = raw.indexOf("\n## Notes");
+  return notes < 0
+    ? `${raw.trimEnd()}\n\n${section}`
+    : `${raw.slice(0, notes + 1)}${section}\n${raw.slice(notes + 1)}`;
+}
+
+export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profile>> {
+  const out = new Map<string, Profile>();
+  for (const project of catalog.projects) {
+    const p = readProfile(await readFile(project.file, "utf8").catch(() => ""));
+    if (p) out.set(project.id, p);
+  }
+  return out;
 }

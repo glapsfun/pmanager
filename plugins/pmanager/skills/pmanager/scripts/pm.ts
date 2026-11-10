@@ -25,6 +25,7 @@ import {
   formatCandidate,
   loadCatalog,
   PROJECTS_INDEX,
+  refreshProjects,
   renderProjectsIndex,
 } from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
@@ -71,6 +72,7 @@ commands
   status                        epics, owners, stale claims, next task
   project add <path|url> [--id ID] [--name NAME]
                                 register a project in the manager's docs/pm/projects and map its checkout; commits nothing
+  project refresh [ID]          re-read every available project's parts, commands and links (or one)
   project list                  registered projects and their availability on this machine
   project discover              git repos beside this manager, as registration suggestions; writes nothing
   handoff <slug> <task-id>      print an execution brief
@@ -390,6 +392,32 @@ async function runProject(root: string, args: Args): Promise<number> {
         : `already registered as ${r.project.id}\n`,
     );
     if (r.mapped) out(`mapped ${r.mapped}\n`);
+    if (r.profiled) out(`profiled ${r.project.id} @ ${r.profiled.slice(0, 7)}\n`);
+    else if (r.created) {
+      out(
+        `no profile: ${r.project.id} is not checked out here; run pm project refresh ${r.project.id} once it is mapped\n`,
+      );
+    }
+    if (r.written.length > 0) {
+      out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
+    }
+    return 0;
+  }
+  if (sub === "refresh") {
+    const r = await refreshProjects(root, target);
+    if (!r.ok) return fail(r.message);
+    if (args.json) {
+      out(json(r));
+      return 0;
+    }
+    const main = dirname(dirname(await repoMapPmDir(root)));
+    for (const row of r.rows) {
+      out(
+        "revision" in row
+          ? `refreshed ${row.id} @ ${row.revision.slice(0, 7)} (${row.parts} parts)\n`
+          : `${row.id}: ${row.skipped}, not refreshed\n`,
+      );
+    }
     if (r.written.length > 0) {
       out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
     }
