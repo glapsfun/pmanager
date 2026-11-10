@@ -87,7 +87,8 @@ done and a later milestone has tasks; only `record` and `check --epic` report
 it, for that epic),
 parts E-PRT-001…003 and release links E-REL-001…002 (for the epic under work,
 while unstarted, when its repos have a stored profile: a task with no `parts:`,
-an unknown part id, a part named with none of its checks; a released part
+an unknown part id, a part named with none of its checks (its release command,
+or a command its Makefile target runs, also counts); a released part
 changed with no task naming its release command, or no task naming the
 consumer part that moves the release link's key, such as `image.tag`, after
 the release; `no-release: <why>` on the epic turns the release rules off),

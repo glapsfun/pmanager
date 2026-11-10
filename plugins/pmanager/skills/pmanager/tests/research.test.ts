@@ -606,6 +606,14 @@ describe("pm research parts block", () => {
     expect(json.parts.join("\n")).toContain("helm unittest deploy/chart");
   });
 
+  test("a release link says what the plan needs, before pm record asks for it", async () => {
+    const { root } = await managerWithOrders();
+    const r = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
+    expect(r.stdout).toContain(
+      "    plan: a change to orders takes a task that runs make release, then a task with parts: [orders/deploy/chart] that sets image.tag and depends on it",
+    );
+  });
+
   test("a stale profile says so and names refresh", async () => {
     const { root, orders } = await managerWithOrders();
     await writeTree(orders, { "README.md": "# orders\n\nRun `make test`.\n" });

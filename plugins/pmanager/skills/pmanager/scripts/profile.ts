@@ -11,6 +11,8 @@ export interface Command {
   role: Role;
   /** `path:line` in the project's checkout */
   source: string;
+  /** For `make <target>`: what the part's Makefile recipe runs, so a task may name either. */
+  runs?: string[];
 }
 
 export interface Part {
@@ -130,6 +132,26 @@ function blocks(raw: string): { text: string; line: number }[] {
     cur.push(l);
   });
   if (cur.length) out.push({ text: cur.join("\n"), line: start });
+  return out;
+}
+
+/** Each Makefile target's recipe as commands: `@`, `-` and `+` prefixes dropped, non-commands skipped. */
+function recipes(raw: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  let current: string[] | null = null;
+  for (const l of raw.split("\n")) {
+    if (l.startsWith("\t")) {
+      current?.push(...commandsIn(l.trim().replace(/^[@+-]+\s*/, "")));
+      continue;
+    }
+    // `name:` or `a b::`, never an assignment (`X := 1`).
+    const m = /^([^\s:#=][^:=]*?)\s*::?(?!=)/.exec(l);
+    if (m) {
+      const recipe: string[] = [];
+      current = recipe;
+      for (const name of (m[1] ?? "").split(/\s+/)) out.set(name, recipe);
+    } else if (l.trim() !== "" && !l.trim().startsWith("#")) current = null;
+  }
   return out;
 }
 
@@ -427,6 +449,17 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       for (const c of j.commands) if (!shared.some((x) => x.text === c.text)) shared.push(c);
     }
   }
+  // Planners write the recipe (`go test ./...`) as often as the target (`make test`).
+  for (const part of parts) {
+    const makefile = part.folder ? `${part.folder}/Makefile` : "Makefile";
+    if (!files.includes(makefile)) continue;
+    const byTarget = recipes(await read(makefile));
+    for (const c of part.commands) {
+      const target = /^make ([\w.-]+)$/.exec(c.text)?.[1];
+      const runs = target ? byTarget.get(target) : undefined;
+      if (runs && runs.length > 0) c.runs = [...runs];
+    }
+  }
 
   const found: (Literal & { folder: string })[] = [];
   for (const f of files.filter((x) => LITERAL_FILE.test(x))) {
@@ -465,11 +498,12 @@ const word = (s: string) => `(?<![\\w-])${esc(s)}(?![\\w-])`;
 /**
  * A task names a command when it holds the command itself, or the tool and its last plain word
  * in order on one line (`make -C svc test` by "make test"); a path tool by its file name.
- * Case matters, so "Make sure" never names make.
+ * Case matters, so "Make sure" never names make. What a make target runs counts only verbatim.
  */
 export function namesCommand(text: string, c: Command): boolean {
   const flat = (x: string) => x.replace(/\s+/g, " ").trim();
   if (flat(text).includes(flat(c.text))) return true;
+  if (c.runs?.some((r) => flat(text).includes(flat(r)))) return true;
   const t = flat(c.text).split(" ");
   const first = t[0] ?? "";
   if (first.includes("/")) return new RegExp(word(posix.basename(first))).test(text);
@@ -614,6 +648,18 @@ export function formatPartsBlock(
         120,
       ),
     );
+    // Said here, where the plan is drafted: in the paired run every first draft missed it.
+    const release = p.parts
+      .find((x) => x.folder === l.source.folder)
+      ?.commands.find((c) => c.role === "release");
+    if (l.release && release) {
+      body.push(
+        clip(
+          `    plan: a change to ${partId(projectId, l.source.folder)} takes a task that runs ${release.text}, then a task with parts: [${partId(projectId, l.consumer.folder)}] that sets ${l.consumer.key} and depends on it`,
+          200,
+        ),
+      );
+    }
   }
   const out = [...head];
   let used = out.join("\n").length;

@@ -80,6 +80,57 @@ describe("extractProfile on the orders fixture", () => {
   });
 });
 
+describe("what a make target runs", () => {
+  test("a make target carries the commands its recipe runs", async () => {
+    const p = await extractProfile(await orders());
+    const root = p.parts.find((x) => x.folder === "")?.commands ?? [];
+    expect(root.find((c) => c.text === "make test")?.runs).toEqual(["go test ./..."]);
+    expect(root.find((c) => c.text === "make lint")?.runs).toEqual(["go vet ./..."]);
+    expect(root.find((c) => c.text === "make release")?.runs).toEqual([
+      "docker build -t $(IMAGE):$(VERSION) .",
+      "docker push $(IMAGE):$(VERSION)",
+    ]);
+  });
+
+  test("recipe prefixes drop, non-commands are skipped, and make -C or a missing target runs nothing", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        "README.md": "Run `make check`, `make -C sub test` and `make nothing`.\n",
+        Makefile:
+          ".PHONY: check\ncheck: deps\n\t@go vet ./...\n\t-golangci-lint run\n\techo done\n\nother:\n\tgo build\n",
+      }),
+    );
+    const cs = p.parts.find((x) => x.folder === "")?.commands ?? [];
+    expect(cs.find((c) => c.text === "make check")?.runs).toEqual([
+      "go vet ./...",
+      "golangci-lint run",
+    ]);
+    expect(cs.find((c) => c.text === "make -C sub test")).toBeDefined();
+    expect(cs.find((c) => c.text === "make -C sub test")?.runs).toBeUndefined();
+    expect(cs.find((c) => c.text === "make nothing")?.runs).toBeUndefined();
+  });
+
+  test("a task names a target by what it runs", () => {
+    const c: Command = {
+      text: "make test",
+      role: "check",
+      source: "README.md:7",
+      runs: ["go test ./..."],
+    };
+    expect(namesCommand("`go test ./...` passes", c)).toBe(true);
+    expect(namesCommand("`go build` passes", c)).toBe(false);
+    // Verbatim only: a release recipe's docker build must not make any docker mention a release.
+    const release: Command = {
+      text: "make release",
+      role: "release",
+      source: "README.md:7",
+      runs: ["docker build -t $(IMAGE):$(VERSION) ."],
+    };
+    expect(namesCommand("the docker build still works", release)).toBe(false);
+  });
+});
+
 describe("extractProfile on other layouts", () => {
   test("an unfiltered CI job belongs to every part", async () => {
     const p = await extractProfile(

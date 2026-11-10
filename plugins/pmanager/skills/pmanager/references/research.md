@@ -33,7 +33,8 @@ never as regular expressions. Run once:
   `stale:` line means the repo's CI, docs or config changed since: tell the
   user to run `pm project refresh <id>`, do not refresh mid-plan. Name those
   part ids in each task's `parts:` and copy each part's checks into its
-  criteria.
+  criteria. A `plan:` line under a release link names the release task and the
+  task that moves the link's key after it: put both in the first draft.
 - The output is pruned to about 1500 tokens per repo: import lines and data
   files (lockfiles, `*.jsonl`, `dist/`, minified bundles) go first, then each
   section keeps its strongest lines. The `pruned:` line says how much was

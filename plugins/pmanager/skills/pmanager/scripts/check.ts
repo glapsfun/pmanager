@@ -351,7 +351,9 @@ export const partRules: Rule = (repo, opts) => {
         continue;
       }
       const checks = hit.part.commands.filter((c) => c.role === "check");
-      if (checks.length > 0 && !checks.some((c) => namesCommand(text, c))) {
+      // A release task is checked by its part's release command; asking it for a test cost a round.
+      const own = hit.part.commands.filter((c) => c.role === "check" || c.role === "release");
+      if (checks.length > 0 && !own.some((c) => namesCommand(text, c))) {
         out.push(
           err(
             t.path,

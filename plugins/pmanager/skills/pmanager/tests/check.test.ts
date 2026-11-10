@@ -672,6 +672,31 @@ describe("parts and release links (E-PRT, E-REL)", () => {
   });
 });
 
+describe("fewer fix rounds, from component-profiles-paired", () => {
+  test("E-PRT-003: a release task names its part's release command, not a check", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "bump `VERSION` in the Makefile and run `make release`");
+    expect(ids(await partRules(root))).toEqual(["E-REL-002 epic.md"]);
+  });
+
+  test("E-PRT-003: another part's release command is not this part's check", async () => {
+    const root = await partFixture();
+    await setTask(
+      root,
+      T04,
+      "[orders/deploy/chart]",
+      "set image.tag to what `make release` pushed",
+    );
+    expect(ids(await partRules(root))).toEqual(["E-PRT-003 T04-restore-pagination.md"]);
+  });
+
+  test("E-PRT-003: the commands a Makefile target runs count as the target", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`go test ./...` and `go vet ./...` pass");
+    expect(ids(await partRules(root))).toEqual(["E-REL-001 epic.md", "E-REL-002 epic.md"]);
+  });
+});
+
 describe("a repo id with no root part", () => {
   test("means the whole repo: its shared checks apply", async () => {
     const base = await profileOfOrders();
