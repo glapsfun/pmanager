@@ -21,7 +21,8 @@ never as regular expressions. Run once:
   (`--path app/orders --path db/`). It scopes every probe and the header
   records what was searched, so the ledger can say what was not.
 - `--repo` for each target repository the request names, all in this one
-  call (each gets its own header and output budget), resolved through
+  call (each gets its own header and output budget; memory shows once, in the
+  first), resolved through
   `docs/pm/.local/repos.json`; a name that is not mapped lowers the epic's
   confidence with that reason recorded. Never clone.
 - `--no-gh` when the ledger already says gh is unavailable.

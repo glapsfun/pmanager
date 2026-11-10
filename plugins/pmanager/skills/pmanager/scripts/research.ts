@@ -481,6 +481,14 @@ export async function buildResearch(opts: ResearchOptions): Promise<ResearchRepo
   };
 }
 
+/** The memory probe reads the manager repo, the same for every --repo: keep it in the first report. */
+export function memoryOnce(reports: ResearchReport[]): ResearchReport[] {
+  const [first, ...rest] = reports;
+  if (!first || first.probes.memory.total === 0) return reports;
+  const seeFirst = errored("see the first block");
+  return [first, ...rest.map((r) => ({ ...r, probes: { ...r.probes, memory: seeFirst } }))];
+}
+
 export function researchHeader(r: ResearchReport): string {
   const paths = r.paths.length > 0 ? r.paths.join(", ") : "(all)";
   return `research: ${r.repo} @ ${r.ref} · keywords: ${r.keywords.join(", ")} · paths: ${paths} · ${r.durationMs}ms`;
