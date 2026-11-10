@@ -22,7 +22,7 @@ export const MULTI_REPO_REQUEST = `We want to try webshop releases on a small sh
  * would serve). The fixture dir is the manager; the rest lives in
  * `<dir>-pm-workspace`, which the bench's fixture cleanup removes.
  */
-export async function buildMultiRepoContextFixture(dir: string): Promise<FixtureInfo> {
+async function coldFixture(dir: string): Promise<FixtureInfo> {
   // Claim dates must end on the bench's day, or the codex claim would not be stale.
   const shiftDays = daysBetween(STORY_END, PM_TODAY);
   const ws = await buildBaseAt(dir, { shiftDays });
@@ -41,6 +41,25 @@ export async function buildMultiRepoContextFixture(dir: string): Promise<Fixture
     epicSlugsBefore: [],
     initialDirty: {},
   };
+}
+
+/**
+ * Bench fixtures carry no extracted profile, in any commit, branch or worktree, so the arms of a
+ * paired run start equal; a scenario adds profiles per condition in prepareCondition.
+ */
+export async function withoutProfiles<T>(build: () => Promise<T>): Promise<T> {
+  const before = process.env.PM_NO_PROFILES;
+  process.env.PM_NO_PROFILES = "1";
+  try {
+    return await build();
+  } finally {
+    if (before === undefined) delete process.env.PM_NO_PROFILES;
+    else process.env.PM_NO_PROFILES = before;
+  }
+}
+
+export function buildMultiRepoContextFixture(dir: string): Promise<FixtureInfo> {
+  return withoutProfiles(() => coldFixture(dir));
 }
 
 export const multiRepoContext: Scenario = {

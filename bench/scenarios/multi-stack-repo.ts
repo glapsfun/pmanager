@@ -1,17 +1,15 @@
-import { cp, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { daysBetween, shiftDates } from "../../ci/e2e/dates";
 import { pmProcess } from "../../ci/e2e/pm";
 import { STORY_END } from "../../ci/e2e/story";
 import { BASE_DAY, gitDateEnv, sh } from "../../ci/e2e/workspace";
-import { PARTS_END, PARTS_START } from "../../plugins/pmanager/skills/pmanager/scripts/profile";
-import { replaceBetweenMarkers } from "../../plugins/pmanager/skills/pmanager/scripts/render";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { multiStackRepoChecks, ORDERS_URL } from "../graders/multi-stack-repo";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
 import { PM_TODAY } from "../skill-paths";
-import { buildMultiRepoContextFixture } from "./multi-repo-context";
+import { buildMultiRepoContextFixture, withoutProfiles } from "./multi-repo-context";
 import { CONTRACT_SENTENCE, type Condition, type Scenario } from "./types";
 
 const ORDERS = join(import.meta.dir, "fixtures", "orders");
@@ -25,7 +23,11 @@ export const MULTI_STACK_REQUEST = `The orders service should let customers expo
  * and chart keep their commands in their own folder doc and CI job. It lives
  * beside the other targets in `<dir>-pm-workspace`, mapped and registered.
  */
-export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureInfo> {
+export function buildMultiStackRepoFixture(dir: string): Promise<FixtureInfo> {
+  return withoutProfiles(() => multiStackFixture(dir));
+}
+
+async function multiStackFixture(dir: string): Promise<FixtureInfo> {
   const base = await buildMultiRepoContextFixture(dir);
   const orders = `${dir}-pm-workspace/orders`;
   await cp(ORDERS, orders, { recursive: true });
@@ -52,31 +54,17 @@ export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureIn
   };
 }
 
-/** The baseline arm runs main's skill, which writes no profiles: it must not see this branch's. */
+/** Only the change's arm gets profiles: the shared build has none, and main's skill writes none. */
 async function prepareMultiStackCondition(
   dir: string,
   condition: Condition,
   info: FixtureInfo,
 ): Promise<FixtureInfo> {
-  if (condition !== "baseline-skill") return info;
-  const projects = join(dir, "docs", "pm", "projects");
-  let changed = false;
-  for (const name of await readdir(projects)) {
-    const path = join(projects, name);
-    const raw = await readFile(path, "utf8");
-    const bare = replaceBetweenMarkers(raw, PARTS_START, PARTS_END, "");
-    if (bare !== null && bare !== raw) {
-      await writeFile(path, bare);
-      changed = true;
-    }
-  }
-  if (!changed) return info;
+  if (condition !== "with-skill") return info;
+  const r = await pmProcess(dir, ["project", "refresh"], { env: { PM_TODAY, PM_NO_PROFILES: "" } });
+  if (r.code !== 0) throw new Error(`pm project refresh failed: ${r.stderr}`);
   await sh(["git", "add", "docs/pm/projects"], dir);
-  await sh(
-    ["git", "commit", "-q", "-m", "docs(pm): projects without profiles"],
-    dir,
-    gitDateEnv(PM_TODAY),
-  );
+  await sh(["git", "commit", "-q", "-m", "docs(pm): project profiles"], dir, gitDateEnv(PM_TODAY));
   await sh(["git", "push", "-q", "origin", "main"], dir);
   return {
     ...info,

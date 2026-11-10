@@ -381,7 +381,14 @@ async function renderCatalogIndex(root: string): Promise<string[]> {
 async function runProject(root: string, args: Args): Promise<number> {
   const [sub, target] = args.positional;
   if (sub === "add" && target) {
-    const r = await addProject(root, target, { id: args.id, name: args.name, today: today() });
+    // PM_NO_PROFILES is a build seam: the bench makes fixtures whose baseline arm sees no profile.
+    const profile = !process.env.PM_NO_PROFILES;
+    const r = await addProject(root, target, {
+      id: args.id,
+      name: args.name,
+      today: today(),
+      profile,
+    });
     if (!r.ok) return fail(r.message, 1);
     if (args.json) {
       out(json(r));

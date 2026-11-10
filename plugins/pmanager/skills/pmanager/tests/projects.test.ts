@@ -399,3 +399,15 @@ describe("final review: checkouts with no commits", () => {
     expect(refresh.stdout).toContain("fresh: no commits, not refreshed");
   });
 });
+
+describe("final review: a build without profiles", () => {
+  test("PM_NO_PROFILES=1 registers without reading the checkout", async () => {
+    const root = await manager();
+    const orders = await ordersCheckout();
+    const r = await runPm(["project", "add", orders], root, { env: { PM_NO_PROFILES: "1" } });
+    expect(r.code).toBe(0);
+    expect(await readFile(join(root, "docs/pm/projects/orders.md"), "utf8")).not.toContain(
+      PARTS_START,
+    );
+  });
+});

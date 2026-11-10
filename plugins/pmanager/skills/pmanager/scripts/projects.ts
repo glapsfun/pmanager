@@ -167,7 +167,7 @@ async function managerCheckouts(mainRoot: string): Promise<Set<string>> {
 export async function addProject(
   root: string,
   arg: string,
-  opts: { id?: string; name?: string; today: string },
+  opts: { id?: string; name?: string; today: string; profile?: boolean },
 ): Promise<AddOutcome> {
   const pmDir = await repoMapPmDir(root);
   const mainRoot = dirname(dirname(pmDir));
@@ -220,7 +220,7 @@ export async function addProject(
   }
   // A new project gets its parts when its checkout is here; refreshProjects updates them later.
   let profiled: string | null = null;
-  if (created) {
+  if (created && opts.profile !== false) {
     const a = await availability(project, await readLocalRepoMap(pmDir));
     const profile = a.state === "available" ? await extractProfile(a.path) : null;
     // A checkout with no commits has nothing to read yet; refresh picks it up later.

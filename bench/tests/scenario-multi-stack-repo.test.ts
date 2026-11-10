@@ -98,23 +98,29 @@ describe("multi-stack-repo fixture", () => {
 });
 
 describe("multi-stack-repo per condition", () => {
-  test("with-skill keeps the profiles; baseline-skill has none, committed as its new baseline", async () => {
+  test("the shared build holds no profile anywhere; with-skill gets them on main, baseline-skill keeps none", async () => {
     const { dir, info } = await built();
-    const orders = () => readFile(join(dir, "docs/pm/projects/orders.md"), "utf8");
-    const same = await multiStackRepo.prepareCondition?.(dir, "with-skill", info);
-    expect(same?.baselineSha).toBe(info.baselineSha);
-    expect(await orders()).toContain("helm unittest deploy/chart");
-    const bare = await multiStackRepo.prepareCondition?.(dir, "baseline-skill", info);
-    const files = (await gitOk(["ls-files", "docs/pm/projects"], dir)).trim().split("\n");
-    for (const f of files) {
-      expect([f, (await readFile(join(dir, f), "utf8")).includes("pm:parts:start")]).toEqual([
-        f,
-        false,
-      ]);
+    const everywhere = await gitOk(["log", "-p", "--all"], dir);
+    expect(everywhere.includes("pm:parts:start")).toBe(false);
+    const siblings = (await readdir(dirname(dir))).filter((n) =>
+      n.startsWith(`${basename(dir)}-pm-`),
+    );
+    for (const s of siblings.filter((n) => !n.endsWith("-pm-workspace"))) {
+      const files = (await gitOk(["ls-files", "docs/pm/projects"], join(dirname(dir), s)))
+        .trim()
+        .split("\n");
+      for (const f of files.filter(Boolean)) {
+        const raw = await readFile(join(dirname(dir), s, f), "utf8");
+        expect([s, f, raw.includes("pm:parts:start")]).toEqual([s, f, false]);
+      }
     }
+    expect(await multiStackRepo.prepareCondition?.(dir, "baseline-skill", info)).toEqual(info);
+    const withSkill = await multiStackRepo.prepareCondition?.(dir, "with-skill", info);
+    const orders = await readFile(join(dir, "docs/pm/projects/orders.md"), "utf8");
+    expect(orders).toContain("helm unittest deploy/chart");
     expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
-    expect(bare?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], dir)).trim());
-    expect(bare?.baselineSha).not.toBe(info.baselineSha);
+    expect(withSkill?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], dir)).trim());
+    expect(withSkill?.baselineSha).not.toBe(info.baselineSha);
   }, 120_000);
 });
 
