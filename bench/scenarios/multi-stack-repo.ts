@@ -9,8 +9,8 @@ import { commonChecks } from "../graders/common";
 import { multiStackRepoChecks, ORDERS_URL } from "../graders/multi-stack-repo";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
 import { PM_TODAY } from "../skill-paths";
-import { buildMultiRepoContextFixture } from "./multi-repo-context";
-import { CONTRACT_SENTENCE, type Scenario } from "./types";
+import { buildMultiRepoContextFixture, withoutProfiles } from "./multi-repo-context";
+import { CONTRACT_SENTENCE, type Condition, type Scenario } from "./types";
 
 const ORDERS = join(import.meta.dir, "fixtures", "orders");
 // The example's own author, so two builds give the same orders commit.
@@ -23,7 +23,11 @@ export const MULTI_STACK_REQUEST = `The orders service should let customers expo
  * and chart keep their commands in their own folder doc and CI job. It lives
  * beside the other targets in `<dir>-pm-workspace`, mapped and registered.
  */
-export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureInfo> {
+export function buildMultiStackRepoFixture(dir: string): Promise<FixtureInfo> {
+  return withoutProfiles(() => multiStackFixture(dir));
+}
+
+async function multiStackFixture(dir: string): Promise<FixtureInfo> {
   const base = await buildMultiRepoContextFixture(dir);
   const orders = `${dir}-pm-workspace/orders`;
   await cp(ORDERS, orders, { recursive: true });
@@ -50,11 +54,31 @@ export async function buildMultiStackRepoFixture(dir: string): Promise<FixtureIn
   };
 }
 
+/** Only the change's arm gets profiles: the shared build has none, and main's skill writes none. */
+async function prepareMultiStackCondition(
+  dir: string,
+  condition: Condition,
+  info: FixtureInfo,
+): Promise<FixtureInfo> {
+  if (condition !== "with-skill") return info;
+  const r = await pmProcess(dir, ["project", "refresh"], { env: { PM_TODAY, PM_NO_PROFILES: "" } });
+  if (r.code !== 0) throw new Error(`pm project refresh failed: ${r.stderr}`);
+  await sh(["git", "add", "docs/pm/projects"], dir);
+  await sh(["git", "commit", "-q", "-m", "docs(pm): project profiles"], dir, gitDateEnv(PM_TODAY));
+  await sh(["git", "push", "-q", "origin", "main"], dir);
+  return {
+    ...info,
+    baselineSha: await headSha(dir),
+    originRefs: await lsRemoteRefs(dir, "origin"),
+  };
+}
+
 export const multiStackRepo: Scenario = {
   name: "multi-stack-repo",
   task: MULTI_STACK_REQUEST,
-  graderVersion: 2,
+  graderVersion: 4,
   buildFixture: buildMultiStackRepoFixture,
+  prepareCondition: prepareMultiStackCondition,
   checks: [
     ...commonChecks("spec"),
     epicAndPlan,

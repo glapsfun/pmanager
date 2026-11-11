@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "id": "component-profiles-paired",
+  "createdAt": "2026-11-10T17:18:11.149Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.321",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill",
+    "baseline-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 1500,
+  "repoSha": "b6b4ece",
+  "repoDirty": false,
+  "skillVersion": "0.11.0",
+  "skillHash": "sha256:4ce019e1c68f7d6c4ff1dd382467077e5ee2d73b9b2d963a16d6663c688b6e21",
+  "contractHash": "sha256:7744d795e259f41a6339a29871d57d20c928d18d0470f814cbfac49907bdd078",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "multi-stack-repo",
+      "version": 1,
+      "promptHash": "sha256:c438a536538f704870f39bbbfdeee95c0ac2d3b4577c7a2cc999da20e535e75d",
+      "fixtureHash": "sha256:4586c28d5d2b443e769fba3b260fa153af12c2c9c70a31d01efc15b77fcf684b",
+      "graderVersion": 2
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "component-profiles-paired-p1-multi-stack-repo-with-skill",
+      "pair": 1,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p1-multi-stack-repo-baseline-skill",
+      "pair": 1,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p2-multi-stack-repo-baseline-skill",
+      "pair": 2,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p2-multi-stack-repo-with-skill",
+      "pair": 2,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p3-multi-stack-repo-with-skill",
+      "pair": 3,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p3-multi-stack-repo-baseline-skill",
+      "pair": 3,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p4-multi-stack-repo-baseline-skill",
+      "pair": 4,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p4-multi-stack-repo-with-skill",
+      "pair": 4,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p5-multi-stack-repo-with-skill",
+      "pair": 5,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p5-multi-stack-repo-baseline-skill",
+      "pair": 5,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p6-multi-stack-repo-baseline-skill",
+      "pair": 6,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p6-multi-stack-repo-with-skill",
+      "pair": 6,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p7-multi-stack-repo-with-skill",
+      "pair": 7,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p7-multi-stack-repo-baseline-skill",
+      "pair": 7,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p8-multi-stack-repo-baseline-skill",
+      "pair": 8,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p8-multi-stack-repo-with-skill",
+      "pair": 8,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p9-multi-stack-repo-with-skill",
+      "pair": 9,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p9-multi-stack-repo-baseline-skill",
+      "pair": 9,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 2
+    },
+    {
+      "attemptId": "component-profiles-paired-p10-multi-stack-repo-baseline-skill",
+      "pair": 10,
+      "scenario": "multi-stack-repo",
+      "condition": "baseline-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "component-profiles-paired-p10-multi-stack-repo-with-skill",
+      "pair": 10,
+      "scenario": "multi-stack-repo",
+      "condition": "with-skill",
+      "order": 2
+    }
+  ],
+  "baseline": {
+    "ref": "4ad8596",
+    "sha": "4ad8596f8aa314f722605f3e57c0b1a28f878e44",
+    "skillHash": "sha256:2e5a036db08b0b68c75b03eab70fd35f0c1a04c94a0d99f19fe1826d73ba1be0"
+  }
+}

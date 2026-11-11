@@ -15,6 +15,11 @@ export interface Scenario {
   task: string;
   graderVersion: number;
   buildFixture(dir: string): Promise<FixtureInfo>;
+  /**
+   * Runs after the fixture-hash check and before the skill is installed, so a condition can
+   * see a different fixture (the baseline arm without what the change under test writes).
+   */
+  prepareCondition?(dir: string, condition: Condition, info: FixtureInfo): Promise<FixtureInfo>;
   checks: Check[];
 }
 

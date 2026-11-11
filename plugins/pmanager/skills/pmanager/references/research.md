@@ -26,6 +26,15 @@ never as regular expressions. Run once:
   `docs/pm/.local/repos.json`; a name that is not mapped lowers the epic's
   confidence with that reason recorded. Never clone.
 - `--no-gh` when the ledger already says gh is unavailable.
+- For a registered repo (`--repo <id>`), the block starts with `parts:`: each
+  part's id, its checks, release, deploy and do-not-run commands, and the
+  links between parts, from the stored profile; a repo whose root is not a
+  part also shows its bare id as `(repo-wide)`, the id for a new folder. A
+  `stale:` line means the repo's CI, docs or config changed since: tell the
+  user to run `pm project refresh <id>`, do not refresh mid-plan. Name those
+  part ids in each task's `parts:` and copy each part's checks into its
+  criteria. A `plan:` line under a release link names the release task and the
+  task that moves the link's key after it: put both in the first draft.
 - The output is pruned to about 1500 tokens per repo: import lines and data
   files (lockfiles, `*.jsonl`, `dist/`, minified bundles) go first, then each
   section keeps its strongest lines. The `pruned:` line says how much was

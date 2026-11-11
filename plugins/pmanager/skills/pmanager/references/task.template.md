@@ -28,6 +28,7 @@ title: <imperative one-liner>
 status: todo | in-progress | blocked | done | descoped
 priority: must | should | could
 depends-on: []          # task ids, e.g. [T01, T02]
+parts: []               # part ids from pm research, e.g. [orders/deploy/chart]
 estimate: S | M | L     # S ≤ half day, M ≤ 2 days, L ≤ 3 days (larger: split)
 owner: unassigned
 updated: YYYY-MM-DD
@@ -89,3 +90,9 @@ While no task has started, a first-milestone task that no task lists in
 of each task that needs its result, or move it to the milestone whose state
 it serves. Only a task that no task needs gets the optional field
 `standalone: <why no task needs it>`.
+
+When the epic's repos are registered with a profile, `parts:` lists the parts
+the task changes, by the ids `pm research` prints (`orders` for a repo's root,
+`orders/deploy/chart` for a folder), or `[]` when it changes none. Name each
+part's checks in its criteria: `pm handoff` gives the executor those parts'
+commands, and `pm record` checks them (rules E-PRT-001…003, E-REL-001…002).

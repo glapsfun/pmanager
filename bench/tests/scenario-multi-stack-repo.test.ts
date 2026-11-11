@@ -5,7 +5,11 @@ import { pmProcess } from "../../ci/e2e/pm";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { cleanupFixture, type FixtureInfo } from "../fixture";
 import { hashFixture } from "../hashes";
-import { buildMultiStackRepoFixture, MULTI_STACK_REQUEST } from "../scenarios/multi-stack-repo";
+import {
+  buildMultiStackRepoFixture,
+  MULTI_STACK_REQUEST,
+  multiStackRepo,
+} from "../scenarios/multi-stack-repo";
 import { CONTRACT_SENTENCE } from "../scenarios/types";
 import { PM_TODAY } from "../skill-paths";
 
@@ -91,6 +95,33 @@ describe("multi-stack-repo fixture", () => {
       ]);
     }
   });
+});
+
+describe("multi-stack-repo per condition", () => {
+  test("the shared build holds no profile anywhere; with-skill gets them on main, baseline-skill keeps none", async () => {
+    const { dir, info } = await built();
+    const everywhere = await gitOk(["log", "-p", "--all"], dir);
+    expect(everywhere.includes("pm:parts:start")).toBe(false);
+    const siblings = (await readdir(dirname(dir))).filter((n) =>
+      n.startsWith(`${basename(dir)}-pm-`),
+    );
+    for (const s of siblings.filter((n) => !n.endsWith("-pm-workspace"))) {
+      const files = (await gitOk(["ls-files", "docs/pm/projects"], join(dirname(dir), s)))
+        .trim()
+        .split("\n");
+      for (const f of files.filter(Boolean)) {
+        const raw = await readFile(join(dirname(dir), s, f), "utf8");
+        expect([s, f, raw.includes("pm:parts:start")]).toEqual([s, f, false]);
+      }
+    }
+    expect(await multiStackRepo.prepareCondition?.(dir, "baseline-skill", info)).toEqual(info);
+    const withSkill = await multiStackRepo.prepareCondition?.(dir, "with-skill", info);
+    const orders = await readFile(join(dir, "docs/pm/projects/orders.md"), "utf8");
+    expect(orders).toContain("helm unittest deploy/chart");
+    expect((await gitOk(["status", "--porcelain"], dir)).trim()).toBe("");
+    expect(withSkill?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], dir)).trim());
+    expect(withSkill?.baselineSha).not.toBe(info.baselineSha);
+  }, 120_000);
 });
 
 describe("multi-stack-repo builds", () => {

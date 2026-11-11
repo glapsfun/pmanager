@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { extractProfile, withProfile } from "../scripts/profile";
 import { projectFileText } from "../scripts/projects";
 import {
   exists,
@@ -365,5 +366,47 @@ describe("project catalog", () => {
     expect(r.stdout).toContain("W-PRJ-001");
     expect(r.stdout).not.toContain("E-PRJ-001");
     expect(r.stdout).not.toContain("W-PRJ-002");
+  });
+});
+
+describe("record with a stored profile", () => {
+  test("record refuses a plan whose chart task names none of the chart's checks (E-PRT-003)", async () => {
+    const root = await localUnclaimed();
+    const orders = await makeTempDir("record-orders");
+    await cp(join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders"), orders, {
+      recursive: true,
+    });
+    await initGitRepo(orders);
+    await gitOk(["add", "-A"], orders);
+    await gitOk(["commit", "-q", "-m", "seed"], orders);
+    const url = "https://github.com/pm-example/orders.git";
+    const project = { id: "orders", name: "orders", url, added: "2026-09-01" };
+    await mkdir(join(root, "docs/pm/projects"), { recursive: true });
+    await writeFile(
+      join(root, "docs/pm/projects/orders.md"),
+      withProfile(projectFileText(project), "orders", await extractProfile(orders)),
+    );
+    const epic = join(root, "docs/pm", SLUG, "epic.md");
+    await writeFile(
+      epic,
+      (await readFile(epic, "utf8")).replace(
+        "  - git@github.com:glapsfun/webshop.git",
+        `  - ${url}`,
+      ),
+    );
+    for (const name of await readdir(join(root, "docs/pm", SLUG, "tasks"))) {
+      const p = join(root, "docs/pm", SLUG, "tasks", name);
+      const parts = name.startsWith("T01") ? "[orders/deploy/chart]" : "[]";
+      await writeFile(
+        p,
+        (await readFile(p, "utf8")).replace("\ndepends-on:", `\nparts: ${parts}\ndepends-on:`),
+      );
+    }
+    await gitOk(["add", "-A"], root);
+    await gitOk(["commit", "-qm", "plan against orders"], root);
+    const r = await rec(root, await bundle(SLUG), "--from", "-");
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("E-PRT-003");
+    expect(r.stdout).toContain("not committed: check errors");
   });
 });

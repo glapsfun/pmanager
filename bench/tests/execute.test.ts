@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
 import { executeScenario } from "../execute";
-import { gitCommitAll } from "../fixture";
+import { gitCommitAll, headSha } from "../fixture";
 import { scenarioByName } from "../scenarios/registry";
 import type { Scenario } from "../scenarios/types";
 
@@ -111,6 +111,38 @@ describe("executeScenario", () => {
     );
     expect(installed).toBe("baseline marker\n");
     expect(seen.startsWith("Use the pmanager skill.")).toBe(true);
+  });
+
+  test("prepareCondition gets the condition, and grading uses the baseline it returns", async () => {
+    const base = scenarioByName("perf-bug-new-epic") as Scenario;
+    let seen = "";
+    const scenario: Scenario = {
+      ...base,
+      async prepareCondition(dir, condition, info) {
+        seen = condition;
+        await writeFile(join(dir, "PREPARED.md"), "prepared for the condition\n");
+        await gitCommitAll(dir, "prepare");
+        return { ...info, baselineSha: await headSha(dir) };
+      },
+    };
+    let sawFile = false;
+    const a = adapter(async (o) => {
+      sawFile = await has(join(o.cwd, "PREPARED.md"));
+      return {};
+    });
+    const skillDir = await makeTempDir("bench-prepare-skill");
+    await writeFile(join(skillDir, "SKILL.md"), "baseline\n");
+    const dir = await makeTempDir("bench-exec");
+    const r = await executeScenario(
+      req(scenario, a, {
+        condition: "baseline-skill",
+        skillDir,
+        rawLogPath: join(dir, "raw.jsonl"),
+      }),
+    );
+    expect(seen).toBe("baseline-skill");
+    expect(sawFile).toBe(true);
+    expect(r.checks.find((c) => c.id === "scoped-diff")?.passed).toBe(true);
   });
 
   test("statuses: timeout, harness-error, setup-error on fixture hash mismatch", async () => {

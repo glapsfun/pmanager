@@ -8,7 +8,7 @@ import { buildBaseAt, gitDateEnv, sh } from "../../ci/e2e/workspace";
 import { loadPmRepo } from "../../plugins/pmanager/skills/pmanager/scripts/repo";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { PM_TODAY } from "../skill-paths";
-import { multiRepoContext } from "./multi-repo-context";
+import { multiRepoContext, withoutProfiles } from "./multi-repo-context";
 import type { Scenario } from "./types";
 
 /**
@@ -42,7 +42,11 @@ async function stableLogIds(manager: string): Promise<void> {
  * order. The follow-up to multi-repo-context-cold: does that memo close the
  * cross-repo-order gap?
  */
-export async function buildMultiRepoContextAsIsFixture(dir: string): Promise<FixtureInfo> {
+export function buildMultiRepoContextAsIsFixture(dir: string): Promise<FixtureInfo> {
+  return withoutProfiles(() => asIsFixture(dir));
+}
+
+async function asIsFixture(dir: string): Promise<FixtureInfo> {
   const shiftDays = daysBetween(STORY_END, PM_TODAY);
   const ws = await buildBaseAt(dir, { shiftDays });
   await playStory(ws, { shiftDays });

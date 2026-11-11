@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
+import { cp, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   buildHandoff,
@@ -8,8 +8,9 @@ import {
   readLocalRepoMap,
   resolveRepo,
 } from "../scripts/handoff";
+import { extractProfile, type Profile } from "../scripts/profile";
 import { loadPmRepo } from "../scripts/repo";
-import { copyFixture, makeTempDir, writeTree } from "./helpers";
+import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 async function fixture() {
   const root = await makeTempDir("handoff");
@@ -105,5 +106,87 @@ describe("repo map, read-only", () => {
     expect(await readLocalRepoMap(join(root, "docs/pm"))).toEqual({
       "glapsfun/webshop": "/tmp/webshop",
     });
+  });
+});
+
+const ORDERS_FIXTURE = join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders");
+
+async function ordersProfiles(): Promise<Map<string, Profile>> {
+  const dir = await makeTempDir("handoff-orders");
+  await cp(ORDERS_FIXTURE, dir, { recursive: true });
+  await initGitRepo(dir);
+  await gitOk(["add", "-A"], dir);
+  await gitOk(["commit", "-q", "-m", "seed"], dir);
+  return new Map([["orders", await extractProfile(dir)]]);
+}
+
+/** The fixture with T01 naming the given parts. */
+async function withParts(parts: string) {
+  const { root } = await fixture();
+  const file = join(root, "docs/pm/app-performance/tasks/T01-benchmark-orders.md");
+  const raw = await readFile(file, "utf8");
+  await writeTree(root, {
+    "docs/pm/app-performance/tasks/T01-benchmark-orders.md": raw.replace(
+      "depends-on: []",
+      `depends-on: []\nparts: ${parts}`,
+    ),
+  });
+  return loadPmRepo(root);
+}
+
+describe("buildHandoff with parts", () => {
+  test("the brief lists the named part's checks, deploy and forbidden commands", async () => {
+    const repo = await withParts("[orders/infra/terraform]");
+    const brief = buildHandoff(repo, "app-performance", "T01", {}, await ordersProfiles());
+    const section = brief.slice(brief.indexOf("## Checks for this task's parts"));
+    expect(section).toContain("`orders/infra/terraform`");
+    expect(section).toMatch(/checks: .*\.\/scripts\/tf-check\.sh/);
+    expect(section).toMatch(/do not run: .*terraform apply/);
+  });
+
+  test("the brief lists the links that touch the part", async () => {
+    const repo = await withParts("[orders/deploy/chart]");
+    const brief = buildHandoff(repo, "app-performance", "T01", {}, await ordersProfiles());
+    expect(brief).toContain("storage.bucket follows infra/terraform/main.tf");
+    expect(brief).toContain("image.tag follows Makefile VERSION");
+  });
+
+  test("a task without parts gets no section; an unknown part is named, not dropped", async () => {
+    const { repo } = await fixture();
+    expect(buildHandoff(repo, "app-performance", "T01", {}, await ordersProfiles())).not.toContain(
+      "## Checks for this task's parts",
+    );
+    const odd = await withParts("[orders/nope]");
+    expect(buildHandoff(odd, "app-performance", "T01", {}, await ordersProfiles())).toContain(
+      "`orders/nope`: no such part in a stored profile",
+    );
+  });
+});
+
+describe("final review: handoff size", () => {
+  test("I1: links per part are capped", async () => {
+    const repo = await withParts("[orders/deploy/chart]");
+    const base = (await ordersProfiles()).get("orders") as Profile;
+    const end = (folder: string, i: number) => ({
+      folder,
+      file: `${folder}/f${i}`,
+      line: 1,
+      key: `k${i}`,
+    });
+    const links = Array.from({ length: 12 }, (_, i) => ({
+      value: `value-${i}`,
+      source: end("infra/terraform", i),
+      consumer: end("deploy/chart", i),
+      release: false,
+    }));
+    const brief = buildHandoff(
+      repo,
+      "app-performance",
+      "T01",
+      {},
+      new Map([["orders", { ...base, links }]]),
+    );
+    expect(brief.match(/^ {2}- link:/gm)?.length).toBe(5);
+    expect(brief).toContain("7 more links");
   });
 });

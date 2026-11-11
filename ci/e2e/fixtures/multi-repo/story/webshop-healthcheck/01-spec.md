@@ -162,6 +162,7 @@ title: Serve GET /healthz from the webshop
 status: todo
 priority: must
 depends-on: []
+parts: [webshop]
 estimate: S
 owner: unassigned
 updated: 2026-10-20
@@ -200,6 +201,7 @@ title: Probe /healthz and roll out webshop 1.5.0
 status: todo
 priority: must
 depends-on: [T01]
+parts: [argocd/workloads/webshop]
 estimate: S
 owner: unassigned
 updated: 2026-10-20

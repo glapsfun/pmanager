@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { getList, getString, sectionBody } from "./contract";
 import { git } from "./git";
+import { type Command, type Profile, type Role, resolvePart } from "./profile";
 import { epicBySlug, LOCAL_DIR, PM_DIR, type PmRepo, taskById } from "./repo";
 import { lookupMapped } from "./repo-url";
 
@@ -59,11 +60,52 @@ function trimmed(body: string, heading: string): string {
   return (sectionBody(body, heading) ?? "").trim() || "(empty)";
 }
 
+const LINKS_SHOWN = 5;
+
+function partLines(ids: string[], profiles: Map<string, Profile>): string[] {
+  const out: string[] = [];
+  const quote = (cs: Command[]) => cs.map((c) => `\`${c.text}\` (${c.source})`).join("; ");
+  for (const id of ids) {
+    const hit = resolvePart(id, profiles);
+    if (!hit) {
+      out.push(`- \`${id}\`: no such part in a stored profile; check the id with pm research`);
+      continue;
+    }
+    out.push(`- \`${id}\``);
+    const roles: [Role, string][] = [
+      ["check", "checks"],
+      ["release", "releases with"],
+      ["deploy", "deploys with"],
+      ["forbidden", "do not run"],
+    ];
+    for (const [role, label] of roles) {
+      const cs = hit.part.commands.filter((c) => c.role === role);
+      if (cs.length > 0) out.push(`  - ${label}: ${quote(cs)}`);
+    }
+    const touching = (profiles.get(hit.project)?.links ?? [])
+      .filter((l) => l.source.folder === hit.part.folder || l.consumer.folder === hit.part.folder)
+      .sort((a, b) => Number(b.release) - Number(a.release));
+    for (const l of touching.slice(0, LINKS_SHOWN)) {
+      const kind = l.release ? "release link" : "link";
+      out.push(
+        `  - ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key} (\`${l.value}\`)`,
+      );
+    }
+    if (touching.length > LINKS_SHOWN) {
+      out.push(
+        `  - ${touching.length - LINKS_SHOWN} more links in docs/pm/projects/${hit.project}.md`,
+      );
+    }
+  }
+  return out;
+}
+
 export function buildHandoff(
   repo: PmRepo,
   slug: string,
   taskId: string,
   map: Record<string, string>,
+  profiles: Map<string, Profile> = new Map(),
 ): string {
   const epic = epicBySlug(repo, slug);
   if (!epic?.epic) throw new Error(`unknown epic ${slug}`);
@@ -82,6 +124,11 @@ export function buildHandoff(
             : `- ${u} → not checked out on this machine; map it in docs/pm/.local/repos.json`;
         });
   const taskRel = relative(repo.root, task.path);
+  const parts = getList(tfm, "parts");
+  const partSection =
+    parts.length === 0
+      ? []
+      : ["## Checks for this task's parts", "", ...partLines(parts, profiles), ""];
   return [
     `# Handoff — ${getString(efm, "title") ?? slug} / ${task.id} — ${getString(tfm, "title") ?? task.id}`,
     "",
@@ -93,6 +140,7 @@ export function buildHandoff(
     "",
     ...repoLines,
     "",
+    ...partSection,
     `## Task file: ${taskRel}`,
     "",
     task.raw.trimEnd(),

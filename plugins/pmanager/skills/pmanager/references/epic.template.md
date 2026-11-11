@@ -24,6 +24,7 @@ updated: YYYY-MM-DD
 contract: 1
 primary-metric: <one line, mirrors the primary row of Success metrics>
 repos: []                     # remote URLs of the target repositories
+# no-release: <why>           # only when the epic changes a released part but ships no release
 # session: set by `pm claim`; never written by hand
 #   harness: claude-code
 #   claimed: YYYY-MM-DD

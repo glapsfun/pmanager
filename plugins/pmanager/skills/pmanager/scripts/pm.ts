@@ -10,6 +10,7 @@ import { countBySeverity, formatFindings } from "./findings";
 import {
   commitPaths,
   fetchOrigin,
+  git,
   hasRemote,
   listFetchedBranches,
   pushSetUpstream,
@@ -25,6 +26,7 @@ import {
   formatCandidate,
   loadCatalog,
   PROJECTS_INDEX,
+  refreshProjects,
   renderProjectsIndex,
 } from "./projects";
 import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
@@ -43,6 +45,7 @@ import {
 // Folders under docs/pm that are not epics, so no epic may take their name.
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
+import { formatPartsBlock, loadProfiles, profileInputChanged } from "./profile";
 import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import {
@@ -71,6 +74,7 @@ commands
   status                        epics, owners, stale claims, next task
   project add <path|url> [--id ID] [--name NAME]
                                 register a project in the manager's docs/pm/projects and map its checkout; commits nothing
+  project refresh [ID]          re-read every available project's parts, commands and links (or one)
   project list                  registered projects and their availability on this machine
   project discover              git repos beside this manager, as registration suggestions; writes nothing
   handoff <slug> <task-id>      print an execution brief
@@ -377,7 +381,14 @@ async function renderCatalogIndex(root: string): Promise<string[]> {
 async function runProject(root: string, args: Args): Promise<number> {
   const [sub, target] = args.positional;
   if (sub === "add" && target) {
-    const r = await addProject(root, target, { id: args.id, name: args.name, today: today() });
+    // PM_NO_PROFILES is a build seam: the bench makes fixtures whose baseline arm sees no profile.
+    const profile = !process.env.PM_NO_PROFILES;
+    const r = await addProject(root, target, {
+      id: args.id,
+      name: args.name,
+      today: today(),
+      profile,
+    });
     if (!r.ok) return fail(r.message, 1);
     if (args.json) {
       out(json(r));
@@ -390,6 +401,32 @@ async function runProject(root: string, args: Args): Promise<number> {
         : `already registered as ${r.project.id}\n`,
     );
     if (r.mapped) out(`mapped ${r.mapped}\n`);
+    if (r.profiled) out(`profiled ${r.project.id} @ ${r.profiled.slice(0, 7)}\n`);
+    else if (r.created) {
+      out(
+        `no profile: ${r.project.id} is not checked out here; run pm project refresh ${r.project.id} once it is mapped\n`,
+      );
+    }
+    if (r.written.length > 0) {
+      out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
+    }
+    return 0;
+  }
+  if (sub === "refresh") {
+    const r = await refreshProjects(root, target);
+    if (!r.ok) return fail(r.message);
+    if (args.json) {
+      out(json(r));
+      return 0;
+    }
+    const main = dirname(dirname(await repoMapPmDir(root)));
+    for (const row of r.rows) {
+      out(
+        "revision" in row
+          ? `refreshed ${row.id} @ ${row.revision.slice(0, 7)} (${row.parts} parts)\n`
+          : `${row.id}: ${row.skipped}, not refreshed\n`,
+      );
+    }
     if (r.written.length > 0) {
       out(`files to commit:\n${r.written.map((f) => `  ${relative(main, f)}\n`).join("")}`);
     }
@@ -445,8 +482,33 @@ async function runResearch(root: string, args: Args): Promise<number> {
   const views = memoryOnce(reports).map((r) =>
     args.full ? { ...r, pruned: null } : prune(r, args.budget),
   );
-  if (args.json) out(json(views.length === 1 ? views[0] : views));
-  else out(views.map(formatResearch).join("\n"));
+  const profiles = await loadProfiles(catalog);
+  // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
+  const parts = await Promise.all(
+    views.map(async (v, i) => {
+      const id = targets[i]?.name ?? "";
+      const p = profiles.get(id);
+      if (!p) return null;
+      // Stale only when a commit since the profile touched what it was read from.
+      let stale: string | null = null;
+      if (!p.revision.startsWith(v.ref)) {
+        const d = await git(["diff", "--name-only", p.revision, "HEAD"], targets[i]?.path ?? root);
+        const changed = d.code === 0 ? d.stdout.split("\n").filter(Boolean) : null;
+        if (changed === null || profileInputChanged(changed)) stale = v.ref;
+      }
+      return formatPartsBlock(id, p, stale);
+    }),
+  );
+  if (args.json) {
+    const withParts = views.map((v, i) => (parts[i] ? { ...v, parts: parts[i] } : v));
+    out(json(withParts.length === 1 ? withParts[0] : withParts));
+  } else {
+    const blocks = views.map((v, i) => {
+      const [header, ...rest] = formatResearch(v).split("\n");
+      return [header, ...(parts[i] ?? []), ...rest].join("\n");
+    });
+    out(blocks.join("\n"));
+  }
   return 0;
 }
 
@@ -593,6 +655,7 @@ export async function main(
         catalog,
         catalogScope: target === main ? "main" : "epic",
         epic: args.epic,
+        profiles: await loadProfiles(catalog),
       });
       const { errors, warnings } = countBySeverity(findings);
       out(
@@ -718,7 +781,8 @@ export async function main(
       try {
         const source = await repoForEpic(root, repo, slug);
         const map = await loadLocalRepoMap(await repoMapPmDir(root));
-        const brief = buildHandoff(source, slug, taskId, map);
+        const { catalog } = await mainCatalog(root);
+        const brief = buildHandoff(source, slug, taskId, map, await loadProfiles(catalog));
         out(args.json ? json({ brief }) : brief);
         return 0;
       } catch (e) {

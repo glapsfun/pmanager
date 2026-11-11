@@ -15,10 +15,22 @@ export const ORDERS_URL = "https://github.com/pm-example/orders.git";
 export type Part = "service" | "terraform" | "chart";
 const PARTS: Part[] = ["service", "terraform", "chart"];
 
+/**
+ * Service work that names no Go path: the service is the repo root, so its README and its
+ * end-to-end tests change it. A folder's own README is that folder's, and "the chart's
+ * README.md" another component's.
+ */
+const SERVICE_WORK =
+  /(?<![\w./-])(?<!'s\s+`?)README\.md\b|\bend[- ]to[- ]end\b|\be2e\b|\bintegration(?:[- ]style)?\s+tests?\b/i;
+// Case matters: the Makefile's VERSION, not a chart's `version`.
+const VERSION_BUMP = /\b[Bb]ump\w*\s+`?VERSION\b/;
+
 /** Paths and artifacts first; the words only when no path places the task. */
 const PATHS: Record<Part, RegExp> = {
-  service:
-    /\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bMakefile\b|\bDockerfile\b|\bmake\s+release\b|\borders:v?\d/i,
+  service: new RegExp(
+    `${/\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bMakefile\b|\bDockerfile\b|\bmake\s+release\b|\borders:v?\d/.source}|${SERVICE_WORK.source}`,
+    "i",
+  ),
   terraform: /\binfra\/terraform\b|\.tf\b|\baws_s3_bucket\b|\btf-check\b/i,
   chart: /\bdeploy\/chart\b|\bvalues\.ya?ml\b|\bChart\.yaml\b|\bimage\.tag\b/i,
 };
@@ -32,7 +44,10 @@ const SHARED_INFRA = /\benvs\/|\bmodules\/|\binfra repo\b|pm-example\/infra\b/i;
 // "in the orders Terraform, not the infra repo" names the shared repo only to rule it out.
 const NOT_SHARED = /\b(?:not|never|instead of)\s+(?:in\s+)?the infra repo\b/gi;
 /** Changing the service's code; Makefile, image and release words only name where a tag comes from. */
-const SERVICE_CODE = /\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bGo\s+(?:service|handler|code)\b/i;
+const SERVICE_CODE = new RegExp(
+  `${/\bcmd\/|\binternal\/|\.go\b|\bgo\.mod\b|\bGo\s+(?:service|handler|code)\b/.source}|${SERVICE_WORK.source}`,
+  "i",
+);
 
 const OWN_CHECKS: Record<Part, RegExp> = {
   service: /\bmake\s+(?:test|lint)\b|\bgo\s+test\b/i,
@@ -81,7 +96,9 @@ export function partsOf(t: TaskDoc): Part[] {
   const text = work(t).replace(CHART_TESTS, "");
   const shared = sharedInfra(t);
   const keep = (p: Part) => !(shared && p === "terraform");
-  const placed = PARTS.filter((p) => PATHS[p].test(text) && keep(p));
+  const placed = PARTS.filter(
+    (p) => (PATHS[p].test(text) || (p === "service" && VERSION_BUMP.test(text))) && keep(p),
+  );
   if (placed.length > 0) return placed;
   const worded = PARTS.filter((p) => WORDS[p].test(text) && keep(p));
   if (worded.length > 0) return worded;
@@ -152,7 +169,9 @@ const noBorrowedChecks = epicCheck(
   "no task that changes only the Terraform part or only the chart names the service's checks",
   (e): CheckResult => {
     const changes = (t: TaskDoc) =>
-      partsOf(t).filter((p) => p !== "service" || SERVICE_CODE.test(work(t)));
+      partsOf(t).filter(
+        (p) => p !== "service" || SERVICE_CODE.test(work(t)) || VERSION_BUMP.test(work(t)),
+      );
     const borrowed = e.tasks.filter((t) => {
       const p = changes(t);
       return p.length === 1 && p[0] !== "service" && OWN_CHECKS.service.test(asks(t));
