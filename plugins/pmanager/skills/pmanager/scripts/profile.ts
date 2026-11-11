@@ -38,6 +38,8 @@ export interface Link {
 
 export interface Profile {
   revision: string;
+  /** PROFILE_FORMAT when stored; older profiles lack what research and check now read. */
+  format?: number;
   parts: Part[];
   links: Link[];
   /** files skipped, and why */
@@ -69,6 +71,16 @@ const CHANGE_EVENTS = new Set(["push", "pull_request", "pull_request_target", "m
 const DEPLOY = /^(?:terraform (?:plan|apply)|helm (?:upgrade|install)|kubectl (?:apply|rollout))\b/;
 const RELEASE = /^(?:make release|docker push|git tag)\b|\bpublish\b/;
 const VERSION = /^v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?$/;
+/** 2: make targets carry what their recipe runs. */
+export const PROFILE_FORMAT = 2;
+// GNU make's search order.
+const MAKEFILES = ["GNUmakefile", "makefile", "Makefile"];
+const isMakefile = (file: string) => MAKEFILES.includes(posix.basename(file));
+const CONDITIONAL = /^\s*(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b/;
+// `name: VAR = x` and `name: export VAR=x` set a variable for the target and add no recipe.
+const TARGET_VAR = /^\s*(?:export\s+|override\s+)?[\w.-]+\s*(?:::?=|[?+!]?=)/;
+// Fetching dependencies is setup, not what a check runs.
+const SETUP = /^(?:go (?:mod|get)|npm ci)\b/;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const GITLAB_RESERVED = new Set([
   "stages",
@@ -135,22 +147,42 @@ function blocks(raw: string): { text: string; line: number }[] {
   return out;
 }
 
-/** Each Makefile target's recipe as commands: `@`, `-` and `+` prefixes dropped, non-commands skipped. */
+/**
+ * Each Makefile target's recipe as commands: `@`, `-` and `+` prefixes dropped; setup steps,
+ * single words and non-commands skipped, since a task naming one of them would name the target.
+ * A later rule for the same target (`::`, prerequisites only) adds to its recipe.
+ */
 function recipes(raw: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
-  let current: string[] | null = null;
-  for (const l of raw.split("\n")) {
+  let current: string[][] = [];
+  const take = (line: string) => {
+    for (const x of commandsIn(line.trim().replace(/^[@+-]+\s*/, ""))) {
+      if (!x.includes(" ") || SETUP.test(x) || roleOf(x, false) === null) continue;
+      for (const r of current) r.push(x);
+    }
+  };
+  for (const l of raw.replace(/\\\n\s*/g, " ").split("\n")) {
     if (l.startsWith("\t")) {
-      current?.push(...commandsIn(l.trim().replace(/^[@+-]+\s*/, "")));
+      take(l);
       continue;
     }
-    // `name:` or `a b::`, never an assignment (`X := 1`).
-    const m = /^([^\s:#=][^:=]*?)\s*::?(?!=)/.exec(l);
+    if (CONDITIONAL.test(l)) continue;
+    // `name:` or `a b::`, never an assignment (`X := 1`, `X ::= 1`).
+    const m = /^([^\s:#=][^:=]*?)\s*::?(?![:=])(.*)$/.exec(l);
     if (m) {
-      const recipe: string[] = [];
-      current = recipe;
-      for (const name of (m[1] ?? "").split(/\s+/)) out.set(name, recipe);
-    } else if (l.trim() !== "" && !l.trim().startsWith("#")) current = null;
+      const rest = m[2] ?? "";
+      if (TARGET_VAR.test(rest)) {
+        current = [];
+        continue;
+      }
+      current = (m[1] ?? "").split(/\s+/).map((name) => {
+        const r = out.get(name) ?? [];
+        out.set(name, r);
+        return r;
+      });
+      const inline = rest.indexOf(";");
+      if (inline >= 0) take(rest.slice(inline + 1));
+    } else if (l.trim() !== "" && !l.trim().startsWith("#")) current = [];
   }
   return out;
 }
@@ -333,7 +365,7 @@ function literals(raw: string, file: string, notes: string[]): Literal[] {
       const m = /^\s*([\w-]+)\s*=\s*"([^"]*)"/.exec(l);
       if (m && linkable(m[2])) out.push({ value: m[2], file, line: i + 1, key: m[1] ?? "" });
     });
-  } else if (base === "Makefile") {
+  } else if (isMakefile(base)) {
     raw.split("\n").forEach((l, i) => {
       const m = /^([A-Z][A-Z0-9_]*)\s*(?:::?=|[?+]?=)\s*(\S+)\s*$/.exec(l);
       if (m && linkable(m[2])) out.push({ value: m[2], file, line: i + 1, key: m[1] ?? "" });
@@ -358,7 +390,7 @@ function literals(raw: string, file: string, notes: string[]): Literal[] {
 }
 
 const LITERAL_FILE =
-  /\.tf$|(?:^|\/)Makefile$|(?:^|\/)values[^/]*\.ya?ml$|(?:^|\/)kustomization\.ya?ml$/;
+  /\.tf$|(?:^|\/)(?:GNUmakefile|makefile|Makefile)$|(?:^|\/)values[^/]*\.ya?ml$|(?:^|\/)kustomization\.ya?ml$/;
 const isDeployConfig = (file: string) =>
   /^(?:values.*|kustomization)\.ya?ml$/.test(posix.basename(file));
 
@@ -372,6 +404,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links: [],
       notes: ["no commits: nothing to read yet"],
       shared: [],
+      format: PROFILE_FORMAT,
     };
   }
   const revision = head.stdout.trim();
@@ -397,9 +430,11 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     commands: [],
   }));
   const read = (f: string) => readFile(join(checkout, f), "utf8").catch(() => "");
+  // Each part gets its own copy: what a command runs is set per command below.
   const add = (part: Part, cs: Command[]) => {
     for (const c of cs) {
-      if (!part.commands.some((x) => x.text === c.text && x.role === c.role)) part.commands.push(c);
+      if (!part.commands.some((x) => x.text === c.text && x.role === c.role))
+        part.commands.push({ ...c });
     }
   };
 
@@ -415,7 +450,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     for (const name of ["AGENTS.md", "README.md"]) {
       if (!files.includes(name)) continue;
       const cs = docCommands(await read(name), name);
-      shared.push(...cs);
+      shared.push(...cs.map((c) => ({ ...c })));
       for (const part of parts) add(part, cs);
     }
   }
@@ -446,19 +481,28 @@ export async function extractProfile(checkout: string): Promise<Profile> {
   }
   for (const j of jobs) {
     if (j.filters.includes(null)) {
-      for (const c of j.commands) if (!shared.some((x) => x.text === c.text)) shared.push(c);
+      for (const c of j.commands) if (!shared.some((x) => x.text === c.text)) shared.push({ ...c });
     }
   }
-  // Planners write the recipe (`go test ./...`) as often as the target (`make test`).
-  for (const part of parts) {
-    const makefile = part.folder ? `${part.folder}/Makefile` : "Makefile";
-    if (!files.includes(makefile)) continue;
-    const byTarget = recipes(await read(makefile));
-    for (const c of part.commands) {
-      const target = /^make ([\w.-]+)$/.exec(c.text)?.[1];
-      const runs = target ? byTarget.get(target) : undefined;
-      if (runs && runs.length > 0) c.runs = [...runs];
+  // Planners write the recipe (`go test ./...`) as often as the target (`make test`). A doc's
+  // `make` runs its folder's Makefile; a CI step runs from the repo root.
+  const byFolder = new Map<string, Map<string, string[]> | null>();
+  const recipesIn = async (folder: string) => {
+    if (!byFolder.has(folder)) {
+      const f = MAKEFILES.map((n) => (folder ? `${folder}/${n}` : n)).find((x) =>
+        files.includes(x),
+      );
+      byFolder.set(folder, f ? recipes(await read(f)) : null);
     }
+    return byFolder.get(folder) ?? null;
+  };
+  for (const c of [...parts.flatMap((x) => x.commands), ...shared]) {
+    const target = /^make ([\w.-]+)$/.exec(c.text)?.[1];
+    if (!target) continue;
+    const file = c.source.slice(0, c.source.lastIndexOf(":"));
+    const doc = /(?:^|\/)(?:AGENTS|README)\.md$/.test(file);
+    const runs = (await recipesIn(doc ? folderOf(file) : ""))?.get(target);
+    if (runs && runs.length > 0) c.runs = [...runs];
   }
 
   const found: (Literal & { folder: string })[] = [];
@@ -472,9 +516,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
     for (const s of found) {
       if (s.value !== c.value || s.folder === c.folder || isDeployConfig(s.file)) continue;
       const release =
-        VERSION.test(c.value) &&
-        posix.basename(s.file) === "Makefile" &&
-        /(?:^|\.)(?:tag|newTag)$/.test(c.key);
+        VERSION.test(c.value) && isMakefile(s.file) && /(?:^|\.)(?:tag|newTag)$/.test(c.key);
       const end = (x: Literal & { folder: string }): LinkEnd => ({
         folder: x.folder,
         file: x.file,
@@ -484,7 +526,7 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links.push({ value: c.value, source: end(s), consumer: end(c), release });
     }
   }
-  return { revision, parts, links, notes, shared };
+  return { revision, parts, links, notes, shared, format: PROFILE_FORMAT };
 }
 
 export function partId(projectId: string, folder: string): string {
@@ -501,9 +543,7 @@ const word = (s: string) => `(?<![\\w-])${esc(s)}(?![\\w-])`;
  * Case matters, so "Make sure" never names make. What a make target runs counts only verbatim.
  */
 export function namesCommand(text: string, c: Command): boolean {
-  const flat = (x: string) => x.replace(/\s+/g, " ").trim();
-  if (flat(text).includes(flat(c.text))) return true;
-  if (c.runs?.some((r) => flat(text).includes(flat(r)))) return true;
+  if (namesVerbatim(text, c)) return true;
   const t = flat(c.text).split(" ");
   const first = t[0] ?? "";
   if (first.includes("/")) return new RegExp(word(posix.basename(first))).test(text);
@@ -513,6 +553,15 @@ export function namesCommand(text: string, c: Command): boolean {
     .pop();
   if (!sub) return TOOLS.has(first) && new RegExp(word(first)).test(text);
   return new RegExp(`${word(first)}[^\\n]*?${word(sub)}`).test(text);
+}
+
+const flat = (x: string) => x.replace(/\s+/g, " ").trim();
+
+/** The command as written, or a command its make target runs as a whole word (`npm test`, not `pnpm test`). */
+export function namesVerbatim(text: string, c: Command): boolean {
+  const t = flat(text);
+  if (t.includes(flat(c.text))) return true;
+  return c.runs?.some((r) => new RegExp(word(flat(r))).test(t)) ?? false;
 }
 
 export const PARTS_START = "<!-- pm:parts:start -->";
@@ -585,7 +634,7 @@ export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profil
 /** Research's view of a stored profile: kept out of pruning, so it is short by construction. */
 /** Files whose change can change a profile; any other commit leaves it current. */
 const PROFILE_INPUT =
-  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|Makefile)$|\.tf$|(?:^|\/)values[^/]*\.ya?ml$/;
+  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|GNUmakefile|makefile|Makefile)$|\.tf$|(?:^|\/)values[^/]*\.ya?ml$/;
 
 export function profileInputChanged(changed: string[]): boolean {
   return changed.some((f) => PROFILE_INPUT.test(f));
@@ -615,7 +664,35 @@ export function formatPartsBlock(
       `stale: the repo's CI, docs or config changed (checkout at ${stale.slice(0, 7)}); tell the user to run pm project refresh ${projectId}`,
     );
   }
+  if (!stale && (p.format ?? 1) < PROFILE_FORMAT) {
+    head.push(`stale: stored by an older pm; tell the user to run pm project refresh ${projectId}`);
+  }
   const body: string[] = [];
+  const linkLine = (l: Link) =>
+    clip(
+      `  ${l.release ? "release link" : "link"}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key}`,
+      120,
+    );
+  // Release links first, so the budget never cuts the plan line: in the paired run every first
+  // draft missed it. One plan line per release and key, however many values files carry it.
+  const planned = new Set<string>();
+  for (const l of p.links.filter((x) => x.release)) {
+    body.push(linkLine(l));
+    const release = p.parts
+      .find((x) => x.folder === l.source.folder)
+      ?.commands.find((c) => c.role === "release");
+    const source = partId(projectId, l.source.folder);
+    const consumer = partId(projectId, l.consumer.folder);
+    const key = JSON.stringify([source, consumer, l.consumer.key]);
+    if (!release || planned.has(key)) continue;
+    planned.add(key);
+    body.push(
+      clip(
+        `    plan: when tasks have parts: [${source}], add a task that runs ${clip(release.text, 60)} and depends on them, then a task with parts: [${consumer}] that sets ${l.consumer.key} and depends on the release`,
+        300,
+      ),
+    );
+  }
   if (!p.parts.some((x) => x.folder === "") && p.shared.length > 0) {
     body.push(`  ${projectId} (repo-wide): checks ${some(p.shared, "check", 3) || "none known"}`);
   }
@@ -640,27 +717,7 @@ export function formatPartsBlock(
     }
     body.push(`  ${id} (${part.stacks.join(", ")}): ${say.join(" · ")}`);
   }
-  for (const l of [...p.links].sort((a, b) => Number(b.release) - Number(a.release))) {
-    const kind = l.release ? "release link" : "link";
-    body.push(
-      clip(
-        `  ${kind}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key}`,
-        120,
-      ),
-    );
-    // Said here, where the plan is drafted: in the paired run every first draft missed it.
-    const release = p.parts
-      .find((x) => x.folder === l.source.folder)
-      ?.commands.find((c) => c.role === "release");
-    if (l.release && release) {
-      body.push(
-        clip(
-          `    plan: a change to ${partId(projectId, l.source.folder)} takes a task that runs ${release.text}, then a task with parts: [${partId(projectId, l.consumer.folder)}] that sets ${l.consumer.key} and depends on it`,
-          200,
-        ),
-      );
-    }
-  }
+  for (const l of p.links.filter((x) => !x.release)) body.push(linkLine(l));
   const out = [...head];
   let used = out.join("\n").length;
   for (const [i, line] of body.entries()) {

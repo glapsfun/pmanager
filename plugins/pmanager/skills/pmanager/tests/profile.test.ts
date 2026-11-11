@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { cp } from "node:fs/promises";
 import { join } from "node:path";
-import { type Command, extractProfile, namesCommand, partId } from "../scripts/profile";
+import {
+  type Command,
+  extractProfile,
+  formatPartsBlock,
+  namesCommand,
+  type Profile,
+  partId,
+  readProfile,
+  renderProfileSection,
+} from "../scripts/profile";
 import { gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 const ORDERS = join(import.meta.dir, "../../../../../bench/scenarios/fixtures/orders");
@@ -396,5 +405,180 @@ describe("final review: extraction", () => {
       }),
     );
     expect(p.links.filter((l) => l.release).map((l) => l.source.key)).toEqual(["VERSION"]);
+  });
+});
+
+describe("review of the cuts", () => {
+  const runsOf = (p: Profile, folder: string, text: string) =>
+    p.parts.find((x) => x.folder === folder)?.commands.find((c) => c.text === text)?.runs;
+
+  test("1: an unfiltered CI job's make target runs the root Makefile, and each part keeps its own copy", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        Makefile: "test:\n\tgo test ./...\n",
+        "deploy/chart/Chart.yaml": "name: c\n",
+        "deploy/chart/Makefile": "test:\n\thelm unittest .\nlint:\n\tct lint --charts .\n",
+        "deploy/chart/README.md": "Run `make lint`.\n",
+        ".github/workflows/ci.yml":
+          "on: [push]\njobs:\n  ci:\n    steps:\n      - run: make test\n",
+      }),
+    );
+    expect(runsOf(p, "", "make test")).toEqual(["go test ./..."]);
+    expect(runsOf(p, "deploy/chart", "make test")).toEqual(["go test ./..."]);
+    expect(runsOf(p, "deploy/chart", "make lint")).toEqual(["ct lint --charts ."]);
+    expect(p.shared.find((c) => c.text === "make test")?.runs).toEqual(["go test ./..."]);
+  });
+
+  test("1: a repo whose root is no part reads the root Makefile for its CI jobs", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "envs/prod/main.tf": 'resource "x" "y" {}\n',
+        Makefile: "check:\n\ttflint --recursive\n",
+        ".github/workflows/ci.yml":
+          "on: [push]\njobs:\n  ci:\n    steps:\n      - run: make check\n",
+      }),
+    );
+    expect(p.shared.find((c) => c.text === "make check")?.runs).toEqual(["tflint --recursive"]);
+    expect(runsOf(p, "envs/prod", "make check")).toEqual(["tflint --recursive"]);
+  });
+
+  test("2: continuations join; setup steps and single words are not what a target runs", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        "README.md": "Run `make test`.\n",
+        Makefile:
+          "test:\n\tgo mod download\n\tnpm install\n\tcd sub && make\n\ttrue\n\tgo test -race \\\n\t\t./...\n",
+      }),
+    );
+    expect(runsOf(p, "", "make test")).toEqual(["go test -race ./..."]);
+  });
+
+  test("2: what a target runs counts as a whole word, not inside another command", () => {
+    const c: Command = {
+      text: "make test",
+      role: "check",
+      source: "README.md:1",
+      runs: ["npm test"],
+    };
+    expect(namesCommand("`npm test` passes", c)).toBe(true);
+    expect(namesCommand("`pnpm test` passes", c)).toBe(false);
+    const go: Command = {
+      text: "make test",
+      role: "check",
+      source: "README.md:1",
+      runs: ["go test -race ./..."],
+    };
+    expect(namesCommand("`go build ./...` succeeds", go)).toBe(false);
+  });
+
+  test("4: later rules, :: rules, inline recipes and conditionals keep a target's recipe", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        "README.md": "Run `make test`, `make vet`, `make both`, `make inline` and `make X`.\n",
+        Makefile: [
+          "test:",
+          "\tgo test ./...",
+          "test: GOFLAGS = -race",
+          "test: generate",
+          "vet:",
+          "\tgo vet ./...",
+          "ifeq ($(CI),1)",
+          "\tgolangci-lint run",
+          "endif",
+          "both::",
+          "\tgo test ./a/...",
+          "both::",
+          "\tgo test ./b/...",
+          "inline: ; go build ./...",
+          "X ::= 1",
+          "\tgo build",
+          "",
+        ].join("\n"),
+      }),
+    );
+    expect(runsOf(p, "", "make test")).toEqual(["go test ./..."]);
+    expect(runsOf(p, "", "make vet")).toEqual(["go vet ./...", "golangci-lint run"]);
+    expect(runsOf(p, "", "make both")).toEqual(["go test ./a/...", "go test ./b/..."]);
+    expect(runsOf(p, "", "make inline")).toEqual(["go build ./..."]);
+    expect(runsOf(p, "", "make X")).toBeUndefined();
+  });
+
+  test("4: a lowercase makefile is read", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "go.mod": "module x\n",
+        "README.md": "Run `make test`.\n",
+        makefile: "test:\n\tgo test ./...\n",
+      }),
+    );
+    expect(runsOf(p, "", "make test")).toEqual(["go test ./..."]);
+  });
+
+  const released = (values: string[], release = "make release"): Profile => ({
+    revision: "abcdef0123",
+    format: 2,
+    parts: [
+      {
+        folder: "",
+        stacks: ["go"],
+        commands: [
+          { text: "make test", role: "check", source: "README.md:1" },
+          { text: release, role: "release", source: "README.md:1" },
+        ],
+      },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        folder: `svc${i}`,
+        stacks: ["go"],
+        commands: [
+          { text: `go test ./svc${i}/...`, role: "check" as const, source: "README.md:1" },
+        ],
+      })),
+      { folder: "deploy/chart", stacks: ["helm"], commands: [] },
+    ],
+    links: values.map((file) => ({
+      value: "1.4.0",
+      source: { folder: "", file: "Makefile", line: 1, key: "VERSION" },
+      consumer: { folder: "deploy/chart", file, line: 5, key: "image.tag" },
+      release: true,
+    })),
+    notes: [],
+    shared: [],
+  });
+  const PLAN =
+    "    plan: when tasks have parts: [orders-service], add a task that runs make release and depends on them, then a task with parts: [orders-service/deploy/chart] that sets image.tag and depends on the release";
+
+  test("5: one plan line per release, worded by parts, kept within a tight budget", () => {
+    const block = formatPartsBlock(
+      "orders-service",
+      released(["deploy/chart/values.yaml", "deploy/chart/values-prod.yaml"]),
+      null,
+      400,
+    );
+    expect(block.filter((l) => l.trimStart().startsWith("plan:"))).toEqual([PLAN]);
+  });
+
+  test("5: a long release command is clipped, so the plan line keeps its end", () => {
+    const long =
+      "docker push ghcr.io/acme/orders-service:latest --all-tags --quiet --platform linux/amd64";
+    const [plan] = formatPartsBlock(
+      "orders-service",
+      released(["deploy/chart/values.yaml"], long),
+      null,
+    ).filter((l) => l.trimStart().startsWith("plan:"));
+    expect(plan).toEndWith("depends on the release");
+  });
+
+  test("6: a profile stored before this format asks for a refresh", () => {
+    const old: Profile = { ...released(["deploy/chart/values.yaml"]) };
+    delete old.format;
+    expect(formatPartsBlock("orders", old, null).join("\n")).toContain(
+      "tell the user to run pm project refresh orders",
+    );
+    expect(formatPartsBlock("orders", released([]), null).join("\n")).not.toContain("refresh");
+    const stored = readProfile(renderProfileSection("orders", released([])));
+    expect(stored?.format).toBe(2);
   });
 });

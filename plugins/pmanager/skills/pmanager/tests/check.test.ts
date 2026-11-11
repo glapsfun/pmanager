@@ -673,10 +673,27 @@ describe("parts and release links (E-PRT, E-REL)", () => {
 });
 
 describe("fewer fix rounds, from component-profiles-paired", () => {
-  test("E-PRT-003: a release task names its part's release command, not a check", async () => {
+  test("E-PRT-003: a release task after the part's checked work names its release command, not a check", async () => {
     const root = await partFixture();
-    await setTask(root, T01, "[orders]", "bump `VERSION` in the Makefile and run `make release`");
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    await setTask(root, T02, "[orders]", "bump `VERSION` in the Makefile and run `make release`");
     expect(ids(await partRules(root))).toEqual(["E-REL-002 epic.md"]);
+  });
+
+  test("E-PRT-003: a task that changes code still names a check when it also releases", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "add the export handler, then run `make release`");
+    expect(ids(await partRules(root))).toEqual([
+      "E-REL-002 epic.md",
+      "E-PRT-003 T01-benchmark-orders.md",
+    ]);
+  });
+
+  test("E-PRT-003: the release command counts only verbatim", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    await setTask(root, T02, "[orders]", "make the export ready for the next release");
+    expect(ids(await partRules(root))).toContain("E-PRT-003 T02-add-order-items-index.md");
   });
 
   test("E-PRT-003: another part's release command is not this part's check", async () => {

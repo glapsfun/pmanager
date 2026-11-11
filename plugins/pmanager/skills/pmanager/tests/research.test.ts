@@ -610,7 +610,7 @@ describe("pm research parts block", () => {
     const { root } = await managerWithOrders();
     const r = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
     expect(r.stdout).toContain(
-      "    plan: a change to orders takes a task that runs make release, then a task with parts: [orders/deploy/chart] that sets image.tag and depends on it",
+      "    plan: when tasks have parts: [orders], add a task that runs make release and depends on them, then a task with parts: [orders/deploy/chart] that sets image.tag and depends on the release",
     );
   });
 

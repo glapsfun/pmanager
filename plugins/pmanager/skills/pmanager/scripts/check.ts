@@ -24,7 +24,14 @@ import {
   TASK_V1_FIELDS,
 } from "./contract";
 import type { Finding } from "./findings";
-import { type Command, namesCommand, type Profile, partId, resolvePart } from "./profile";
+import {
+  type Command,
+  namesCommand,
+  namesVerbatim,
+  type Profile,
+  partId,
+  resolvePart,
+} from "./profile";
 import { type Catalog, renderProjectsIndex, sameRepo } from "./projects";
 import {
   LOG_END,
@@ -322,6 +329,19 @@ export const partRules: Rule = (repo, opts) => {
   const quote = (cs: Command[]) => cs.map((c) => `\`${c.text}\` (${c.source})`).join(", ");
   const out: Finding[] = [];
   const named = new Map<string, string[]>();
+  const partKey = (hit: { project: string; part: { folder: string } }) =>
+    `${hit.project}\0${hit.part.folder}`;
+  // The tasks that name each part's checks: a release task after one of them needs no test.
+  const checkedBy = new Map<string, Set<string>>();
+  for (const t of live) {
+    for (const id of "parts" in t.frontmatter ? getList(t.frontmatter, "parts") : []) {
+      const hit = resolvePart(id, profiles);
+      if (!hit?.part.commands.some((c) => c.role === "check" && namesCommand(taskText(t), c)))
+        continue;
+      const k = partKey(hit);
+      checkedBy.set(k, (checkedBy.get(k) ?? new Set()).add(t.id));
+    }
+  }
   for (const t of live) {
     if (!("parts" in t.frontmatter)) {
       out.push(
@@ -351,9 +371,12 @@ export const partRules: Rule = (repo, opts) => {
         continue;
       }
       const checks = hit.part.commands.filter((c) => c.role === "check");
-      // A release task is checked by its part's release command; asking it for a test cost a round.
-      const own = hit.part.commands.filter((c) => c.role === "check" || c.role === "release");
-      if (checks.length > 0 && !own.some((c) => namesCommand(text, c))) {
+      // A release task that runs the release as written, after the part's checked work, is checked
+      // by that release: asking it for a test cost a round. A task that changes code still is not.
+      const releases =
+        hit.part.commands.some((c) => c.role === "release" && namesVerbatim(text, c)) &&
+        reachesAny(e, t.id, checkedBy.get(partKey(hit)) ?? new Set());
+      if (checks.length > 0 && !releases && !checks.some((c) => namesCommand(text, c))) {
         out.push(
           err(
             t.path,
