@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { cp } from "node:fs/promises";
+import { cp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Command,
   extractProfile,
   formatPartsBlock,
+  loadProfiles,
   namesCommand,
   type Profile,
   partId,
@@ -443,6 +444,26 @@ describe("review of the cuts", () => {
     expect(runsOf(p, "envs/prod", "make check")).toEqual(["tflint --recursive"]);
   });
 
+  test("1: root docs of a repo whose root is no part give each part and the repo its own copy", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "envs/prod/main.tf": 'resource "x" "y" {}\n',
+        "modules/net/main.tf": 'resource "x" "z" {}\n',
+        "AGENTS.md": "Run `make check` before a pull request.\n",
+        Makefile: "check:\n\ttflint --recursive\n",
+      }),
+    );
+    const prod = p.parts.find((x) => x.folder === "envs/prod")?.commands[0];
+    const net = p.parts.find((x) => x.folder === "modules/net")?.commands[0];
+    const shared = p.shared[0];
+    expect([prod?.runs, net?.runs, shared?.runs]).toEqual([
+      ["tflint --recursive"],
+      ["tflint --recursive"],
+      ["tflint --recursive"],
+    ]);
+    expect(new Set([prod, net, shared]).size).toBe(3);
+  });
+
   test("2: continuations join; setup steps and single words are not what a target runs", async () => {
     const p = await extractProfile(
       await repoWith({
@@ -580,5 +601,21 @@ describe("review of the cuts", () => {
     expect(formatPartsBlock("orders", released([]), null).join("\n")).not.toContain("refresh");
     const stored = readProfile(renderProfileSection("orders", released([])));
     expect(stored?.format).toBe(2);
+  });
+});
+
+describe("files that cannot be read", () => {
+  test("a tracked file missing from the checkout reads as empty", async () => {
+    const dir = await repoWith({ "go.mod": "module x\n", "README.md": "Run `make test`.\n" });
+    await rm(join(dir, "README.md"));
+    const p = await extractProfile(dir);
+    expect(p.parts.map((x) => [x.folder, x.commands.length])).toEqual([["", 0]]);
+  });
+
+  test("a project whose file is gone has no profile", async () => {
+    const dir = await makeTempDir("profile-gone");
+    const project = { id: "x", name: "x", url: "u", added: "2026-09-01", file: join(dir, "x.md") };
+    const profiles = await loadProfiles({ projects: [project], invalid: [], index: null });
+    expect(profiles.size).toBe(0);
   });
 });
