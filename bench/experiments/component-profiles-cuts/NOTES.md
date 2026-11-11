@@ -108,3 +108,18 @@ Not fixed here. The hand verdict stands, and none of the three changes the decis
 - **Forbidden commands slip through.** p2 T01 and its M4 ask for confirmation "by `terraform plan`", which the profile lists as forbidden. No rule checks it.
 - **One resource change per pull request.** p7 T01 and p10 T02 put the bucket and its lifecycle rule in one task, against `infra/terraform/AGENTS.md`. Neither run opened that file, and the profile does not carry the rule.
 - **Writes outside the fixture.** p10 wrote two files into the harness's auto-memory directory. p5 and p8 left bundles under `/tmp`. p2 added a `/tmp/lint-check-main` worktree. p3, p8 and p9 ran `pm release` at the end.
+
+## Ship call
+
+On 2026-11-11 the user chose to ship, against the rule's cost line: quality held at 0 of 10 failures across all 20 change-arm runs (paired and cuts). The cost miss is $0.02 at the median, against a baseline that was not re-run, and the remaining fix rounds are mostly real gaps the rule catches.
+
+## After the run
+
+A fresh review of the cuts found three bugs and six smaller issues, all fixed after this run, so the shipped skill differs from the measured `1cf467a`:
+
+- What a make target runs is now set per part, from the Makefile the command runs: a doc's folder, or the root for a CI step. It is matched as a whole word, and setup steps and single words are skipped. Before, an unfiltered CI job's `make test` was one object shared by every part, so the last part's recipe overwrote it everywhere.
+- A release command satisfies E-PRT-003 only when the task names it as written and depends on a task that names the part's checks. Before, a code task passed by mentioning `make release`, or loose prose such as "make the export ready for the next release".
+- The `plan:` line now reads "when tasks have parts: [orders], add a task that runs make release and depends on them, then a task with parts: [orders/deploy/chart] that sets image.tag and depends on the release". It is printed once per release and key, ahead of the part lines so the size budget never cuts it.
+- Profiles carry a format number; one stored before it asks for `pm project refresh`.
+
+Not re-measured. Under the new rules, all 20 saved change-arm plans (paired and cuts) check clean; the 10 baseline plans, which have no `parts:`, draw 86 findings, so the rules ran. Grader version 4 (a chart's `version` bump and "the chart's README.md" are not service work) changes no verdict on the 40 saved `multi-stack-repo` plans.
