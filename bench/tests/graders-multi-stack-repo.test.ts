@@ -439,12 +439,15 @@ describe("grader version 3, from the component-profiles-paired hand audit", () =
     ).toBe(false);
   });
 
-  test("a release task that bumps VERSION and leaves the chart alone is a service task (p6 T09)", async () => {
+  test("a release task that bumps VERSION and only mentions the chart is not chart-only (p6 T09)", async () => {
+    const what =
+      "Bump `VERSION` in `Makefile` to 1.5.0. Run `make release`. Do not change deploy/chart values here; moving `image.tag` is the chart task's job.";
+    expect(await parts(what)).toEqual(["service", "chart"]);
     expect(
       await borrows({
         id: "T05",
         title: "Release the orders service image with the export feature",
-        what: "Bump `VERSION` in `Makefile` to 1.5.0. Run `make release`. Do not change deploy/chart values here; moving `image.tag` is the chart task's job.",
+        what,
         accept: "`make test` and `make lint` still pass against the bumped version",
       }),
     ).toBe(false);
@@ -463,5 +466,22 @@ describe("grader version 3, from the component-profiles-paired hand audit", () =
 
   test("a chart task's own README is not the service's README", async () => {
     expect(await parts("Document the new values in deploy/chart/README.md.")).toEqual(["chart"]);
+  });
+});
+
+describe("grader version 4, from the review of version 3", () => {
+  test("a chart's version bump is not the service's VERSION bump", async () => {
+    expect(await parts("Bump `version` in deploy/chart/Chart.yaml to 0.2.0.")).toEqual(["chart"]);
+    expect(await parts("Bump VERSION to 1.5.0 before the release.")).toEqual(["service"]);
+  });
+
+  test("another component's README is not the service's README", async () => {
+    expect(
+      await parts("Document the values in the chart's README.md and deploy/chart/values.yaml."),
+    ).toEqual(["chart"]);
+    expect(await parts("Document the bucket in the infra repo's `README.md`.")).not.toContain(
+      "service",
+    );
+    expect(await parts("Document the export endpoints in `README.md`.")).toEqual(["service"]);
   });
 });

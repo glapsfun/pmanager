@@ -16,12 +16,14 @@ export type Part = "service" | "terraform" | "chart";
 const PARTS: Part[] = ["service", "terraform", "chart"];
 
 /**
- * Service work that names no Go path: the service is the repo root, so its README, its
- * end-to-end tests and a VERSION bump in its Makefile change it. A folder's own README is
- * that folder's.
+ * Service work that names no Go path: the service is the repo root, so its README and its
+ * end-to-end tests change it. A folder's own README is that folder's, and "the chart's
+ * README.md" another component's.
  */
 const SERVICE_WORK =
-  /(?<![\w./-])README\.md\b|\bend[- ]to[- ]end\b|\be2e\b|\bintegration(?:[- ]style)?\s+tests?\b|\bbump\w*\s+`?VERSION\b/i;
+  /(?<![\w./-])(?<!'s\s+`?)README\.md\b|\bend[- ]to[- ]end\b|\be2e\b|\bintegration(?:[- ]style)?\s+tests?\b/i;
+// Case matters: the Makefile's VERSION, not a chart's `version`.
+const VERSION_BUMP = /\b[Bb]ump\w*\s+`?VERSION\b/;
 
 /** Paths and artifacts first; the words only when no path places the task. */
 const PATHS: Record<Part, RegExp> = {
@@ -94,7 +96,9 @@ export function partsOf(t: TaskDoc): Part[] {
   const text = work(t).replace(CHART_TESTS, "");
   const shared = sharedInfra(t);
   const keep = (p: Part) => !(shared && p === "terraform");
-  const placed = PARTS.filter((p) => PATHS[p].test(text) && keep(p));
+  const placed = PARTS.filter(
+    (p) => (PATHS[p].test(text) || (p === "service" && VERSION_BUMP.test(text))) && keep(p),
+  );
   if (placed.length > 0) return placed;
   const worded = PARTS.filter((p) => WORDS[p].test(text) && keep(p));
   if (worded.length > 0) return worded;
@@ -165,7 +169,9 @@ const noBorrowedChecks = epicCheck(
   "no task that changes only the Terraform part or only the chart names the service's checks",
   (e): CheckResult => {
     const changes = (t: TaskDoc) =>
-      partsOf(t).filter((p) => p !== "service" || SERVICE_CODE.test(work(t)));
+      partsOf(t).filter(
+        (p) => p !== "service" || SERVICE_CODE.test(work(t)) || VERSION_BUMP.test(work(t)),
+      );
     const borrowed = e.tasks.filter((t) => {
       const p = changes(t);
       return p.length === 1 && p[0] !== "service" && OWN_CHECKS.service.test(asks(t));
