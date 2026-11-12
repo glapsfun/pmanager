@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "security-fix-cold",
+  "createdAt": "2026-11-12T11:09:43.574Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.322",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 1500,
+  "repoSha": "0727d6a",
+  "repoDirty": false,
+  "skillVersion": "0.11.0",
+  "skillHash": "sha256:5d44c8da2d82d783c4c38f0d0a557add91b8755976772075486c53bcc6570f30",
+  "contractHash": "sha256:7744d795e259f41a6339a29871d57d20c928d18d0470f814cbfac49907bdd078",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "security-fix",
+      "version": 1,
+      "promptHash": "sha256:b5c1345f7de09abbe4c3979820c4e2b9c23d5bf201c3ba1b8b6578afad21a66d",
+      "fixtureHash": "sha256:3009ca102fc9bd6bdb570f0ca678ba1d803457f5eb0463edfd4f6283348e1d18",
+      "graderVersion": 1
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "security-fix-cold-p1-security-fix-with-skill",
+      "pair": 1,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p2-security-fix-with-skill",
+      "pair": 2,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p3-security-fix-with-skill",
+      "pair": 3,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p4-security-fix-with-skill",
+      "pair": 4,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p5-security-fix-with-skill",
+      "pair": 5,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p6-security-fix-with-skill",
+      "pair": 6,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p7-security-fix-with-skill",
+      "pair": 7,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p8-security-fix-with-skill",
+      "pair": 8,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p9-security-fix-with-skill",
+      "pair": 9,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "security-fix-cold-p10-security-fix-with-skill",
+      "pair": 10,
+      "scenario": "security-fix",
+      "condition": "with-skill",
+      "order": 1
+    }
+  ]
+}
