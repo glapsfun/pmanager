@@ -93,6 +93,15 @@ gskill upgrade pmanager --latest
 
 No Bun on a teammate's machine? `bunx @glapsfun/gskill …` and `npx @glapsfun/gskill …` run it without installing, and gskill also ships via Homebrew (`brew install glapsfun/tap/gskill`), Go, and an install script; see its [quick start](https://github.com/glapsfun/gskill#quick-start). It installs the skill folder, which is the whole product: pmanager triggers on planning and scoping language without a slash command. Only the optional `/pmanager` command needs the Claude Code plugin route below.
 
+### Run without installing (`npx`)
+
+Run gskill straight from npm, no global install. Requires Node.js 20 or newer.
+
+```bash
+npx @glapsfun/gskill version
+npx @glapsfun/gskill add github.com/glapsfun/pmanager --skill pmanager --agent claude
+```
+
 ### Claude Code plugin (adds the `/pmanager` slash command)
 
 ```
