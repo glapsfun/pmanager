@@ -15,6 +15,13 @@ import { CONTRACT_SENTENCE } from "../scenarios/types";
 import { PM_TODAY } from "../skill-paths";
 
 const TARGET_REPOS = ["webshop", "infra", "argocd", "orders", "storefront", "worker"];
+const TARGET_TREES: Record<string, string> = {
+  orders: "83576bd3f11c391c95b3c93f15b282bd4d2a9ec7",
+  webshop: "cc1efee07550324e410d84679d19b803144b0359",
+  argocd: "d9e5a06ca2eaae0f4477aaa4da820d789ff99734",
+  storefront: "b421cdaa132e8d7262177b9cfb44b4995a11b53e",
+  worker: "8d6fbb1b2259420e5cc75e57ec5767d4b7ad9012",
+};
 
 async function built(): Promise<{ dir: string; info: FixtureInfo; ws: string }> {
   const dir = join(await makeTempDir("bench-sec"), "fixture");
@@ -39,6 +46,15 @@ describe("security-fix fixture", () => {
     expect((await pmProcess(fx.dir, ["check"], { env: { PM_TODAY } })).code).toBe(0);
     expect((await gitOk(["status", "--porcelain"], fx.dir)).trim()).toBe("");
     expect(fx.info.epicSlugsBefore).toEqual([]);
+  });
+
+  test("the target trees are the ones the experiment's rubric records", async () => {
+    // hashFixture covers only the manager, so the targets' content is pinned here and in RUBRIC.md.
+    const trees: Record<string, string> = {};
+    for (const repo of Object.keys(TARGET_TREES)) {
+      trees[repo] = (await gitOk(["rev-parse", "HEAD^{tree}"], join(fx.ws, repo))).trim();
+    }
+    expect(trees).toEqual(TARGET_TREES);
   });
 
   test("the overlay is committed in each target it touches, and nothing is left untracked", async () => {
