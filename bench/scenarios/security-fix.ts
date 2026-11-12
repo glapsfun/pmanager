@@ -114,7 +114,7 @@ async function prepareSecurityFixCondition(
 export const securityFix: Scenario = {
   name: "security-fix",
   task: SECURITY_FIX_REQUEST,
-  graderVersion: 1,
+  graderVersion: 2,
   offline: true,
   buildFixture: buildSecurityFixFixture,
   prepareCondition: prepareSecurityFixCondition,

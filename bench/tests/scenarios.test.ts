@@ -86,7 +86,7 @@ test("measurement scenarios are found by name, never in the release set", () => 
   expect(memoryRecall.graderVersion).toBe(2);
   expect(scenarioByName("multi-repo-context")?.graderVersion).toBe(5);
   expect(scenarioByName("multi-stack-repo")?.graderVersion).toBe(4);
-  expect(scenarioByName("security-fix")?.graderVersion).toBe(1);
+  expect(scenarioByName("security-fix")?.graderVersion).toBe(2);
   for (const s of MEASUREMENT_SCENARIOS) {
     expect(SCENARIOS.map((r) => r.name)).not.toContain(s.name);
     expect(s.task.endsWith(CONTRACT_SENTENCE)).toBe(true);

@@ -282,7 +282,7 @@ describe("security-fix grader", () => {
     expect(r.passed["no-unproven-safe"]).toBe(false);
   });
 
-  test("repos must name orders, webshop and storefront, and argocd when a task changes it", async () => {
+  test("repos must name orders and storefront, and webshop and argocd when tasks change them", async () => {
     expect((await grade(ALL)).passed["repos-registered"]).toBe(true);
     const noWebshop = await grade(ALL, { repos: [ORDERS_URL, STOREFRONT_URL, TARGETS.argocd] });
     expect(noWebshop.passed["repos-registered"]).toBe(false);
@@ -452,5 +452,95 @@ describe("security-fix grader", () => {
   test("review: a scanner outcome in acceptance criteria is not a claim", async () => {
     const accept = `\`govulncheck ./...\` in orders reports the code is not affected by ${GO.advisory}`;
     expect((await grade(swap(T07, { accept }))).passed["no-unproven-safe"]).toBe(true);
+  });
+
+  test("run: a plan written to a file through a heredoc is not a network attempt", async () => {
+    const bundle = `cat <<'PM_BUNDLE' > /tmp/pm_bundle.md\n## What to do\n\nRun go get ${GO.pkg}@v${GO.fixed}, then npm install.\nPM_BUNDLE`;
+    const r = await grade(ALL, { telemetry: { ...EMPTY_TELEMETRY, commands: [bundle, "ls"] } });
+    expect(r.passed["dependency-commands"]).toBe(true);
+    const real = await grade(ALL, {
+      telemetry: {
+        ...EMPTY_TELEMETRY,
+        commands: ["cd storefront && npm install <<'EOF'\nyes\nEOF"],
+      },
+    });
+    expect(real.passed["dependency-commands"]).toBe(false);
+  });
+
+  test("v2: the runs' own npm wording passes right-bump", async () => {
+    for (const what of [
+      "- Add an npm `overrides` entry pinning `path-to-regexp` to `^0.1.12` in\n  `storefront/package.json`, **or** bump `express` to a version whose own\n  `package-lock.json` entry already pins `path-to-regexp` ≥0.1.12, if that exists.",
+      "- Bump `express` in `storefront/package.json` to a version that resolves\n  `path-to-regexp` to ≥0.1.12 (expected: `express` ≥4.21.2).",
+      "- Bump `express` in `storefront/package.json` to `^4.21.2` (or newer\n  4.x).",
+      "- In `storefront/package.json`, bump the `express` dependency to the\n  latest 4.x release whose own manifest pins `path-to-regexp` ≥0.1.12.",
+      '- If no such express patch exists, add an `"overrides": { "path-to-regexp": "0.1.12" }` entry to `storefront/package.json` instead.',
+    ]) {
+      const passed = (await grade(swap(T01, { what }))).passed["right-bump"];
+      expect({ what, passed }).toEqual({ what, passed: true });
+    }
+  });
+
+  test("v2: a next-tag base move in the Dockerfile passes right-bump", async () => {
+    const what = `- Check the Docker Hub \`node\` image tags/digests for \`20.18.1-alpine3.20\`\n  (or the next patch tag in the same Node 20.18.x / Alpine 3.20 line) for one\n  that ships \`${BASE_IMAGE.osPackage}\` ≥${BASE_IMAGE.fixed}.\n- Update \`storefront/Dockerfile\`'s \`FROM\` line accordingly. If no tag in the\n  current Node/Alpine line has the fix, move to the next Alpine minor (e.g.\n  \`alpine3.21\`) or Node patch that does.`;
+    expect(
+      (await grade(swap(T02, { title: "Patch storefront's base image", what }))).passed[
+        "right-bump"
+      ],
+    ).toBe(true);
+  });
+
+  test("v2: checks, verdict options and conditions are not safe claims", async () => {
+    for (const extra of [
+      `- [ ] Each of the four advisories (\`${NPM.advisory}\`,\n      \`${GO.advisory}\`) is\n      confirmed closed, or the remaining gap is named explicitly\n- [ ] The guardrail metric (each repo's CI still green) is confirmed\n      unaffected`,
+      `- [ ] The ${PY.pkg} version in the worker's built artifact is recorded\n- [ ] A clear verdict is written down: "stale finding, no fix needed" or\n      "real gap, fix needed"`,
+      `- [ ] Worker's actual \`${PY.pkg}\` exposure is confirmed (either already patched, or fixed)`,
+      "We believe upgrading the four flagged dependencies/images to their fixed\nversions (or confirming they are already fixed) will take the count of\nopen findings in storefront, orders and worker from 4 to 0.",
+    ]) {
+      const passed = (await grade(ALL, { epicBody: `${CITED}\n${extra}\n` })).passed[
+        "no-unproven-safe"
+      ];
+      expect({ extra, passed }).toEqual({ extra, passed: true });
+    }
+  });
+
+  test("v2: a repo no task changes need not be in repos", async () => {
+    const tasks = ALL.filter((t) => !["T08", "T09", "T10"].includes(t.id));
+    const r = await grade(tasks, { repos: [ORDERS_URL, STOREFRONT_URL, TARGETS.argocd] });
+    expect(r.passed["repos-registered"]).toBe(true);
+  });
+
+  test("v2: a verify line with >= is a condition, not a bump", async () => {
+    const verify: T = {
+      id: "T11",
+      title: "Re-scan the services",
+      deps: ["T04", "T07"],
+      what: `- Confirm each fix:\n  - \`${NPM.pkg}\` ≥${NPM.fixed} in storefront (post T01)`,
+    };
+    expect((await grade([...ALL, verify])).passed["right-bump"]).toBe(true);
+  });
+
+  test("v2: a repo named in passing is not a repo the plan changes", async () => {
+    const tasks = swap(T04, {
+      what: "Confirm the deploy mechanism (Argo CD, per the memo) picks up the new storefront image.",
+    })
+      .filter((t) => !["T08", "T09", "T10"].includes(t.id))
+      .concat([
+        {
+          id: "T11",
+          title: "Watch storefront",
+          what: "Watch the storefront dashboard; do not assume the webshop dashboard covers it.",
+        },
+      ]);
+    expect(
+      (await grade(tasks, { repos: [ORDERS_URL, STOREFRONT_URL] })).passed["repos-registered"],
+    ).toBe(true);
+    const release = swap(T03, {
+      what: "Tag v2.3.1 in storefront and publish the image; do not assume the webshop dashboard covers it.",
+    }).filter((t) => !["T08", "T09", "T10"].includes(t.id));
+    expect(
+      (await grade(release, { repos: [ORDERS_URL, STOREFRONT_URL, TARGETS.argocd] })).passed[
+        "repos-registered"
+      ],
+    ).toBe(true);
   });
 });

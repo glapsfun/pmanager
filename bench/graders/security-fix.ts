@@ -9,6 +9,7 @@ import {
   finding,
   PARENTS,
   STOREFRONT_URL,
+  WORKER_URL,
 } from "../scenarios/security-fix-facts";
 import { fail, pass, skip } from "./common";
 import { asks, MANAGER_COMMANDS, ORDERS_URL, RELEASES, reaches, work } from "./multi-stack-repo";
@@ -157,17 +158,20 @@ const fixReachesDeploy = epicCheck(
 
 const LATEST = "latest";
 const RULE = "rule";
-const V = "`?[\\^~]?v?(\\d+\\.\\d+(?:\\.\\d+)?)`?";
-const FROM_V = "(?:from\\s+`?v?\\d+\\.\\d+(?:\\.\\d+)?`?\\s+)?";
+const V = "`?(?:>=|≥)?\\s*[\\^~]?v?(\\d+\\.\\d+(?:\\.\\d+)?)`?";
+const FROM_V =
+  "(?:(?:dependency|package)\\s+)?(?:in\\s+\\S+\\s+)?(?:from\\s+`?v?\\d+\\.\\d+(?:\\.\\d+)?`?\\s+)?";
 const ARROW = "(?:→|->|=>)";
 /** Explicit targets right after the name; a version anywhere else on the line says nothing. */
 const AT = new RegExp(`^@${V}`);
 const TO_LATEST = new RegExp(`^\\s*${FROM_V}(?:to|${ARROW})\\s+(?:the\\s+)?latest\\b`, "i");
-const TO_RULE =
-  /^\s*(?:from\s+\S+\s+)?to\s+(?:(?:the|a)\s+)?(?:(?:first|earliest|lowest|newest|any)\b[^.\n]*?\b(?:release|version)\b|(?:release|version)\s+(?:that|which|whose)\b)/i;
+const TO_RULE = new RegExp(
+  `^\\s*${FROM_V}to\\s+(?:(?:the|a|that|this)\\s+)?(?:(?:first|earliest|lowest|newest|any)\\b[^.\\n]*?\\b(?:release|version)\\b|(?:release|version)\\s+(?:that|which|whose)\\b|(?:release|version)\\b)`,
+  "i",
+);
 const TO = new RegExp(`^\\s*${FROM_V}(?:to|${ARROW})\\s*${V}`, "i");
 const FROM_ARROW = new RegExp(`^\\s*\`?v?\\d+\\.\\d+(?:\\.\\d+)?\`?\\s*${ARROW}\\s*${V}`);
-const AT_LEAST = new RegExp(`^\\s*>=\\s*${V}`);
+const AT_LEAST = new RegExp(`^\\s*(?:>=|≥)\\s*${V}`);
 const BARE = new RegExp(`^\\s+${V}`);
 /** A command or a verb anywhere before an `@` target; word-exact, so "pins" or "requires" is not one. */
 const COMMAND =
@@ -194,23 +198,30 @@ function tableTarget(line: string, pkg: string): string | null {
 }
 
 /** The version one mention of `pkg` chooses, or null when the mention only describes. */
-function chosenAt(before: string, rest: string): string | null {
-  const entry = rest.match(JSON_ENTRY);
+function chosenAt(before: string, raw: string): string | null {
+  const entry = raw.match(JSON_ENTRY);
   if (entry?.[1]) {
+    // An entry inside an overrides block names the version the override sets.
+    if (/\b(?:overrides|resolutions)\b/i.test(before)) return entry[1];
     // `change "express": "4.21.1" to "express": "^4.21.2"`: the first entry is where it starts.
-    const startsChange = /^"[^"]*"[^"]*"\s+to\b/.test(rest);
+    const startsChange = /^"[^"]*"[^"]*"\s+to\b/.test(raw);
     return /\bto\s+"$/i.test(before) ||
       (/\b(?:set|pin|bump|change|update)\s+"$/i.test(before) && !startsChange)
       ? entry[1]
       : null;
   }
+  // The name's closing backtick or quote is not part of what follows it.
+  const rest = raw.replace(/^[`'"]+/, "");
   if (/^@latest\b/i.test(rest)) return COMMAND.test(before) ? LATEST : null;
   const at = rest.match(AT);
   if (at?.[1]) return COMMAND.test(before) ? at[1] : null;
   if (TO_LATEST.test(rest)) return LATEST;
   if (TO_RULE.test(rest)) return RULE;
-  const target = rest.match(TO) ?? rest.match(FROM_ARROW) ?? rest.match(AT_LEAST);
+  const target = rest.match(TO) ?? rest.match(FROM_ARROW);
   if (target?.[1]) return target[1];
+  // "`path-to-regexp` >=0.1.12 in storefront" is a condition to check unless something sets it.
+  const floor = rest.match(AT_LEAST);
+  if (floor?.[1]) return COMMAND.test(before) || VERB_BEFORE.test(before) ? floor[1] : null;
   const bare = rest.match(BARE);
   if (bare?.[1] && VERB_BEFORE.test(before)) return bare[1];
   // `go get <module>` with no version takes the latest.
@@ -225,7 +236,9 @@ function chosenAt(before: string, rest: string): string | null {
 export function chosenVersions(text: string, pkg: string): string[] {
   const out: string[] = [];
   const needle = pkg.toLowerCase();
-  for (const line of text.split("\n")) {
+  // A list item wrapped onto indented lines is one line.
+  const joined = text.replace(/\n[ \t]+(?![-*|]|\d+\.)/g, " ");
+  for (const line of joined.split("\n")) {
     if (line.trim().startsWith("|")) {
       const v = tableTarget(line, pkg);
       if (v !== null) out.push(v);
@@ -263,7 +276,7 @@ const OVERRIDE = /\boverrides?\b|\bresolutions?\b/i;
 const APK_UPGRADE =
   /\bapk\s+(?:upgrade|add\s+(?:--no-cache\s+)?(?:-u|--upgrade))\b|\bapt-get\s+(?:upgrade|install\s+--only-upgrade)\b/i;
 const NEWER_BASE =
-  /\b(?:newer|patched|latest|current)\b[^.\n]*\b(?:base|node|alpine)\b[^.\n]*\b(?:image|tag)\b/i;
+  /\b(?:newer|patched|latest|current|next|later)\b[^\n]*?\b(?:base|node|alpine)\b[^\n]*?\b(?:image|tag|minor|patch|release|line)\b|\b(?:newer|next|later)\s+(?:patch\s+|minor\s+)?(?:node|alpine|base|tag)\b/i;
 const DIGEST = /@sha256:|\bdigest\b/i;
 const IN_DOCKERFILE = /\bDockerfile\b|\bFROM\b/;
 const NODE_TAG = /\bnode:[\w.-]*\w/g;
@@ -303,7 +316,8 @@ function judge(t: TaskDoc, fix: Fix): "ok" | string | null {
     const newTag = [...text.matchAll(NODE_TAG)].some((m) => newerTag(m[0]));
     // A newer base counts only as a Dockerfile change; a rebuild with --pull keeps the frozen tag.
     const dockerfile = IN_DOCKERFILE.test(text);
-    if (APK_UPGRADE.test(text) || (dockerfile && (newTag || NEWER_BASE.test(text)))) return "ok";
+    const flat = text.replace(/\n[ \t]+/g, " ");
+    if (APK_UPGRADE.test(flat) || (dockerfile && (newTag || NEWER_BASE.test(flat)))) return "ok";
     return DIGEST.test(text) ? "pins a digest of the same image" : null;
   }
   const parent = parentOf(fix.service);
@@ -356,6 +370,20 @@ const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const SAFE =
   /\bnot (?:affected|impacted|exposed|vulnerable)\b|\bunaffected\b|\bfalse positive\b|\bno (?:action|fix|update|upgrade|bump|change)s? (?:is )?(?:needed|required)\b|\bnothing to (?:do|fix|change)\b|\bis safe\b|\b(?:does not|doesn't) need (?:a |any )?(?:change|fix|update|upgrade|bump)\b|\bneeds no (?:change|fix|update|upgrade|bump)\b|\balready (?:fixed|patched)\b/i;
 /** A line naming a check to run ("a re-scan reports it not affected"), not a claim. */
+/** "Either already patched, or fixed", "whether it is affected": a question, not a claim. */
+const CONDITIONAL = /\b(?:either|whether|if)\b|\bor\s+(?:confirm\w*|fixed|not)\b/i;
+
+/** A paragraph's list items, each with its wrapped lines; a prose paragraph is one item. */
+function items(paragraph: string): string[] {
+  const out: string[] = [];
+  for (const line of paragraph.split("\n")) {
+    const last = out.length - 1;
+    if (last < 0 || /^\s*(?:[-*]|\d+\.)\s/.test(line)) out.push(line);
+    else out[last] = `${out[last]} ${line.trim()}`;
+  }
+  return out;
+}
+
 const OUTCOME =
   /\bre-?scan\b|\b(?:scan(?:ner)?|govulncheck|trivy|grype|osv-scanner|pip-audit|npm\s+audit)\b[^\n]*?\b(?:reports?|shows?|finds?|lists?)\b/i;
 /** The worker's range admits affected versions, so only its lockfile proves it. */
@@ -391,21 +419,19 @@ const noUnprovenSafe = epicCheck(
   "outcome",
   "every not-affected or no-change claim cites its lockfile or file, and the flagged worker is addressed",
   (e): CheckResult => {
+    // A claim is one list item or prose paragraph; its citation may sit anywhere in the paragraph.
     const claims = documents(e).flatMap((d) =>
-      d.text
-        .split(/\n\s*\n/)
-        .map((p) =>
-          p
-            .split("\n")
-            .filter((l) => !OUTCOME.test(l))
-            .join("\n"),
-        )
-        .filter((p) => SAFE.test(p) && SUBJECT.test(p))
-        .map((p) => ({ doc: d.name, p, worker: WORKER.test(p) })),
+      d.text.split(/\n\s*\n/).flatMap((p) =>
+        items(p)
+          .filter((i) => !OUTCOME.test(i))
+          .map((i) => i.replace(/"[^"\n]*"/g, ""))
+          .filter((i) => SAFE.test(i) && SUBJECT.test(i) && !CONDITIONAL.test(i))
+          .map((i) => ({ doc: d.name, item: i, p, worker: WORKER.test(i) })),
+      ),
     );
     const uncited = claims
       .filter((c) => !(c.worker ? LOCK_EVIDENCE : EVIDENCE).test(c.p))
-      .map((c) => `${c.doc}: "${c.p.trim().slice(0, 80)}"`);
+      .map((c) => `${c.doc}: "${c.item.trim().slice(0, 80)}"`);
     // Addressed means a claim about the worker or a task in it, not its name in a list.
     const addressed =
       claims.some((c) => c.worker) || e.tasks.some((t) => targetsOf(t).includes("worker"));
@@ -422,15 +448,29 @@ const noUnprovenSafe = epicCheck(
 const reposRegistered = epicCheck(
   "repos-registered",
   "outcome",
-  "the epic's repos name orders, webshop and storefront, and argocd when a task changes it",
+  "the epic's repos name orders and storefront, and every other repo a task changes",
   (e): CheckResult => {
     const repos = getList(e.epic?.frontmatter ?? {}, "repos");
-    const argo = e.tasks.some((t) => targetsOf(t).includes("argocd"));
+    // A hit repo no task changes is hit-repos-covered's failure, not this one's. A repo named in
+    // passing ("Argo CD picks up the image", "the webshop dashboard") is not changed: argocd
+    // changes with a rollout, webshop with a fix of its own.
+    const webshopFix = FIXES.find((f) => f.service === "webshop");
+    const changed = (n: Target): boolean => {
+      if (n === "argocd") {
+        return rolloutsOf(e, "storefront").length + rolloutsOf(e, "webshop").length > 0;
+      }
+      if (n === "webshop") return webshopFix ? bumps(e, webshopFix).length > 0 : false;
+      return e.tasks.some((t) => targetsOf(t).includes(n));
+    };
+    const optional: [Target, string][] = [
+      ["webshop", TARGETS.webshop],
+      ["argocd", TARGETS.argocd],
+      ["worker", WORKER_URL],
+    ];
     const need: [string, string][] = [
       ["orders", ORDERS_URL],
-      ["webshop", TARGETS.webshop],
       ["storefront", STOREFRONT_URL],
-      ...(argo ? ([["argocd", TARGETS.argocd]] as [string, string][]) : []),
+      ...optional.filter(([n]) => changed(n)),
     ];
     const missing = need.filter(([, url]) => !repos.some((r) => sameRepo(r, url))).map(([n]) => n);
     return missing.length === 0
@@ -456,6 +496,9 @@ const NETWORK =
 const EXPLAIN =
   /\bnpm\s+(?:explain|ls|why)\b|\bbun\s+why\b|\bgo\s+mod\s+(?:why|graph)\b|\buv\s+tree\b|\bpip3?\s+show\b/;
 
+/** The command before any heredoc body: a body is text written to a file, not a command run. */
+const runPart = (c: string) => c.split(/<<-?\s*['"]?\w+['"]?/)[0] ?? c;
+
 /** Recorded, never scored: what the run tried online, and how it traced dependencies. */
 const dependencyCommands: Check = {
   id: "dependency-commands",
@@ -464,11 +507,11 @@ const dependencyCommands: Check = {
   async run(ctx) {
     const commands = ctx.telemetry.commands ?? [];
     const calls = ctx.telemetry.toolCalls ?? {};
-    const network = commands.filter((c) => NETWORK.test(c));
+    const network = commands.filter((c) => NETWORK.test(runPart(c)));
     const web = ["WebFetch", "WebSearch"]
       .filter((n) => (calls[n] ?? 0) > 0)
       .map((n) => `${n} x${calls[n]}`);
-    const explain = commands.filter((c) => EXPLAIN.test(c));
+    const explain = commands.filter((c) => EXPLAIN.test(runPart(c)));
     const evidence = [
       `network: ${network.join(" | ") || "none"}`,
       `web tools: ${web.join(", ") || "none"}`,
