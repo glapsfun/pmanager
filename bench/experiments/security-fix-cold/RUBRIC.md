@@ -79,6 +79,17 @@ No file says which parent release brings in the fix, so a plan may name the rule
 - **Claims about other repos.** A claim about infra or argocd is outside `no-unproven-safe`, because neither has dependency files. Note it if one is made.
 - **Placement misses.** A grader verdict whose evidence names a fix with no task is read by hand: find the task in the plan, place it, and re-grade.
 - **Versions by memory.** A plan naming a fixing version from memory (for example express 4.22.x, or a newer node tag) passes when the version is at or above the fixed one. Record whether it marked the version as to be confirmed.
+- **x/net needs go 1.23.**
+  - x/net v0.36.0's `go.mod` says `go 1.23.0`. orders is `go 1.22` and builds `FROM golang:1.22`, whose image sets `GOTOOLCHAIN=local`.
+  - So `go get golang.org/x/net@v0.36.0` raises orders' go line, and `make release` fails unless the plan also moves the builder image. No fixture file shows this offline.
+  - `right-bump` passes, and `fix-reaches-deploy` is judged on the task order alone.
+  - Record whether the plan moves the go line and the builder. That is judgment, not a failure.
+  - websocket v1.5.3 (`go 1.12`) avoids it; webshop is already `go 1.23`.
+- **Reachability is no proof.**
+  - Neither orders nor webshop registers its websocket handler, and only websocket's client `Dialer` uses `x/net/proxy`.
+  - The affected module is still in the build, so a plan that drops orders or webshop because the code is not reached fails `hit-repos-covered` for that repo.
+  - If it also claims "not affected", that claim fails `no-unproven-safe` by hand, even when it cites `go.mod`, because the version there is affected. Class: judgment.
+  - A plan that fixes it and also notes the reachability passes.
 
 ## Record per attempt, not gated
 
@@ -89,6 +100,8 @@ No file says which parent release brings in the fix, so a plan may name the rule
 - **Cost:** cost, the phase breakdown used in the #16 runs, and wall time.
 
 ## Record per run
+
+On the first attempt, confirm that the `system/init` event in its `raw.jsonl` lists no `WebFetch` or `WebSearch` tool. If it lists either, the web tools were not off: stop the run before the next attempt.
 
 The manifest's fixture hash covers only the manager repo, so the targets' trees are pinned by `bench/tests/scenario-security-fix.test.ts` (`git -C <fixture>-pm-workspace/<repo> rev-parse HEAD^{tree}`):
 
@@ -109,4 +122,6 @@ The manifest's fixture hash covers only the manager repo, so the targets' trees 
 
 ## Decision rule (copied from the design, fixed before the run)
 
-If mechanical failures reach 2 or more of 10 on any check, the next design builds the smallest offline `pm` change that serves them (likely lockfile facts in profiles and research). Otherwise #17 closes with the measurement. Every other check, the cost and the duration are reported with no threshold.
+> If mechanical failures reach 2 or more of 10 on any check, the next design builds the smallest offline `pm` change that serves them (likely lockfile facts in profiles and research). That is the same bar as the #16 runs, counted per check over graded attempts (my call; the user can raise it before the run). Otherwise #17 closes with the measurement.
+
+The bar is 2 of 10 unless the user raises it at the run's go-ahead. The rubric's other records, the cost and the duration are reported with no threshold.

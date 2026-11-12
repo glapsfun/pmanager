@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFile, cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { appendFile, chmod, cp, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { git, gitOk } from "../plugins/pmanager/skills/pmanager/scripts/git";
 
@@ -99,6 +99,26 @@ export async function linkSkill(fixtureDir: string, skillDir: string): Promise<v
   await appendFile(exclude, ".agents/\n.claude/\n");
 }
 
+/** Makes every directory under `path` writable, so its entries can be removed. */
+async function makeWritable(path: string): Promise<void> {
+  const st = await stat(path).catch(() => null);
+  if (!st?.isDirectory()) return;
+  await chmod(path, st.mode | 0o700);
+  for (const name of await readdir(path)) await makeWritable(join(path, name));
+}
+
+// A run's module cache can be read-only (Go extracts modules that way), which rm cannot remove.
+async function removeAll(path: string): Promise<void> {
+  try {
+    await rm(path, { recursive: true, force: true });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== "EACCES" && code !== "EPERM") throw e;
+    await makeWritable(path);
+    await rm(path, { recursive: true, force: true });
+  }
+}
+
 /** Fixtures are temp dirs; a leaked sibling worktree would keep the parent alive. */
 export async function cleanupFixture(dir: string): Promise<void> {
   await git(["worktree", "prune"], dir);
@@ -106,7 +126,7 @@ export async function cleanupFixture(dir: string): Promise<void> {
   const prefix = `${basename(dir)}-pm-`;
   const siblings = await readdir(parent).catch(() => [] as string[]);
   for (const name of siblings) {
-    if (name.startsWith(prefix)) await rm(join(parent, name), { recursive: true, force: true });
+    if (name.startsWith(prefix)) await removeAll(join(parent, name));
   }
-  await rm(dir, { recursive: true, force: true });
+  await removeAll(dir);
 }

@@ -311,4 +311,146 @@ describe("security-fix grader", () => {
     const offline = await grade(ALL, { telemetry: { ...EMPTY_TELEMETRY, commands: ["ls"] } });
     expect(offline.passed["dependency-commands"]).toBe(true);
   });
+
+  test("review: explicit targets in common wording pass right-bump", async () => {
+    const c = EXPRESS.current;
+    const f = EXPRESS.firstFixing;
+    const npmWording = [
+      `In storefront, bump express ${c} → ${f}.`,
+      `In storefront, bump express from ${c} to ${f} (${NPM.pkg} 0.1.10 → ${NPM.fixed}).`,
+      `In storefront, express ${c} pins ${NPM.pkg} 0.1.10 exactly, so bump express to ${f}.`,
+      `In storefront, change express from ${c} to ${f}.`,
+      `In storefront, run npm i express@${f}.`,
+      `In storefront, bump express to ${f}. Do not hand-edit package-lock.json; npm regenerates it.`,
+    ];
+    for (const what of npmWording) {
+      const passed = (await grade(swap(T01, { what }))).passed["right-bump"];
+      expect({ what, passed }).toEqual({ what, passed: true });
+    }
+    const goWording = [
+      `In orders, gorilla/websocket v1.5.1 pulls in ${GO.pkg} v0.17.0. Upgrade gorilla/websocket to v1.5.3.`,
+      `In orders, run go get ${GO.pkg}@v${GO.fixed}.\nToday gorilla/websocket v1.5.1 requires ${GO.pkg} v0.17.0.`,
+      "In orders, run go get -u github.com/gorilla/websocket.",
+      `In orders, run go get ${GO.pkg}@v${GO.fixed} and commit the changes to go.sum.`,
+    ];
+    for (const what of goWording) {
+      const passed = (await grade(swap(T05, { what }))).passed["right-bump"];
+      expect({ what, passed }).toEqual({ what, passed: true });
+    }
+  });
+
+  test("review: tasks after the release that name the package do not break the chain", async () => {
+    const verify: T = {
+      id: "T11",
+      title: "Confirm the fixes are live",
+      deps: ["T04", "T07"],
+      what: `Confirm ${NPM.pkg} ${NPM.fixed} and ${BASE_IMAGE.osPackage} ${BASE_IMAGE.fixed} in storefront, and that orders' go.mod no longer requires ${GO.pkg} v0.17.0.`,
+    };
+    const r = await grade([...ALL, verify]);
+    expect(r.passed["fix-reaches-deploy"]).toBe(true);
+    expect(r.passed["right-bump"]).toBe(true);
+    const ships =
+      "In argocd, set newTag: 2.3.1 in workloads/storefront/kustomization.yaml, shipping the express upgrade and the new base image.";
+    expect((await grade(swap(T04, { what: ships }))).passed["fix-reaches-deploy"]).toBe(true);
+    const same = `In webshop, run go get ${GO.pkg}@v${GO.fixed}, the same change as in orders.`;
+    expect((await grade(swap(T08, { what: same }))).passed["fix-reaches-deploy"]).toBe(true);
+  });
+
+  test("review: a rollout that only says what pushed the image is not its own release", async () => {
+    const what =
+      "In argocd, set newTag in workloads/storefront/kustomization.yaml to the image the release workflow pushed.";
+    const tasks = swap(T04, { deps: ["T01", "T02"], what }).filter((t) => t.id !== "T03");
+    expect((await grade(tasks)).passed["fix-reaches-deploy"]).toBe(false);
+  });
+
+  test("review: cut and ship wording count as a release", async () => {
+    const t = {
+      title: "Ship storefront 2.3.1",
+      what: "Cut storefront 2.3.1: create a v2.3.1 tag.",
+    };
+    expect((await grade(swap(T03, t))).passed["fix-reaches-deploy"]).toBe(true);
+  });
+
+  test("review: the image fix needs a newer base or an upgrade line in the Dockerfile", async () => {
+    for (const [title, what] of [
+      [
+        "Rebuild storefront's image",
+        `Rebuild the storefront image; the base stays ${BASE_IMAGE.image}.`,
+      ],
+      [
+        "Rebuild storefront's image",
+        "Rebuild the storefront image with --pull to get the latest node alpine base image.",
+      ],
+      [
+        "Move storefront's base image",
+        `In storefront's Dockerfile, change FROM ${BASE_IMAGE.image} to node:18-alpine3.18.`,
+      ],
+    ]) {
+      const passed = (await grade(swap(T02, { title, what }))).passed["right-bump"];
+      expect({ what, passed }).toEqual({ what, passed: false });
+    }
+    const floating = `In storefront's Dockerfile, change FROM ${BASE_IMAGE.image} to a newer node alpine tag (to be confirmed: it ships ${BASE_IMAGE.osPackage} ${BASE_IMAGE.fixed}).`;
+    expect((await grade(swap(T02, { what: floating }))).passed["right-bump"]).toBe(true);
+  });
+
+  test("review: uncited safe claims in other words fail, and so does a bare mention of the worker", async () => {
+    for (const body of [
+      "The worker finding is a false positive: no action needed.",
+      "The worker is not impacted.",
+      "worker: nothing to do.",
+      "The worker is safe.",
+      `The worker is not affected: pyproject.toml asks for ${PY.pkg}>=2.31.`,
+      "## Repos\n\norders, webshop, storefront, worker.",
+      `Out of scope: the worker's ${PY.pkg} finding.`,
+    ]) {
+      const passed = (await grade(ALL, { epicBody: `${body}\n` })).passed["no-unproven-safe"];
+      expect({ body, passed }).toEqual({ body, passed: false });
+    }
+  });
+
+  test("review: a re-scan outcome in acceptance criteria is not a claim", async () => {
+    const t = swap(T02, {
+      accept: `A re-scan reports storefront not affected by ${finding("image").cve}`,
+    });
+    expect((await grade(t)).passed["no-unproven-safe"]).toBe(true);
+  });
+
+  test("review: dependency-commands records installs, scanners and image pulls", async () => {
+    for (const c of [
+      "npm install",
+      "npm ci",
+      "npm i express@4.21.2",
+      "bun install",
+      "bun add express",
+      "pip install requests",
+      "go mod tidy",
+      "docker pull node:20.18.1-alpine3.20",
+      "docker run --rm node:20.18.1-alpine3.20 apk info -v libssl3",
+      "docker manifest inspect node:20",
+      "govulncheck ./...",
+      "trivy image node:20",
+      "osv-scanner -r .",
+      "pip-audit",
+      "go list -m -versions github.com/gorilla/websocket",
+    ]) {
+      const r = await grade(ALL, { telemetry: { ...EMPTY_TELEMETRY, commands: [c] } });
+      expect({ c, passed: r.passed["dependency-commands"] }).toEqual({ c, passed: false });
+    }
+  });
+
+  test("review: a caret range in package.json and a version table name targets", async () => {
+    const f = EXPRESS.firstFixing;
+    for (const what of [
+      `In storefront, change "express": "${EXPRESS.current}" to "express": "^${f}" in package.json and run npm install.`,
+      `In storefront:\n\n| Package | Current | Target |\n| --- | --- | --- |\n| express | ${EXPRESS.current} | ${f} |\n\nThen run npm install.`,
+    ]) {
+      const passed = (await grade(swap(T01, { what }))).passed["right-bump"];
+      expect({ what, passed }).toEqual({ what, passed: true });
+    }
+  });
+
+  test("review: a scanner outcome in acceptance criteria is not a claim", async () => {
+    const accept = `\`govulncheck ./...\` in orders reports the code is not affected by ${GO.advisory}`;
+    expect((await grade(swap(T07, { accept }))).passed["no-unproven-safe"]).toBe(true);
+  });
 });

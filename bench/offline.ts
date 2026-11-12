@@ -12,6 +12,8 @@ export function offlineEnv(tmp: string): Record<string, string> {
   return {
     GOPROXY: "off",
     GOTOOLCHAIN: "local",
+    // Go extracts modules read-only; writable ones let cleanupFixture remove what a run fetched.
+    GOFLAGS: "-modcacherw",
     GOMODCACHE: join(tmp, "gomodcache"),
     npm_config_registry: NO_REGISTRY,
     // npm retries a refused fetch with a back-off of ten seconds and more; one try is enough.

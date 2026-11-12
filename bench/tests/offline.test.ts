@@ -23,6 +23,10 @@ async function blocked(cmd: string[], setup?: (dir: string) => Promise<void>) {
   return { code, ms: Date.now() - started };
 }
 
+test("go writes its module cache writable, so cleanup can remove what a run fetched", () => {
+  expect(offlineEnv("/tmp/x").GOFLAGS?.split(" ")).toContain("-modcacherw");
+});
+
 describe("offlineEnv blocks each package manager", () => {
   test.skipIf(!onPath("go"))(
     "go cannot download a module",
