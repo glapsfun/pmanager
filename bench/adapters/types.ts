@@ -75,6 +75,8 @@ export interface Adapter {
   name: HarnessName;
   defaultModel: string | undefined;
   envPassthrough: string[];
+  /** arguments that turn off the harness's web tools; absent when it has none to turn off */
+  offlineArgs?: string[];
   detect(): Promise<Detection>;
   isolate(opts: IsolateOptions): Promise<Isolation | null>;
   run(opts: RunOptions): Promise<RunOutcome>;

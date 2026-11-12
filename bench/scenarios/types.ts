@@ -21,6 +21,8 @@ export interface Scenario {
    */
   prepareCondition?(dir: string, condition: Condition, info: FixtureInfo): Promise<FixtureInfo>;
   checks: Check[];
+  /** the run gets no package registry and no web tools (see bench/offline.ts) */
+  offline?: boolean;
 }
 
 export const SKILL_PREFIX = "Use the pmanager skill. ";
