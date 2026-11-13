@@ -1,0 +1,15 @@
+{
+  "name": "storefront",
+  "version": "2.3.0",
+  "private": true,
+  "description": "The customer-facing storefront: product pages and the cart.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "lint": "node --check src/server.js src/app.js"
+  },
+  "dependencies": {
+    "express": "4.21.1"
+  }
+}

@@ -5,6 +5,7 @@ import { multiRepoContextAsIs } from "./multi-repo-context-asis";
 import { multiStackRepo } from "./multi-stack-repo";
 import { perfBugNewEpic } from "./perf-bug-new-epic";
 import { planningTraps } from "./planning-traps";
+import { securityFix } from "./security-fix";
 import { trackingUpdateMemory } from "./tracking-update-memory";
 import { twoSessionClaimConflict } from "./two-session-claim-conflict";
 import type { Scenario } from "./types";
@@ -23,6 +24,7 @@ export const MEASUREMENT_SCENARIOS: Scenario[] = [
   multiRepoContext,
   multiRepoContextAsIs,
   multiStackRepo,
+  securityFix,
 ];
 
 export function scenarioByName(name: string): Scenario | undefined {

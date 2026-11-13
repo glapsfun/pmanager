@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildWebshopRepo } from "../../plugins/pmanager/skills/pmanager/tests/fixtures/build-webshop";
 import { exists, gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -46,6 +46,19 @@ describe("cleanupFixture", () => {
     await gitOk(["worktree", "add", "-q", "-b", "pm/app-performance", sibling], dir);
     await cleanupFixture(dir);
     expect(await exists(sibling)).toBe(false);
+    expect(await exists(dir)).toBe(false);
+  });
+
+  test("removes a read-only module cache a run left beside the fixture", async () => {
+    const dir = await makeTempDir("bench-cleanup");
+    await buildWebshopRepo(dir);
+    const mod = join(`${dir}-pm-offline`, "gomodcache", "golang.org", "x", "net@v0.36.0");
+    await mkdir(mod, { recursive: true });
+    await writeFile(join(mod, "go.mod"), "module golang.org/x/net\n");
+    // Go extracts modules read-only unless -modcacherw is set.
+    for (const p of [mod, join(mod, "..")]) await chmod(p, 0o555);
+    await cleanupFixture(dir);
+    expect(await exists(`${dir}-pm-offline`)).toBe(false);
     expect(await exists(dir)).toBe(false);
   });
 });

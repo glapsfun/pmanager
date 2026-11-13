@@ -42,6 +42,7 @@ Rendered by `bun run bench/bench.ts report` from `bench/results/history.jsonl`. 
 | multi-stack-repo-cold-2 | claude-code 2.1.321 | claude-sonnet-5 | multi-stack-repo | with-skill | 10 | 0% | — | 87087 | 39238 | $1.10 | 447s | $11.37 |
 | pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
 | planning-traps-current | claude-code 2.1.312 | claude-sonnet-5 | planning-traps | with-skill | 10 | 20% | — | 83403 | 43988 | $0.96 | 466s | $9.41 |
+| security-fix-cold | claude-code 2.1.322 | claude-sonnet-5 | security-fix | with-skill | 10 | 0% | — | 85339 | 41434 | $1.09 | 432s | $12.02 |
 
 ## History (last 20 agent runs)
 
