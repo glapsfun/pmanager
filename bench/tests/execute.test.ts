@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { copyFixture, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
+import { claudeCode } from "../adapters/claude-code";
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
 import { executeScenario } from "../execute";
 import { gitCommitAll, headSha } from "../fixture";
@@ -239,5 +240,62 @@ describe("executeScenario", () => {
     );
     expect((await stat(join(artifactsDir, "stderr.txt"))).isFile()).toBe(true);
     await expect(stat(r.fixtureDir)).rejects.toThrow();
+  });
+
+  test("an offline scenario runs with the offline env and the adapter's offline args", async () => {
+    const scenario = { ...(scenarioByName("perf-bug-new-epic") as Scenario), offline: true };
+    let seen: RunOptions | null = null;
+    const a = {
+      ...adapter(async (o) => {
+        seen = o;
+        return {};
+      }),
+      offlineArgs: ["--no-web"],
+    };
+    const dir = await makeTempDir("bench-exec");
+    const r = await executeScenario(
+      req(scenario, a, { extraArgs: ["--first"], rawLogPath: join(dir, "raw.jsonl") }),
+    );
+    expect(r.status).toBe("completed");
+    const o = seen as unknown as RunOptions;
+    expect(o.env.GOPROXY).toBe("off");
+    expect(o.env.npm_config_registry?.startsWith("http://127.0.0.1:")).toBe(true);
+    expect(o.env.PATH).toBe(process.env.PATH ?? "");
+    expect(o.extraArgs).toEqual(["--first", "--no-web"]);
+  });
+
+  test("a scenario without offline runs unchanged", async () => {
+    const scenario = scenarioByName("perf-bug-new-epic") as Scenario;
+    let seen: RunOptions | null = null;
+    const a = {
+      ...adapter(async (o) => {
+        seen = o;
+        return {};
+      }),
+      offlineArgs: ["--no-web"],
+    };
+    const dir = await makeTempDir("bench-exec");
+    await executeScenario(req(scenario, a, { rawLogPath: join(dir, "raw.jsonl") }));
+    const o = seen as unknown as RunOptions;
+    expect(o.env.GOPROXY).toBeUndefined();
+    expect(o.extraArgs ?? []).not.toContain("--no-web");
+  });
+
+  test("an offline scenario on an adapter without offline args is a setup error", async () => {
+    const scenario = { ...(scenarioByName("perf-bug-new-epic") as Scenario), offline: true };
+    let ran = false;
+    const a = adapter(async () => {
+      ran = true;
+      return {};
+    });
+    const dir = await makeTempDir("bench-exec");
+    const r = await executeScenario(req(scenario, a, { rawLogPath: join(dir, "raw.jsonl") }));
+    expect(r.status).toBe("setup-error");
+    expect(r.statusReason).toContain("cannot turn off web tools");
+    expect(ran).toBe(false);
+  });
+
+  test("claude-code denies the web tools", () => {
+    expect(claudeCode.offlineArgs).toEqual(["--disallowedTools", "WebFetch,WebSearch"]);
   });
 });

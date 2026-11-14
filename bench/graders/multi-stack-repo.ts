@@ -54,7 +54,7 @@ const OWN_CHECKS: Record<Part, RegExp> = {
   terraform: /\btf-check(?:\.sh)?\b|\bcheckov\b/i,
   chart: /\bhelm\s+unittest\b|\bct\s+lint\b/i,
 };
-const MANAGER_COMMANDS = /\bbun\s+(?:run\s+)?(?:lint|test)\b/i;
+export const MANAGER_COMMANDS = /\bbun\s+(?:run\s+)?(?:lint|test)\b/i;
 // A substring: plans write exportsBucket, EXPORTS_BUCKET and aws_s3_bucket.exports.
 const BUCKET = /bucket/i;
 const CREATES_BUCKET = /aws_s3_bucket\b|\b(?:add|create|provision|new)\w*\b[^.\n]*bucket/i;
@@ -63,11 +63,11 @@ const IMAGE_TAG =
   /\bimage\.tag\b|\bimage tag\b|\bimage version\b|\btag\b|\borders:v?\d|\bimage\b[^.\n]*?\bv?\d+\.\d+/i;
 // Release actions, not the word: "ships in the 1.5.0 release" is no release task. An image
 // reference has dots (ghcr.io), so a push may reach the image anywhere on its line.
-const RELEASES =
+export const RELEASES =
   /^\s*release\b|\brelease\s+(?:orders|the service|v?\d)|\bcut\s+(?:v?\d|a release|the release)|\bmake\s+release\b|\brelease (?:process|target)\b|`release` target|\btag\s+v?\d|\bpublish\w*\b|\bpush\w*\b[^\n]*?(?:\borders:v?\d|\bimage\b)/im;
 
 /** Where a task's part shows: its title and the work, never Context or Out of scope. */
-function work(t: TaskDoc): string {
+export function work(t: TaskDoc): string {
   return [
     getString(t.frontmatter, "title") ?? "",
     sectionBody(t.body, "What to do") ?? "",
@@ -76,7 +76,7 @@ function work(t: TaskDoc): string {
 }
 
 /** What the task asks for, Notes included: checks are often listed there. */
-function asks(t: TaskDoc): string {
+export function asks(t: TaskDoc): string {
   return `${work(t)}\n${sectionBody(t.body, "Notes") ?? ""}`;
 }
 
@@ -117,7 +117,7 @@ function tasksIn(e: EpicRecord, part: Part): TaskDoc[] {
 }
 
 /** True when `from` reaches any of `targets` through depends-on, directly or transitively. */
-function reaches(e: EpicRecord, from: string, targets: Set<string>): boolean {
+export function reaches(e: EpicRecord, from: string, targets: Set<string>): boolean {
   const deps = new Map(e.tasks.map((t) => [t.id, getList(t.frontmatter, "depends-on")]));
   const seen = new Set<string>();
   const stack = [...(deps.get(from) ?? [])];

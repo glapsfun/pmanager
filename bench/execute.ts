@@ -9,6 +9,7 @@ import { runCompleted } from "./graders/common";
 import { buildCheckContext } from "./graders/context";
 import { type CheckOutcome, isSuccess, runChecks, scoreByKind, scoreChecks } from "./graders/types";
 import { hashFixture, hashString } from "./hashes";
+import { offlineEnv } from "./offline";
 import { type Condition, composePrompt, hasSkill, type Scenario } from "./scenarios/types";
 import { SKILL_DIR } from "./skill-paths";
 
@@ -88,6 +89,13 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
   const prompt = composePrompt(req.scenario, req.condition);
   const promptHash = hashString(prompt);
   try {
+    if (req.scenario.offline && !req.adapter.offlineArgs) {
+      return setupError(`${req.adapter.name} cannot turn off web tools`, {
+        fixtureDir,
+        fixtureHash: "",
+        promptHash,
+      });
+    }
     const built = await req.scenario.buildFixture(fixtureDir);
     originBare = built.originBare;
     await installContract(fixtureDir);
@@ -103,14 +111,17 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
       : built;
     if (hasSkill(req.condition)) await linkSkill(fixtureDir, req.skillDir ?? SKILL_DIR);
     await mkdir(dirname(req.rawLogPath), { recursive: true });
-    const extraArgs =
-      typeof req.extraArgs === "function" ? req.extraArgs(fixtureDir) : req.extraArgs;
+    const given = typeof req.extraArgs === "function" ? req.extraArgs(fixtureDir) : req.extraArgs;
+    // The -pm- prefix puts the empty caches among the siblings cleanupFixture removes.
+    const offline = req.scenario.offline === true;
+    const extraArgs = offline ? [...given, ...(req.adapter.offlineArgs ?? [])] : given;
+    const env = offline ? { ...req.env, ...offlineEnv(`${fixtureDir}-pm-offline`) } : req.env;
     const outcome = await req.adapter.run({
       cwd: fixtureDir,
       prompt,
       model: req.model,
       timeoutMs: req.timeoutMs,
-      env: req.env,
+      env,
       rawLogPath: req.rawLogPath,
       extraArgs,
     });

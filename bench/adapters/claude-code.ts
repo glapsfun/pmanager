@@ -172,6 +172,7 @@ export const claudeCode: Adapter = {
   name: "claude-code",
   defaultModel: undefined,
   envPassthrough: ["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_MAX_BUDGET_USD"],
+  offlineArgs: ["--disallowedTools", "WebFetch,WebSearch"],
   detect: () => detectCli("claude", ["--version"]),
   isolate: isolateClaude,
   async run(opts) {
