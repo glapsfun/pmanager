@@ -4,6 +4,7 @@ import { daysBetween, shiftDates } from "../../ci/e2e/dates";
 import { pmProcess } from "../../ci/e2e/pm";
 import { STORY_END } from "../../ci/e2e/story";
 import { BASE_DAY, gitDateEnv, sh } from "../../ci/e2e/workspace";
+import { git } from "../../plugins/pmanager/skills/pmanager/scripts/git";
 import { type FixtureInfo, headSha, lsRemoteRefs } from "../fixture";
 import { commonChecks } from "../graders/common";
 import { binaryAcceptance, draftAwaitsApproval, epicAndPlan, tasksMin3 } from "../graders/new-epic";
@@ -97,11 +98,19 @@ async function prepareSecurityFixCondition(
   dir: string,
   condition: Condition,
   info: FixtureInfo,
+  skillDir?: string,
 ): Promise<FixtureInfo> {
   if (!hasSkill(condition)) return info;
-  const r = await pmProcess(dir, ["project", "refresh"], { env: { PM_TODAY, PM_NO_PROFILES: "" } });
+  // Each arm's profiles come from its own pm: a baseline's main writes no format it lacks.
+  const pm = skillDir ? join(skillDir, "scripts", "pm.ts") : undefined;
+  const r = await pmProcess(dir, ["project", "refresh"], {
+    env: { PM_TODAY, PM_NO_PROFILES: "" },
+    pm,
+  });
   if (r.code !== 0) throw new Error(`pm project refresh failed: ${r.stderr}`);
   await sh(["git", "add", "docs/pm/projects"], dir);
+  const staged = await git(["diff", "--cached", "--quiet"], dir);
+  if (staged.code === 0) return info;
   await sh(["git", "commit", "-q", "-m", "docs(pm): project profiles"], dir, gitDateEnv(PM_TODAY));
   await sh(["git", "push", "-q", "origin", "main"], dir);
   return {
