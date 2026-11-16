@@ -52,7 +52,7 @@ The change does not ship as is. The ship call goes to the user.
 
 ## Other findings
 
-- **Example tags in the plans.** To satisfy E-REL-001, planners wrote example version tags. 5 of 8 are below what is deployed now (storefront 2.3.0, webshop 1.4.2), because the `plan:` line does not show the current tag.
+- **Example tags in the plans.** To satisfy E-REL-001, planners wrote example version tags. In p1 to p5, 5 of the 8 are below what is deployed now (storefront 2.3.0, webshop 1.4.2), because the `plan:` line does not show the current tag.
 - **No `VERSION` bump.** Most plans in both arms run orders' `make release` without bumping `VERSION`, as in the cold run. That is #64, ungraded here as in the cold run.
 - **The Go builder.** None of the 18 moves orders' `golang:1.22` builder or uses websocket v1.5.3. p1 with, p8 with, p2 base, p4 base and p9 base explicitly keep Go 1.22. Recorded as judgment, per the rubric.
 - **Network attempts.**
