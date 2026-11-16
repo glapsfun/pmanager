@@ -181,10 +181,14 @@ Add a `/healthz` handler in `main.go` that returns 200 with a short body and
 checks nothing else. Cover it in `main_test.go`. Follow the webshop README:
 `make test` and `make lint` before the pull request.
 
+After the merge, release it: push the `v1.5.0` tag, which publishes
+`ghcr.io/pm-example/webshop:1.5.0` for T02 to roll out.
+
 ## Acceptance criteria
 
 - [ ] `main.go` registers `/healthz` and it returns 200
 - [ ] `main_test.go` covers `/healthz` and `make test` passes
+- [ ] the `v1.5.0` tag is pushed and `ghcr.io/pm-example/webshop:1.5.0` is published
 
 ## Out of scope
 

@@ -7,6 +7,7 @@ import {
   formatPartsBlock,
   loadProfiles,
   namesCommand,
+  PROFILE_FORMAT,
   type Profile,
   partId,
   readProfile,
@@ -540,7 +541,7 @@ describe("review of the cuts", () => {
 
   const released = (values: string[], release = "make release"): Profile => ({
     revision: "abcdef0123",
-    format: 2,
+    format: PROFILE_FORMAT,
     parts: [
       {
         folder: "",
@@ -567,6 +568,8 @@ describe("review of the cuts", () => {
     })),
     notes: [],
     shared: [],
+    releases: [],
+    tagSettings: [],
   });
   const PLAN =
     "    plan: when tasks have parts: [orders-service], add a task that runs make release and depends on them, then a task with parts: [orders-service/deploy/chart] that sets image.tag and depends on the release";
@@ -600,7 +603,7 @@ describe("review of the cuts", () => {
     );
     expect(formatPartsBlock("orders", released([]), null).join("\n")).not.toContain("refresh");
     const stored = readProfile(renderProfileSection("orders", released([])));
-    expect(stored?.format).toBe(2);
+    expect(stored?.format).toBe(PROFILE_FORMAT);
   });
 });
 

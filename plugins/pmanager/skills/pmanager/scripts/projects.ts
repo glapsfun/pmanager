@@ -222,7 +222,8 @@ export async function addProject(
   let profiled: string | null = null;
   if (created && opts.profile !== false) {
     const a = await availability(project, await readLocalRepoMap(pmDir));
-    const profile = a.state === "available" ? await extractProfile(a.path) : null;
+    const profile =
+      a.state === "available" ? await extractProfile(a.path, { url: project.url }) : null;
     // A checkout with no commits has nothing to read yet; refresh picks it up later.
     if (profile && profile.revision !== "") {
       await writeFile(
@@ -259,7 +260,10 @@ export async function refreshProjects(
       rows.push({ id: project.id, skipped: formatAvailability(a) });
       continue;
     }
-    const profile = await extractProfile(a.path);
+    // image-registry: is the user's, set once in the project file; refresh never writes it.
+    const front = parseDoc(project.file, await readFile(project.file, "utf8")).frontmatter;
+    const registry = getString(front, "image-registry") ?? undefined;
+    const profile = await extractProfile(a.path, { url: project.url, registry });
     if (profile.revision === "") {
       rows.push({ id: project.id, skipped: "no commits" });
       continue;

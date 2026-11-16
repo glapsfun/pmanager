@@ -80,6 +80,7 @@ const HEALTHCHECK: Step[] = [
         ["updated: 2026-10-20", "updated: 2026-10-24"],
         ["- [ ] `main.go`", "- [x] `main.go`"],
         ["- [ ] `main_test.go`", "- [x] `main_test.go`"],
+        ["- [ ] the `v1.5.0` tag", "- [x] the `v1.5.0` tag"],
         [
           "",
           "\n## History\n\n- 2026-10-24 status todo -> in-progress\n- 2026-10-24 status in-progress -> done\n",

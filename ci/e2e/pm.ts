@@ -12,9 +12,10 @@ const FIXTURE_SESSION =
 export async function pmProcess(
   cwd: string,
   args: string[],
-  opts: { harness?: string; stdin?: string; env?: Record<string, string> } = {},
+  opts: { harness?: string; stdin?: string; env?: Record<string, string>; pm?: string } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["bun", "run", PM, ...args], {
+  // pm: another copy's pm.ts, such as a bench baseline's, run the same way.
+  const proc = Bun.spawn(["bun", "run", opts.pm ?? PM, ...args], {
     cwd,
     stdin: opts.stdin === undefined ? "ignore" : new Blob([opts.stdin]),
     stdout: "pipe",

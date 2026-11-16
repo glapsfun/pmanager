@@ -19,7 +19,13 @@ export interface Scenario {
    * Runs after the fixture-hash check and before the skill is installed, so a condition can
    * see a different fixture (the baseline arm without what the change under test writes).
    */
-  prepareCondition?(dir: string, condition: Condition, info: FixtureInfo): Promise<FixtureInfo>;
+  prepareCondition?(
+    dir: string,
+    condition: Condition,
+    info: FixtureInfo,
+    /** the skill this arm runs: the baseline copy for baseline-skill, else the working tree's */
+    skillDir?: string,
+  ): Promise<FixtureInfo>;
   checks: Check[];
   /** the run gets no package registry and no web tools (see bench/offline.ts) */
   offline?: boolean;

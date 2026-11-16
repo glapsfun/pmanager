@@ -68,6 +68,14 @@ describe("normalizeKeywords", () => {
   test("lowercases, trims, dedupes, drops empties", () => {
     expect(normalizeKeywords([" Orders", "orders", "", "Timeout "])).toEqual(["orders", "timeout"]);
   });
+
+  test("cuts (#65): one quoted argument with several words is several keywords", () => {
+    expect(normalizeKeywords(["golang.org/x/net x/net", "Timeout"])).toEqual([
+      "golang.org/x/net",
+      "x/net",
+      "timeout",
+    ]);
+  });
 });
 
 describe("collectHits + rankFiles", () => {
@@ -683,5 +691,103 @@ describe("final review: research parts block", () => {
     await gitOk(["commit", "-q", "-am", "config"], orders);
     const config = await runPm(["research", "exports", "--no-gh", "--repo", "orders"], root);
     expect(config.stdout).toMatch(/stale: .*pm project refresh orders/);
+  });
+});
+
+/** A manager with two registered Go repos that both carry golang.org/x/net. */
+async function managerWithGoRepos(): Promise<{ root: string }> {
+  const root = await orchestrationRepo();
+  for (const [name, version] of [
+    ["orders", "v0.17.0"],
+    ["webshop", "v0.23.0"],
+  ] as const) {
+    const dir = join(await makeTempDir("research-go"), name);
+    await writeTree(dir, {
+      "go.mod": `module github.com/pm-example/${name}\n\ngo 1.23\n\nrequire golang.org/x/net ${version} // indirect\n`,
+      "main.go": "package main\n\nfunc main() {}\n",
+    });
+    await initGitRepo(dir);
+    await gitOk(["add", "-A"], dir);
+    await gitOk(["commit", "-q", "-m", "seed"], dir);
+    await gitOk(["remote", "add", "origin", `https://github.com/pm-example/${name}.git`], dir);
+    const add = await runPm(["project", "add", dir], root);
+    if (add.code !== 0) throw new Error(add.stderr);
+  }
+  return { root };
+}
+
+describe("pm research deps block", () => {
+  test("lists every registered repo that carries the package, not only the --repo ones", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "golang.org/x/net", "--no-gh", "--repo", "orders"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout.indexOf("deps:")).toBeGreaterThanOrEqual(0);
+    expect(r.stdout.indexOf("deps:")).toBeLessThan(r.stdout.indexOf("research: "));
+    expect(r.stdout).toContain("[orders go.mod:5] golang.org/x/net v0.17.0 indirect");
+    expect(r.stdout).toContain("[webshop go.mod:5] golang.org/x/net v0.23.0 indirect");
+  });
+
+  test("a run that names no carried package has no deps block", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "checkout", "latency", "--no-gh", "--repo", "orders"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("deps:");
+  });
+
+  test("--json carries the carriers on the view", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "x/net", "--no-gh", "--repo", "orders", "--json"], root);
+    expect(JSON.parse(r.stdout).deps.carriers).toHaveLength(2);
+  });
+
+  test("a registered repo not checked out here is named inside the block", async () => {
+    const { root } = await managerWithGoRepos();
+    const add = await runPm(["project", "add", "https://github.com/pm-example/worker.git"], root);
+    expect(add.code).toBe(0);
+    const r = await runPm(["research", "golang.org/x/net", "--no-gh", "--repo", "orders"], root);
+    expect(r.stdout).toContain("[deps] not checked: worker (not mapped)");
+  });
+});
+
+describe("pm research cross-repo release links", () => {
+  test("researching storefront alone prints the argocd rollout and the plan line", async () => {
+    const root = await orchestrationRepo();
+    const repos: [string, Record<string, string>][] = [
+      [
+        "storefront",
+        {
+          "package.json": '{ "name": "storefront", "version": "2.3.0" }\n',
+          ".github/workflows/release.yml":
+            'on:\n  push:\n    tags: ["v*"]\njobs:\n  image:\n    runs-on: ubuntu-latest\n    steps:\n      - id: meta\n        uses: docker/metadata-action@v5\n        with:\n          images: ghcr.io/pm-example/storefront\n      - uses: docker/build-push-action@v6\n        with:\n          push: true\n          tags: ' +
+            "$" +
+            "{{ steps.meta.outputs.tags }}\n",
+        },
+      ],
+      [
+        "argocd",
+        {
+          "workloads/storefront/kustomization.yaml":
+            "resources:\n  - deployment.yaml\nimages:\n  - name: storefront\n    newName: ghcr.io/pm-example/storefront\n    newTag: 2.3.0\n",
+        },
+      ],
+    ];
+    for (const [name, files] of repos) {
+      const dir = join(await makeTempDir("research-cross"), name);
+      await writeTree(dir, files);
+      await initGitRepo(dir);
+      await gitOk(["add", "-A"], dir);
+      await gitOk(["commit", "-q", "-m", "seed"], dir);
+      await gitOk(["remote", "add", "origin", `https://github.com/pm-example/${name}.git`], dir);
+      const add = await runPm(["project", "add", dir], root);
+      if (add.code !== 0) throw new Error(add.stderr);
+    }
+    const r = await runPm(["research", "release", "--no-gh", "--repo", "storefront"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(
+      "release link: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag; argocd workloads/storefront/kustomization.yaml:6 newTag rolls it out",
+    );
+    expect(r.stdout).toContain(
+      "then a task with parts: [argocd/workloads/storefront] (argocd in the epic's repos:) that sets newTag (now 2.3.0) in workloads/storefront/kustomization.yaml and depends on the release",
+    );
   });
 });

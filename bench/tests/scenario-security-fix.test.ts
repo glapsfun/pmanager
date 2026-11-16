@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pmProcess } from "../../ci/e2e/pm";
 import { gitOk, makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
@@ -76,6 +76,19 @@ describe("security-fix fixture", () => {
     expect(await storefront()).toContain("<!-- pm:parts:start -->");
     expect((await gitOk(["status", "--porcelain"], fx.dir)).trim()).toBe("");
     expect(withSkill?.baselineSha).toBe((await gitOk(["rev-parse", "HEAD"], fx.dir)).trim());
+  }, 120_000);
+
+  test("the baseline arm refreshes with the baseline's pm, not the working tree's", async () => {
+    const fake = await makeTempDir("fake-skill");
+    await mkdir(join(fake, "scripts"), { recursive: true });
+    await writeFile(
+      join(fake, "scripts", "pm.ts"),
+      'import { join } from "node:path";\nawait Bun.write(join(process.cwd(), "docs/pm/projects/baseline-pm-ran.md"), "ran\\n");\n',
+    );
+    await securityFix.prepareCondition?.(fx.dir, "baseline-skill", fx.info, fake);
+    expect(await readFile(join(fx.dir, "docs/pm/projects/baseline-pm-ran.md"), "utf8")).toBe(
+      "ran\n",
+    );
   }, 120_000);
 });
 
