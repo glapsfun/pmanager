@@ -35,6 +35,13 @@ never as regular expressions. Run once:
   part ids in each task's `parts:` and copy each part's checks into its
   criteria. A `plan:` line under a release link names the release task and the
   task that moves the link's key after it: put both in the first draft.
+- When a keyword names a package or base image (`golang.org/x/net`, `x/net`,
+  `path-to-regexp`, `node`), a `deps:` block comes first. It has one line per
+  registered repo checked out here that carries it, whatever `--repo` names:
+  the version, the direct dependency that pulls it in (or `indirect`), and the
+  file and line. `not checked:` names a registered repo with no checkout
+  here. Plan a task for every repo the finding reaches, or say in the plan why
+  one needs none.
 - The output is pruned to about 1500 tokens per repo: import lines and data
   files (lockfiles, `*.jsonl`, `dist/`, minified bundles) go first, then each
   section keeps its strongest lines. The `pruned:` line says how much was

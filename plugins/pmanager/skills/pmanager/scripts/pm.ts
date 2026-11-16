@@ -29,7 +29,7 @@ import {
   refreshProjects,
   renderProjectsIndex,
 } from "./projects";
-import { DEFAULT_BUDGET, MIN_BUDGET, prune } from "./prune";
+import { DEFAULT_BUDGET, estimateTokens, MIN_BUDGET, prune } from "./prune";
 import { formatRecord, record } from "./record";
 import { applyRender, migrate } from "./render";
 import {
@@ -45,6 +45,7 @@ import {
 // Folders under docs/pm that are not epics, so no epic may take their name.
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
+import { carriersAcross, formatDepsBlock } from "./deps";
 import { formatPartsBlock, loadProfiles, profileInputChanged } from "./profile";
 import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
@@ -478,9 +479,14 @@ async function runResearch(root: string, args: Args): Promise<number> {
       }),
     ),
   );
+  // Every registered repo checked out here, whatever --repo names: a hit repo the ticket does not
+  // name is the one research would otherwise miss. Its lines come out of each repo's budget.
+  const deps = await carriersAcross(root, catalog, keywords);
+  const depsBlock = formatDepsBlock(deps);
+  const budget = Math.max(0, args.budget - estimateTokens(depsBlock.join("\n")));
   // Before pruning, so the budget the repeated memory lines would take goes to the other sections.
   const views = memoryOnce(reports).map((r) =>
-    args.full ? { ...r, pruned: null } : prune(r, args.budget),
+    args.full ? { ...r, pruned: null } : prune(r, budget),
   );
   const profiles = await loadProfiles(catalog);
   // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
@@ -500,14 +506,17 @@ async function runResearch(root: string, args: Args): Promise<number> {
     }),
   );
   if (args.json) {
-    const withParts = views.map((v, i) => (parts[i] ? { ...v, parts: parts[i] } : v));
+    const withParts = views.map((v, i) => {
+      const view = parts[i] ? { ...v, parts: parts[i] } : v;
+      return deps.carriers.length > 0 ? { ...view, deps } : view;
+    });
     out(json(withParts.length === 1 ? withParts[0] : withParts));
   } else {
     const blocks = views.map((v, i) => {
       const [header, ...rest] = formatResearch(v).split("\n");
       return [header, ...(parts[i] ?? []), ...rest].join("\n");
     });
-    out(blocks.join("\n"));
+    out([...depsBlock, ...blocks].join("\n"));
   }
   return 0;
 }

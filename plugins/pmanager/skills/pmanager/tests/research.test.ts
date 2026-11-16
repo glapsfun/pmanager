@@ -685,3 +685,58 @@ describe("final review: research parts block", () => {
     expect(config.stdout).toMatch(/stale: .*pm project refresh orders/);
   });
 });
+
+/** A manager with two registered Go repos that both carry golang.org/x/net. */
+async function managerWithGoRepos(): Promise<{ root: string }> {
+  const root = await orchestrationRepo();
+  for (const [name, version] of [
+    ["orders", "v0.17.0"],
+    ["webshop", "v0.23.0"],
+  ] as const) {
+    const dir = join(await makeTempDir("research-go"), name);
+    await writeTree(dir, {
+      "go.mod": `module github.com/pm-example/${name}\n\ngo 1.23\n\nrequire golang.org/x/net ${version} // indirect\n`,
+      "main.go": "package main\n\nfunc main() {}\n",
+    });
+    await initGitRepo(dir);
+    await gitOk(["add", "-A"], dir);
+    await gitOk(["commit", "-q", "-m", "seed"], dir);
+    await gitOk(["remote", "add", "origin", `https://github.com/pm-example/${name}.git`], dir);
+    const add = await runPm(["project", "add", dir], root);
+    if (add.code !== 0) throw new Error(add.stderr);
+  }
+  return { root };
+}
+
+describe("pm research deps block", () => {
+  test("lists every registered repo that carries the package, not only the --repo ones", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "golang.org/x/net", "--no-gh", "--repo", "orders"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout.indexOf("deps:")).toBeGreaterThanOrEqual(0);
+    expect(r.stdout.indexOf("deps:")).toBeLessThan(r.stdout.indexOf("research: "));
+    expect(r.stdout).toContain("[orders go.mod:5] golang.org/x/net v0.17.0 indirect");
+    expect(r.stdout).toContain("[webshop go.mod:5] golang.org/x/net v0.23.0 indirect");
+  });
+
+  test("a run that names no carried package has no deps block", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "checkout", "latency", "--no-gh", "--repo", "orders"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("deps:");
+  });
+
+  test("--json carries the carriers on the view", async () => {
+    const { root } = await managerWithGoRepos();
+    const r = await runPm(["research", "x/net", "--no-gh", "--repo", "orders", "--json"], root);
+    expect(JSON.parse(r.stdout).deps.carriers).toHaveLength(2);
+  });
+
+  test("a registered repo not checked out here is named inside the block", async () => {
+    const { root } = await managerWithGoRepos();
+    const add = await runPm(["project", "add", "https://github.com/pm-example/worker.git"], root);
+    expect(add.code).toBe(0);
+    const r = await runPm(["research", "golang.org/x/net", "--no-gh", "--repo", "orders"], root);
+    expect(r.stdout).toContain("[deps] not checked: worker (not mapped)");
+  });
+});
