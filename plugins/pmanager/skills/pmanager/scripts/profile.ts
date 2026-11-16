@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { git, gitOk } from "./git";
+import { extractImages, type ImageRelease, type TagSetting } from "./images";
 import type { Catalog } from "./projects";
 import { replaceBetweenMarkers } from "./render";
 
@@ -46,6 +47,10 @@ export interface Profile {
   notes: string[];
   /** repo-wide commands: CI jobs with no path filter, and root docs when the root is not a part */
   shared: Command[];
+  /** the images this repo pushes, and on what */
+  releases: ImageRelease[];
+  /** the places this repo sets an image's tag */
+  tagSettings: TagSetting[];
 }
 
 const STACKS: [RegExp, string][] = [
@@ -71,8 +76,8 @@ const CHANGE_EVENTS = new Set(["push", "pull_request", "pull_request_target", "m
 const DEPLOY = /^(?:terraform (?:plan|apply)|helm (?:upgrade|install)|kubectl (?:apply|rollout))\b/;
 const RELEASE = /^(?:make release|docker push|git tag)\b|\bpublish\b/;
 const VERSION = /^v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?$/;
-/** 2: make targets carry what their recipe runs. */
-export const PROFILE_FORMAT = 2;
+/** 2: make targets carry what their recipe runs. 3: image releases and tag settings. */
+export const PROFILE_FORMAT = 3;
 // GNU make's search order.
 const MAKEFILES = ["GNUmakefile", "makefile", "Makefile"];
 const isMakefile = (file: string) => MAKEFILES.includes(posix.basename(file));
@@ -338,6 +343,26 @@ function parseYaml(raw: string, file: string, notes: string[]): Record<string, u
   }
 }
 
+/** Every document of a YAML file; a document pm cannot parse is noted once and skipped. */
+function yamlDocs(raw: string, file: string, notes: string[]): unknown[] {
+  const out: unknown[] = [];
+  for (const chunk of raw.split(/^---[ \t]*$/m)) {
+    if (!chunk.trim()) {
+      out.push(null);
+      continue;
+    }
+    try {
+      out.push(Bun.YAML.parse(chunk));
+    } catch (e) {
+      if (!notes.some((n) => n.startsWith(`${file}:`))) {
+        notes.push(`${file}: not valid YAML (${(e as Error).message.split("\n")[0]})`);
+      }
+      out.push(null);
+    }
+  }
+  return out;
+}
+
 interface Literal {
   value: string;
   file: string;
@@ -394,7 +419,10 @@ const LITERAL_FILE =
 const isDeployConfig = (file: string) =>
   /^(?:values.*|kustomization)\.ya?ml$/.test(posix.basename(file));
 
-export async function extractProfile(checkout: string): Promise<Profile> {
+export async function extractProfile(
+  checkout: string,
+  opts: { url?: string; registry?: string } = {},
+): Promise<Profile> {
   const notes: string[] = [];
   const head = await git(["rev-parse", "HEAD"], checkout);
   if (head.code !== 0) {
@@ -404,6 +432,8 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links: [],
       notes: ["no commits: nothing to read yet"],
       shared: [],
+      releases: [],
+      tagSettings: [],
       format: PROFILE_FORMAT,
     };
   }
@@ -526,7 +556,15 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links.push({ value: c.value, source: end(s), consumer: end(c), release });
     }
   }
-  return { revision, parts, links, notes, shared, format: PROFILE_FORMAT };
+  const { releases, tagSettings } = await extractImages(
+    files,
+    read,
+    (raw, f) => yamlDocs(raw, f, notes),
+    async (f) => recipes(await read(f)),
+    { ...opts, partOf: (f) => byDepth.find((x) => inside(f, x)) ?? null },
+    notes,
+  );
+  return { revision, parts, links, notes, shared, releases, tagSettings, format: PROFILE_FORMAT };
 }
 
 export function partId(projectId: string, folder: string): string {
@@ -590,6 +628,19 @@ export function renderProfileSection(projectId: string, p: Profile): string {
       );
     }
   }
+  if (p.releases.length > 0) {
+    lines.push("", "Image releases:", "");
+    for (const r of p.releases.slice(0, 20)) {
+      const what = r.image ? `\`${r.image}\`` : `unresolved (${r.unresolved ?? "unknown"})`;
+      lines.push(`- ${what} on a ${r.trigger.pattern} ${r.trigger.kind} (${r.source})`);
+    }
+  }
+  if (p.tagSettings.length > 0) {
+    lines.push("", "Image tags set here:", "");
+    for (const t of p.tagSettings.slice(0, 20)) {
+      lines.push(`- \`${t.image}\` \`${t.key}\` in ${t.file}:${t.line} (\`${t.value}\`)`);
+    }
+  }
   for (const n of p.notes) lines.push(`- skipped ${n}`);
   lines.push("", "```json", JSON.stringify(p), "```", PARTS_END);
   return `${lines.join("\n")}\n`;
@@ -604,7 +655,12 @@ export function readProfile(raw: string): Profile | null {
   try {
     const p = JSON.parse(block) as Profile;
     return Array.isArray(p.parts) && Array.isArray(p.links) && typeof p.revision === "string"
-      ? { ...p, shared: Array.isArray(p.shared) ? p.shared : [] }
+      ? {
+          ...p,
+          shared: Array.isArray(p.shared) ? p.shared : [],
+          releases: Array.isArray(p.releases) ? p.releases : [],
+          tagSettings: Array.isArray(p.tagSettings) ? p.tagSettings : [],
+        }
       : null;
   } catch {
     return null;
@@ -634,7 +690,7 @@ export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profil
 /** Research's view of a stored profile: kept out of pruning, so it is short by construction. */
 /** Files whose change can change a profile; any other commit leaves it current. */
 const PROFILE_INPUT =
-  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|GNUmakefile|makefile|Makefile)$|\.tf$|(?:^|\/)values[^/]*\.ya?ml$/;
+  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|GNUmakefile|makefile|Makefile)$|\.tf$|\.ya?ml$/;
 
 export function profileInputChanged(changed: string[]): boolean {
   return changed.some((f) => PROFILE_INPUT.test(f));
@@ -652,11 +708,173 @@ function some(cs: Command[], role: Role, n: number): string {
  * Research's view of a stored profile, kept out of pruning, so it holds itself to a character
  * budget: a few commands per part, parts with the same checks collapsed, the rest in the file.
  */
+/** A release joined to the places in other registered repos that set its image's tag. */
+export interface CrossLink {
+  project: string;
+  release: ImageRelease;
+  rollouts: (TagSetting & { project: string; checks: string[] })[];
+  /** registered repos whose tag settings pm could not read: no profile, or one before format 3 */
+  unread: string[];
+}
+
+/**
+ * Joins releases to tag settings across projects by image name; same-repo ones are links'.
+ * `missing` names the registered projects with no stored profile.
+ */
+export function crossLinks(profiles: Map<string, Profile>, missing: string[] = []): CrossLink[] {
+  const out: CrossLink[] = [];
+  for (const [project, p] of profiles) {
+    const unread = [
+      ...[...profiles]
+        .filter(([q, other]) => q !== project && (other.format ?? 1) < 3)
+        .map(([q]) => `${q} (profile older than format 3: pm project refresh ${q})`),
+      ...missing.filter((q) => q !== project).map((q) => `${q} (no profile)`),
+    ];
+    for (const release of p.releases ?? []) {
+      const rollouts = [...profiles].flatMap(([q, other]) =>
+        q === project || !release.image
+          ? []
+          : (other.tagSettings ?? [])
+              .filter((t) => t.image === release.image)
+              .map((t) => ({
+                ...t,
+                project: q,
+                checks: (other.parts.find((x) => x.folder === t.folder)?.commands ?? [])
+                  .filter((c) => c.role === "check")
+                  .map((c) => c.text),
+              })),
+      );
+      out.push({ project, release, rollouts, unread });
+    }
+  }
+  return out;
+}
+
+const triggerPhrase = (t: ImageRelease["trigger"]) =>
+  t.kind === "tag"
+    ? `on a ${t.pattern} tag`
+    : t.kind === "branch"
+      ? `on a push to ${t.pattern}`
+      : `with ${t.pattern}`;
+const fileOf = (source: string) => source.replace(/:\d+$/, "");
+
+/**
+ * What a project's own cross-repo releases add to its block, in two groups. `plans` (a link and
+ * its plan line per release step) lead the block; `rest` (releases nobody deploys, names pm could
+ * not resolve) follow everything else, so the budget cuts them first.
+ */
+function releaseLines(
+  projectId: string,
+  p: Profile,
+  cross: CrossLink[],
+): { plans: string[]; rest: string[] } {
+  const own = cross.filter((c) => c.project === projectId);
+  const plans: string[] = [];
+  const rest: string[] = [];
+  // One link per release step: a matrix of images in one step shares its trigger and its plan.
+  const steps = new Map<string, CrossLink[]>();
+  for (const c of own.filter((x) => x.release.image && x.rollouts.length > 0)) {
+    const k = JSON.stringify([c.release.source, c.release.trigger, c.release.folder]);
+    steps.set(k, [...(steps.get(k) ?? []), c]);
+  }
+  for (const group of steps.values()) {
+    const r = (group[0] as CrossLink).release;
+    const images = [...new Set(group.map((c) => c.release.image as string))];
+    const rollouts = group
+      .flatMap((c) => c.rollouts)
+      .filter(
+        (t, i, all) =>
+          all.findIndex(
+            (x) => x.project === t.project && x.file === t.file && x.line === t.line,
+          ) === i,
+      );
+    const places = rollouts.map((t) => `${t.project} ${t.file}:${t.line} ${t.key}`).join(", ");
+    const them = images.length === 1 ? "rolls it out" : "roll them out";
+    plans.push(
+      clip(
+        `  release link: ${projectId} ${fileOf(r.source)} pushes ${images.join(", ")} ${triggerPhrase(r.trigger)}; ${places} ${them}`,
+        300,
+      ),
+    );
+    const ids = [...new Set(rollouts.map((t) => partId(t.project, t.folder)))];
+    const files = [...new Set(rollouts.map((t) => t.file))];
+    const checks = [...new Set(rollouts.flatMap((t) => t.checks))].slice(0, 2);
+    const key = rollouts[0]?.key ?? "the tag";
+    const named =
+      checks.length > 0
+        ? ` (its checks: ${checks.map((c) => `\`${clip(c, 60)}\``).join(", ")})`
+        : "";
+    // The current tag, so a planner names a version after it, not an example below it.
+    const values = [...new Set(rollouts.map((t) => t.value).filter(Boolean))];
+    const now = values.length === 1 ? ` (now ${values[0]})` : "";
+    const sets = `that sets ${key}${now} in ${files.join(" or ")}${named}`;
+    // The rollout repo is the epic's too: pm check asks for it in repos:.
+    const repos = ` (${[...new Set(rollouts.map((t) => t.project))].join(", ")} in the epic's repos:)`;
+    // Several images each need their own rollout; one image set in several places needs one.
+    const target =
+      images.length > 1
+        ? `a task per image with parts: ${ids.map((x) => `[${x}]`).join(", ")}${repos} that sets ${key} in its file${named}`
+        : ids.length === 1
+          ? `a task with parts: [${ids[0]}]${repos} ${sets}`
+          : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")}${repos} ${sets}`;
+    const source = partId(projectId, r.folder);
+    const plan =
+      r.trigger.kind === "branch"
+        ? `    plan: when tasks have parts: [${source}], the merge is the release; then ${target} to the tag CI pushes on merge (a version or commit SHA), and depends on them`
+        : r.trigger.kind === "tag"
+          ? `    plan: when tasks have parts: [${source}], add a task that pushes a ${r.trigger.pattern} tag (the release) and depends on them, then ${target} and depends on the release`
+          : `    plan: when tasks have parts: [${source}], add a task that runs ${r.trigger.pattern} and depends on them, then ${target} and depends on the release`;
+    plans.push(clip(plan, 500));
+  }
+  // A rollout in this repo is the same-repo link's; only a release nobody deploys is reported.
+  const lonely = own.filter(
+    (c) =>
+      c.release.image &&
+      c.rollouts.length === 0 &&
+      !(p.tagSettings ?? []).some((t) => t.image === c.release.image),
+  );
+  if (lonely.length > 0) {
+    const r = (lonely[0] as CrossLink).release;
+    const images = [...new Set(lonely.map((c) => c.release.image as string))];
+    const unread = (lonely[0] as CrossLink).unread;
+    const found =
+      unread.length > 0
+        ? `rollout: not found; not read: ${unread.join(", ")}`
+        : "rollout: none found in registered repos";
+    rest.push(
+      clip(
+        `  release: ${projectId} ${fileOf(r.source)} pushes ${images.join(", ")} ${triggerPhrase(r.trigger)}; ${found}`,
+        300,
+      ),
+    );
+  }
+  const unresolved = own.filter((c) => !c.release.image);
+  if (unresolved.length === 1) {
+    const r = (unresolved[0] as CrossLink).release;
+    rest.push(
+      clip(
+        `  release: ${projectId} ${fileOf(r.source)}: image name unresolved: ${r.unresolved ?? "unknown"}`,
+        300,
+      ),
+    );
+  } else if (unresolved.length > 1) {
+    const r = (unresolved[0] as CrossLink).release;
+    rest.push(
+      clip(
+        `  ${unresolved.length} releases with an unresolved image name (first: ${fileOf(r.source)}: ${r.unresolved ?? "unknown"})`,
+        300,
+      ),
+    );
+  }
+  return { plans, rest };
+}
+
 export function formatPartsBlock(
   projectId: string,
   p: Profile,
   stale: string | null,
   budget = 1500,
+  cross: CrossLink[] = [],
 ): string[] {
   const head = [`parts: ${projectId} @ ${p.revision.slice(0, 7)}`];
   if (stale) {
@@ -668,6 +886,21 @@ export function formatPartsBlock(
     head.push(`stale: stored by an older pm; tell the user to run pm project refresh ${projectId}`);
   }
   const body: string[] = [];
+  // Cross-repo release plans lead, like same-repo release links: the plan line is what first
+  // drafts miss. Rollouts this repo performs and lone or unresolved releases come last.
+  const { plans, rest } = releaseLines(projectId, p, cross);
+  body.push(...plans);
+  const rollsOut: string[] = [];
+  for (const c of cross) {
+    for (const t of c.rollouts.filter((x) => x.project === projectId)) {
+      rollsOut.push(
+        clip(
+          `  ${partId(projectId, t.folder)}: ${t.file}:${t.line} ${t.key} rolls out ${c.project}'s ${c.release.image} (release ${triggerPhrase(c.release.trigger)})`,
+          300,
+        ),
+      );
+    }
+  }
   const linkLine = (l: Link) =>
     clip(
       `  ${l.release ? "release link" : "link"}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key}`,
@@ -718,6 +951,7 @@ export function formatPartsBlock(
     body.push(`  ${id} (${part.stacks.join(", ")}): ${say.join(" · ")}`);
   }
   for (const l of p.links.filter((x) => !x.release)) body.push(linkLine(l));
+  body.push(...[...new Set(rollsOut)], ...rest);
   const out = [...head];
   let used = out.join("\n").length;
   for (const [i, line] of body.entries()) {

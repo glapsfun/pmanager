@@ -24,8 +24,10 @@ export function classifyPath(path: string): PathKind {
   return "code";
 }
 
+/** One keyword per word: an agent's quoted phrase is several keywords, never one literal (#65). */
 export function normalizeKeywords(raw: string[]): string[] {
-  return [...new Set(raw.map((k) => k.trim().toLowerCase()).filter((k) => k.length > 0))];
+  const words = raw.flatMap((k) => k.split(/\s+/)).map((k) => k.trim().toLowerCase());
+  return [...new Set(words.filter((k) => k.length > 0))];
 }
 
 /** One `git grep -c` output per keyword (same order) plus tracked paths → distinct-keyword hits. */

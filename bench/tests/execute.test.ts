@@ -8,6 +8,7 @@ import { executeScenario } from "../execute";
 import { gitCommitAll, headSha } from "../fixture";
 import { scenarioByName } from "../scenarios/registry";
 import type { Scenario } from "../scenarios/types";
+import { SKILL_DIR } from "../skill-paths";
 
 const OK: Telemetry = {
   tokens: null,
@@ -112,6 +113,27 @@ describe("executeScenario", () => {
     );
     expect(installed).toBe("baseline marker\n");
     expect(seen.startsWith("Use the pmanager skill.")).toBe(true);
+  });
+
+  test("prepareCondition receives the arm's own skill dir", async () => {
+    const base = scenarioByName("perf-bug-new-epic") as Scenario;
+    const seen: (string | undefined)[] = [];
+    const scenario: Scenario = {
+      ...base,
+      async prepareCondition(_dir, _condition, info, skillDir) {
+        seen.push(skillDir);
+        return info;
+      },
+    };
+    const skillDir = await makeTempDir("bench-baseline-skill");
+    await writeFile(join(skillDir, "SKILL.md"), "baseline\n");
+    const a = adapter(async () => ({}));
+    const dir = await makeTempDir("bench-exec");
+    await executeScenario(
+      req(scenario, a, { condition: "baseline-skill", skillDir, rawLogPath: join(dir, "a.jsonl") }),
+    );
+    await executeScenario(req(scenario, a, { rawLogPath: join(dir, "b.jsonl") }));
+    expect(seen).toEqual([skillDir, SKILL_DIR]);
   });
 
   test("prepareCondition gets the condition, and grading uses the baseline it returns", async () => {

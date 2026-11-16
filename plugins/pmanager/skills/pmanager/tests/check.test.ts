@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { cp, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { type CheckOptions, check } from "../scripts/check";
-import { extractProfile, type Profile } from "../scripts/profile";
+import { extractProfile, PROFILE_FORMAT, type Profile } from "../scripts/profile";
 import { type Catalog, type Project, renderProjectsIndex } from "../scripts/projects";
 import { loadPmRepo } from "../scripts/repo";
 import { copyFixture, gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
@@ -737,7 +737,15 @@ describe("final review: rules", () => {
   test("I4: a profile with no parts and no shared commands asks nothing", async () => {
     const root = await partFixture();
     await edit(root, T01, "parts: []\n", "");
-    const empty: Profile = { revision: "r", parts: [], links: [], notes: [], shared: [] };
+    const empty: Profile = {
+      revision: "r",
+      parts: [],
+      links: [],
+      notes: [],
+      shared: [],
+      releases: [],
+      tagSettings: [],
+    };
     expect(await partRules(root, { profiles: new Map([["orders", empty]]) })).toEqual([]);
   });
 
@@ -754,11 +762,330 @@ describe("final review: rules", () => {
       links: [],
       notes: [],
       shared: [{ text: "tflint --recursive", role: "check", source: "AGENTS.md:1" }],
+      releases: [],
+      tagSettings: [],
     };
     const [f] = await partRules(root, { profiles: new Map([["orders", many]]) });
     expect(f?.rule).toBe("E-PRT-002");
     expect(f?.fix).toContain("orders (whole repo)");
     expect(f?.fix).toContain("more");
     expect(f?.fix.length ?? 0).toBeLessThan(400);
+  });
+});
+
+const SF_URL = "https://github.com/pm-example/storefront.git";
+const ARGO_URL = "https://github.com/pm-example/argocd.git";
+const CROSS_CATALOG: Catalog = {
+  projects: [
+    { id: "storefront", name: "storefront", url: SF_URL, added: "2026-11-16", file: "" },
+    { id: "argocd", name: "argocd", url: ARGO_URL, added: "2026-11-16", file: "" },
+  ],
+  invalid: [],
+  index: null,
+};
+const empty = { links: [], notes: [], shared: [], releases: [], tagSettings: [] };
+const sfProfile = (kind: "tag" | "branch" = "tag"): Profile => ({
+  ...empty,
+  revision: "r",
+  format: PROFILE_FORMAT,
+  parts: [
+    {
+      folder: "",
+      stacks: ["node"],
+      commands: [{ text: "npm test", role: "check", source: "README.md:9" }],
+    },
+  ],
+  releases: [
+    {
+      image: "ghcr.io/pm-example/storefront",
+      trigger: { kind, pattern: kind === "tag" ? "v*" : "main" },
+      context: "",
+      folder: "",
+      source: ".github/workflows/release.yml:12",
+    },
+  ],
+});
+const argoProfile = (folders = ["workloads/storefront"]): Profile => ({
+  ...empty,
+  revision: "r",
+  format: PROFILE_FORMAT,
+  parts: folders.map((folder) => ({ folder, stacks: ["kustomize"], commands: [] })),
+  tagSettings: folders.map((folder) => ({
+    image: "ghcr.io/pm-example/storefront",
+    key: "newTag",
+    folder,
+    file: `${folder}/kustomization.yaml`,
+    line: 6,
+    value: "2.3.0",
+  })),
+});
+
+/** The fixture epic planned against storefront and argocd, the repo that rolls it out. */
+async function crossFixture(): Promise<string> {
+  const root = await fixture();
+  await edit(
+    root,
+    EPIC,
+    "  - git@github.com:glapsfun/webshop.git",
+    `  - ${SF_URL}\n  - ${ARGO_URL}`,
+  );
+  for (const t of TASKS) await edit(root, t, "\ndepends-on:", "\nparts: []\ndepends-on:");
+  return root;
+}
+
+async function crossRules(
+  root: string,
+  sf = sfProfile(),
+  argo = argoProfile(),
+  opts: Partial<CheckOptions> = {},
+) {
+  return check(await loadPmRepo(root), {
+    ...OPTS,
+    epic: "app-performance",
+    catalog: CROSS_CATALOG,
+    profiles: new Map([
+      ["storefront", sf],
+      ["argocd", argo],
+    ]),
+    ...opts,
+  }).filter((f) => /^E-(PRT|REL|DEP)-/.test(f.rule));
+}
+
+describe("releases that ship through another repo (E-REL across repos)", () => {
+  test("a changed service needs its tag push, then a rollout task in the GitOps repo after it", async () => {
+    const root = await crossFixture();
+    await setTask(root, T01, "[storefront]", "`npm test` passes");
+    const first = await crossRules(root);
+    expect(ids(first)).toEqual(["E-REL-001 epic.md", "E-REL-002 epic.md"]);
+    expect(first[1]?.message).toContain("argocd/workloads/storefront");
+    await setTask(
+      root,
+      T02,
+      "[storefront]",
+      "Push a v2.3.1 tag; the release workflow pushes the image.",
+    );
+    expect(ids(await crossRules(root))).toEqual(["E-REL-002 epic.md"]);
+    await setTask(
+      root,
+      T04,
+      "[argocd/workloads/storefront]",
+      "Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml.",
+    );
+    expect(ids(await crossRules(root))).toEqual(["E-REL-002 epic.md"]);
+    await edit(root, T04, "depends-on: []", "depends-on: [T02]");
+    expect(await crossRules(root)).toEqual([]);
+  });
+
+  test("a branch-triggered release needs no release task; the rollout waits for the change", async () => {
+    const root = await crossFixture();
+    await setTask(root, T01, "[storefront]", "`npm test` passes");
+    expect(ids(await crossRules(root, sfProfile("branch")))).toEqual(["E-REL-002 epic.md"]);
+    await setTask(
+      root,
+      T04,
+      "[argocd/workloads/storefront]",
+      "Set newTag in workloads/storefront/kustomization.yaml.",
+    );
+    await edit(root, T04, "depends-on: []", "depends-on: [T01]");
+    expect(await crossRules(root, sfProfile("branch"))).toEqual([]);
+  });
+
+  test("several places set the tag: one rollout task is enough", async () => {
+    const root = await crossFixture();
+    await setTask(root, T01, "[storefront]", "`npm test` passes");
+    await setTask(root, T02, "[storefront]", "Push a v2.3.1 tag.");
+    await setTask(
+      root,
+      T04,
+      "[argocd/overlays/staging]",
+      "Set newTag in overlays/staging/kustomization.yaml.",
+    );
+    await edit(root, T04, "depends-on: []", "depends-on: [T02]");
+    expect(
+      await crossRules(root, sfProfile(), argoProfile(["overlays/staging", "overlays/prod"])),
+    ).toEqual([]);
+  });
+
+  test("no-release: silences the cross-repo release rules", async () => {
+    const root = await crossFixture();
+    await setTask(root, T01, "[storefront]", "`npm test` passes");
+    await edit(root, EPIC, "\nrepos:", "\nno-release: a docs-only change\nrepos:");
+    expect(await crossRules(root)).toEqual([]);
+  });
+});
+
+const XNET = (project: string, version: string, line = 7) => ({
+  project,
+  name: "golang.org/x/net",
+  version,
+  ecosystem: "go" as const,
+  file: "go.mod",
+  line,
+  direct: false,
+  via: null,
+});
+
+describe("other repos that carry a bumped package (E-DEP-001)", () => {
+  const depRules = async (root: string, carriers: Map<string, ReturnType<typeof XNET>[]>) =>
+    (await partRules(root, { carriers }))
+      .concat(
+        check(await loadPmRepo(root), {
+          ...OPTS,
+          epic: "app-performance",
+          catalog: CATALOG,
+          carriers,
+        }).filter((f) => f.rule === "E-DEP-001"),
+      )
+      .filter((f) => f.rule === "E-DEP-001");
+
+  test("a bump in orders flags webshop still on an older version", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "Run go get golang.org/x/net@v0.36.0; `make test` passes");
+    const carriers = new Map([
+      ["golang.org/x/net", [XNET("orders", "v0.17.0", 5), XNET("webshop", "v0.23.0")]],
+    ]);
+    const found = await depRules(root, carriers);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.message).toContain("webshop");
+    expect(found[0]?.message).toContain("go.mod:7");
+    expect(found[0]?.message).toContain("v0.23.0");
+  });
+
+  test("silent when webshop has a task, is current, is skipped, is unavailable, or the target does not compare", async () => {
+    const at = (version: string) => new Map([["golang.org/x/net", [XNET("webshop", version)]]]);
+    const covered = await partFixture();
+    await setTask(
+      covered,
+      T01,
+      "[orders]",
+      "Run go get golang.org/x/net@v0.36.0; `make test` passes",
+    );
+    await setTask(covered, T02, "[webshop]", "Run go get golang.org/x/net@v0.36.0.");
+    expect(await depRules(covered, at("v0.23.0"))).toEqual([]);
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "Run go get golang.org/x/net@v0.36.0; `make test` passes");
+    expect(await depRules(root, at("v0.36.0"))).toEqual([]);
+    expect(await depRules(root, new Map())).toEqual([]);
+    await edit(root, EPIC, "\nrepos:", '\ndep-skip:\n  - "webshop: not deployed"\nrepos:');
+    expect(await depRules(root, at("v0.23.0"))).toEqual([]);
+    const latest = await partFixture();
+    await setTask(
+      latest,
+      T01,
+      "[orders]",
+      "Run go get golang.org/x/net@latest; `make test` passes",
+    );
+    expect(await depRules(latest, at("v0.23.0"))).toEqual([]);
+  });
+
+  test("an epic that bumps nothing gets no E-DEP-001", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "`make test` passes");
+    expect(
+      await depRules(root, new Map([["golang.org/x/net", [XNET("webshop", "v0.23.0")]]])),
+    ).toEqual([]);
+  });
+});
+
+describe("review fixes: a release task must push a matching tag", () => {
+  test("a quoted research line, a rollout's tag, or unrelated tags are no release", async () => {
+    for (const [task, parts, notes] of [
+      [
+        T02,
+        "[storefront]",
+        "Research says: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag.",
+      ],
+      [
+        T04,
+        "[argocd/workloads/storefront]",
+        "Set the image tag v2.3.1 with newTag in workloads/storefront/kustomization.yaml.",
+      ],
+      [T03, "[]", "Push the docs to the wiki and add tags."],
+    ] as const) {
+      const root = await crossFixture();
+      await setTask(root, T01, "[storefront]", "`npm test` passes");
+      await setTask(root, task, parts, notes);
+      expect({ notes, found: ids(await crossRules(root)).includes("E-REL-001 epic.md") }).toEqual({
+        notes,
+        found: true,
+      });
+    }
+  });
+});
+
+describe("cuts after the paired run", () => {
+  test("the plan line's own wording, a line break, and one task that releases and rolls out are the release", async () => {
+    for (const notes of [
+      "Push a `v*` tag (the release).",
+      "Cut and push a new\n`v*` tag for storefront.",
+    ]) {
+      const root = await crossFixture();
+      await setTask(root, T01, "[storefront]", "`npm test` passes");
+      await setTask(root, T02, "[storefront]", notes);
+      expect({ notes, found: ids(await crossRules(root)).includes("E-REL-001 epic.md") }).toEqual({
+        notes,
+        found: false,
+      });
+    }
+    const both = await crossFixture();
+    await setTask(both, T01, "[storefront]", "`npm test` passes");
+    await setTask(
+      both,
+      T02,
+      "[storefront, argocd/workloads/storefront]",
+      "Push a v* tag, then set newTag in workloads/storefront/kustomization.yaml.",
+    );
+    expect(await crossRules(both)).toEqual([]);
+  });
+
+  test("a task in a repo the epic's repos: lacks is named, with the fix", async () => {
+    const root = await crossFixture();
+    await edit(root, EPIC, `\n  - ${ARGO_URL}`, "");
+    await setTask(
+      root,
+      T04,
+      "[argocd/workloads/storefront]",
+      "Set newTag in workloads/storefront/kustomization.yaml.",
+    );
+    const found = (await crossRules(root)).filter((f) => f.rule === "E-PRT-002");
+    expect(found).toHaveLength(1);
+    expect(found[0]?.fix).toContain(ARGO_URL);
+  });
+
+  test("a dep-skip that only cites the scan is no reason; one with evidence is", async () => {
+    const carriers = new Map([["golang.org/x/net", [XNET("webshop", "v0.23.0")]]]);
+    const run = async (reason: string) => {
+      const root = await partFixture();
+      await setTask(
+        root,
+        T01,
+        "[orders]",
+        "Run go get golang.org/x/net@v0.36.0; `make test` passes",
+      );
+      await edit(root, EPIC, "\nrepos:", `\ndep-skip:\n  - "webshop: ${reason}"\nrepos:`);
+      return check(await loadPmRepo(root), {
+        ...OPTS,
+        epic: "app-performance",
+        catalog: CATALOG,
+        carriers,
+      }).filter((f) => f.rule === "E-DEP-001");
+    };
+    const scanOnly = await run("not in the scan's flagged list");
+    expect(scanOnly).toHaveLength(1);
+    expect(scanOnly[0]?.message).toContain("no proof");
+    expect(await run("not deployed anywhere; the service was retired")).toEqual([]);
+  });
+
+  test("the E-DEP-001 hint shows dep-skip as a list item, which survives a comma", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "Run go get golang.org/x/net@v0.36.0; `make test` passes");
+    const carriers = new Map([["golang.org/x/net", [XNET("webshop", "v0.23.0")]]]);
+    const [f] = check(await loadPmRepo(root), {
+      ...OPTS,
+      epic: "app-performance",
+      catalog: CATALOG,
+      carriers,
+    }).filter((x) => x.rule === "E-DEP-001");
+    expect(f?.fix).toContain('dep-skip:\n  - "webshop: <why it is not affected>"');
   });
 });

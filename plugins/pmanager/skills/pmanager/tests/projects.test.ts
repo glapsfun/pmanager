@@ -374,6 +374,32 @@ describe("stored profiles", () => {
     expect(readProfile(after)?.revision).toBe(head);
   });
 
+  test("project refresh reads image-registry from the project file and leaves it there", async () => {
+    const root = await manager();
+    const app = await makeTempDir("gitlab-app");
+    await initGitRepo(app);
+    await writeTree(app, {
+      "go.mod": "module app\n",
+      ".gitlab-ci.yml":
+        "release:\n  script:\n    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG\n  rules:\n    - if: $CI_COMMIT_TAG\n",
+    });
+    await gitOk(["add", "-A"], app);
+    await gitOk(["commit", "-q", "-m", "seed"], app);
+    await gitOk(["remote", "add", "origin", "https://gitlab.example.com/group/app.git"], app);
+    const r = await addProject(root, app, opts);
+    if (!r.ok) throw new Error(r.message);
+    expect(readProfile(await readFile(r.project.file, "utf8"))?.releases[0]?.image).toBeNull();
+    const text = await readFile(r.project.file, "utf8");
+    await writeFile(
+      r.project.file,
+      text.replace("contract: 1\n", "contract: 1\nimage-registry: registry.example.com\n"),
+    );
+    expect((await runPm(["project", "refresh"], root)).code).toBe(0);
+    const after = await readFile(r.project.file, "utf8");
+    expect(after).toContain("image-registry: registry.example.com");
+    expect(readProfile(after)?.releases[0]?.image).toBe("registry.example.com/group/app");
+  });
+
   test("project refresh of an unknown id is a usage error", async () => {
     const r = await runPm(["project", "refresh", "nope"], await manager());
     expect(r.code).toBe(2);

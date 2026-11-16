@@ -107,7 +107,12 @@ export async function executeScenario(req: ExecuteRequest): Promise<ExecuteResul
       );
     }
     const info = req.scenario.prepareCondition
-      ? await req.scenario.prepareCondition(fixtureDir, req.condition, built)
+      ? await req.scenario.prepareCondition(
+          fixtureDir,
+          req.condition,
+          built,
+          req.skillDir ?? SKILL_DIR,
+        )
       : built;
     if (hasSkill(req.condition)) await linkSkill(fixtureDir, req.skillDir ?? SKILL_DIR);
     await mkdir(dirname(req.rawLogPath), { recursive: true });
