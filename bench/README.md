@@ -20,6 +20,11 @@ An experiment pairs attempts on one harness and one model, optionally with and w
     bun run bench.ts experiment run --id pilot-1          # dry run: prints the plan and estimated cost, exit 3
     bun run bench.ts experiment run --id pilot-1 --yes    # spends money; resumable
     bun run bench.ts experiment report --id pilot-1
+    bun run bench.ts experiment recheck --id pilot-1      # free: the saved plans through this checkout's pm check
+
+`run` runs 3 attempts at once (`--concurrency N`), each worker with its own isolated config and a fresh copy of your login before every attempt. A usage limit or a login that can no longer renew stops the run and leaves that attempt unrecorded, so the same command resumes it later.
+
+`recheck` builds each scenario's fixture once, with this checkout's pm, puts every completed attempt's saved `docs/pm` over it, and runs `pm check --epic` on the epic the attempt added. It prints the rules each plan trips and how many attempts per condition tripped each rule, so a rule change can be tried on old plans before a paid run. It warns when the fixture differs from the one the attempts ran on.
 
 Both conditions get the same fixture plus a generated `docs/pm/CONTRACT.md` describing the document format; only the with-skill condition gets the activation sentence and the skill copy. Codex experiments must pass `--model` and `--reasoning` explicitly; both are recorded in the manifest and passed on the command line so the run never follows the local config. Manifest, attempts, and `REPORT.md` are committed under `experiments/<id>/`; `artifacts/` is kept locally. An experiment id is never reused, and `run` refuses to resume when the skill, contract, prompts, grader versions, or harness version differ from the manifest: start a new experiment instead so results are never mixed across inputs.
 

@@ -36,6 +36,8 @@ export interface Isolation {
   mode: string;
   env: Record<string, string>;
   args(condition: Condition, fixtureDir: string): string[];
+  /** Copies the user's current login in again: a long run's first copy can expire mid-run. */
+  refresh?(): Promise<void>;
   cleanup(): Promise<void>;
 }
 

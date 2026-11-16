@@ -41,6 +41,7 @@ describe("cli-args", () => {
     ]);
     expect(a).toEqual({
       command: "run",
+      concurrency: 3,
       harness: "codex",
       model: "m",
       scenarios: ["a", "b"],
@@ -288,5 +289,35 @@ describe("experiment commands", () => {
     const code = await main(["experiment", "run", "--id", "t", "--experiments-dir", dir], i);
     expect(code).toBe(1);
     expect(err.join("")).toMatch(/inputs changed|unavailable/);
+  });
+});
+
+describe("experiment run --concurrency and experiment recheck", () => {
+  test("concurrency defaults to 3 and takes a positive integer; recheck is a subcommand", () => {
+    expect(parseArgs(["experiment", "run", "--id", "x"]).concurrency).toBe(3);
+    expect(parseArgs(["experiment", "run", "--id", "x", "--concurrency", "1"]).concurrency).toBe(1);
+    expect(() => parseArgs(["experiment", "run", "--id", "x", "--concurrency", "0"])).toThrow();
+    expect(parseArgs(["experiment", "recheck", "--id", "x"]).sub).toBe("recheck");
+  });
+
+  test("experiment recheck prints the replay and fails on a scenario this checkout lacks", async () => {
+    const dir = await makeTempDir("bench-cli-recheck");
+    const expDir = join(dir, "t");
+    await mkdir(expDir, { recursive: true });
+    await writeFile(join(expDir, "manifest.json"), JSON.stringify(manifest));
+    const empty = io();
+    expect(
+      await main(["experiment", "recheck", "--id", "t", "--experiments-dir", dir], empty.io),
+    ).toBe(0);
+    expect(empty.out.join("")).toContain("recheck t: 0 completed attempt(s)");
+    await writeFile(
+      join(expDir, "attempts.jsonl"),
+      `${attempts.map((x) => JSON.stringify(x)).join("\n")}\n`,
+    );
+    const unknown = io();
+    expect(
+      await main(["experiment", "recheck", "--id", "t", "--experiments-dir", dir], unknown.io),
+    ).toBe(1);
+    expect(unknown.err.join("")).toContain("unknown scenario s");
   });
 });

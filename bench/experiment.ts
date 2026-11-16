@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { git } from "../plugins/pmanager/skills/pmanager/scripts/git";
 import { exists } from "./adapters/claude-code";
-import { type Adapter, EMPTY_TELEMETRY, type HarnessName } from "./adapters/types";
+import { type Adapter, EMPTY_TELEMETRY, type HarnessName, type Isolation } from "./adapters/types";
 import {
   type BaselineCopy,
   type BaselineInfo,
@@ -110,6 +110,24 @@ export interface RunDeps {
   home: string;
   tmp: string;
   onAttempt?: (rec: AttemptRecord) => void;
+  /** attempts run at once, each worker with its own isolation; 1 when absent */
+  concurrency?: number;
+}
+
+/**
+ * Why the account, not the attempt, failed: a usage limit or a login that can no longer renew.
+ * Such an attempt is left unrecorded, so the next run resumes it.
+ */
+export function accountStop(text: string): string | null {
+  if (/hit your [\w-]+ limit|usage limit|usage_limit_reached|rate_limit_error/i.test(text)) {
+    return "the account's usage limit was reached";
+  }
+  if (
+    /failed to authenticate|oauth session expired|invalid api key|please run \/login/i.test(text)
+  ) {
+    return "the harness login expired; sign in again";
+  }
+  return null;
 }
 
 const EXPERIMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -352,7 +370,7 @@ export function estimateCost(
 export async function runExperiment(
   dir: string,
   deps: RunDeps,
-): Promise<{ ran: number; remaining: number }> {
+): Promise<{ ran: number; remaining: number; stopped?: string }> {
   const m = await readManifest(dir);
   const problems = await validateManifest(m, deps.adapter);
   if (problems.length) {
@@ -361,82 +379,132 @@ export async function runExperiment(
     );
   }
   const todo = remaining(m, await readAttempts(dir));
-  const isoTmp = await mkdtemp(join(deps.tmp, "pm-bench-iso-"));
-  const iso = await deps.adapter.isolate({ home: deps.home, tmp: isoTmp, env: deps.env });
-  if (m.conditions.length > 1 && !iso) {
-    await rm(isoTmp, { recursive: true, force: true });
+  // Each worker has its own isolation: concurrent harness runs never share one config dir.
+  const workers = Math.max(1, Math.min(deps.concurrency ?? 1, todo.length || 1));
+  const tmps: string[] = [];
+  const isos: (Isolation | null)[] = [];
+  const cleanupAll = async () => {
+    for (const iso of isos) await iso?.cleanup();
+    for (const t of tmps) await rm(t, { recursive: true, force: true });
+  };
+  for (let i = 0; i < workers; i++) {
+    const t = await mkdtemp(join(deps.tmp, "pm-bench-iso-"));
+    tmps.push(t);
+    isos.push(await deps.adapter.isolate({ home: deps.home, tmp: t, env: deps.env }));
+  }
+  if (m.conditions.length > 1 && isos.some((x) => !x)) {
+    await cleanupAll();
     throw new Error("isolation unavailable; refusing a two-condition experiment");
   }
   let baseline: BaselineCopy | null = null;
   const reasoningArgs =
     m.reasoning && m.harness === "codex" ? ["-c", `model_reasoning_effort=${m.reasoning}`] : [];
   let ran = 0;
+  let next = 0;
+  let stopped: string | undefined;
+  // The first error a worker throws; TypeScript does not see the workers assign it.
+  const failures: unknown[] = [];
+  // One process appends every record, in the order attempts finish.
+  let writes = Promise.resolve();
+  const record = (rec: AttemptRecord) => {
+    writes = writes.then(() => appendAttempt(dir, rec));
+    return writes;
+  };
+
+  const runOne = async (
+    p: PlannedAttempt,
+    iso: Isolation | null,
+  ): Promise<AttemptRecord | null> => {
+    const scenario = scenarioByName(p.scenario);
+    const entry = m.scenarios.find((s) => s.name === p.scenario);
+    if (!scenario || !entry) throw new Error(`manifest names unknown scenario ${p.scenario}`);
+    if (!(await exists(join(dir, "manifest.json")))) {
+      throw new Error(
+        `${dir} was removed while the experiment was running; ${ran} attempt(s) of this run are recorded only in the console`,
+      );
+    }
+    const artifactsDir = join(dir, "artifacts", p.attemptId);
+    await mkdir(artifactsDir, { recursive: true });
+    await iso?.refresh?.();
+    const startedAt = new Date().toISOString();
+    const r = await executeScenario({
+      adapter: deps.adapter,
+      scenario,
+      condition: p.condition,
+      model: m.modelRequested,
+      timeoutMs: m.timeoutS * 1000,
+      env: { ...deps.env, ...(iso?.env ?? {}) },
+      extraArgs: (fixtureDir) => [...reasoningArgs, ...(iso?.args(p.condition, fixtureDir) ?? [])],
+      rawLogPath: join(artifactsDir, "raw.jsonl"),
+      keep: false,
+      expectedFixtureHash: entry.fixtureHash,
+      artifactsDir,
+      skillDir: p.condition === "baseline-skill" ? baseline?.dir : undefined,
+    });
+    if (r.status !== "completed") {
+      const why = accountStop(
+        `${r.outcome?.telemetry.finalMessage ?? ""}\n${r.outcome?.stderr ?? ""}`,
+      );
+      if (why) {
+        stopped ??= why;
+        await rm(artifactsDir, { recursive: true, force: true });
+        return null;
+      }
+    }
+    const resolved = r.outcome?.telemetry.model ?? null;
+    const mismatch = resolved !== null && resolved !== m.modelRequested;
+    return {
+      ...p,
+      status: mismatch ? "setup-error" : r.status,
+      statusReason: mismatch
+        ? `resolved model ${resolved} differs from requested ${m.modelRequested}`
+        : r.statusReason,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      durationMs: r.outcome?.durationMs ?? 0,
+      exitCode: r.outcome?.exitCode ?? null,
+      timedOut: r.outcome?.timedOut ?? false,
+      modelRequested: m.modelRequested,
+      modelResolved: resolved,
+      score: mismatch ? 0 : r.score,
+      outcomeScore: mismatch ? 0 : r.outcomeScore,
+      contractScore: mismatch ? 0 : r.contractScore,
+      success: mismatch ? false : r.success,
+      checks: r.checks,
+      telemetry: stripTelemetry(r.outcome?.telemetry ?? EMPTY_TELEMETRY),
+      artifactsDir: join("artifacts", p.attemptId),
+    };
+  };
+
+  const worker = async (iso: Isolation | null) => {
+    while (!stopped && failures.length === 0) {
+      const p = todo[next++];
+      if (!p) return;
+      try {
+        const rec = await runOne(p, iso);
+        if (!rec) return;
+        await record(rec);
+        deps.onAttempt?.(rec);
+        ran++;
+      } catch (error) {
+        failures.push(error);
+        return;
+      }
+    }
+  };
+
   try {
     if (m.baseline) {
       baseline = await extractBaseline(m.baseline.sha, deps.tmp);
       const problem = hashProblem(m.baseline, baseline.hash);
       if (problem) throw new Error(problem);
     }
-    for (const p of todo) {
-      const scenario = scenarioByName(p.scenario);
-      const entry = m.scenarios.find((s) => s.name === p.scenario);
-      if (!scenario || !entry) throw new Error(`manifest names unknown scenario ${p.scenario}`);
-      if (!(await exists(join(dir, "manifest.json")))) {
-        throw new Error(
-          `${dir} was removed while the experiment was running; ${ran} attempt(s) of this run are recorded only in the console`,
-        );
-      }
-      const artifactsDir = join(dir, "artifacts", p.attemptId);
-      await mkdir(artifactsDir, { recursive: true });
-      const startedAt = new Date().toISOString();
-      const r = await executeScenario({
-        adapter: deps.adapter,
-        scenario,
-        condition: p.condition,
-        model: m.modelRequested,
-        timeoutMs: m.timeoutS * 1000,
-        env: { ...deps.env, ...(iso?.env ?? {}) },
-        extraArgs: (fixtureDir) => [
-          ...reasoningArgs,
-          ...(iso?.args(p.condition, fixtureDir) ?? []),
-        ],
-        rawLogPath: join(artifactsDir, "raw.jsonl"),
-        keep: false,
-        expectedFixtureHash: entry.fixtureHash,
-        artifactsDir,
-        skillDir: p.condition === "baseline-skill" ? baseline?.dir : undefined,
-      });
-      const resolved = r.outcome?.telemetry.model ?? null;
-      const mismatch = resolved !== null && resolved !== m.modelRequested;
-      const rec: AttemptRecord = {
-        ...p,
-        status: mismatch ? "setup-error" : r.status,
-        statusReason: mismatch
-          ? `resolved model ${resolved} differs from requested ${m.modelRequested}`
-          : r.statusReason,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        durationMs: r.outcome?.durationMs ?? 0,
-        exitCode: r.outcome?.exitCode ?? null,
-        timedOut: r.outcome?.timedOut ?? false,
-        modelRequested: m.modelRequested,
-        modelResolved: resolved,
-        score: mismatch ? 0 : r.score,
-        outcomeScore: mismatch ? 0 : r.outcomeScore,
-        contractScore: mismatch ? 0 : r.contractScore,
-        success: mismatch ? false : r.success,
-        checks: r.checks,
-        telemetry: stripTelemetry(r.outcome?.telemetry ?? EMPTY_TELEMETRY),
-        artifactsDir: join("artifacts", p.attemptId),
-      };
-      await appendAttempt(dir, rec);
-      deps.onAttempt?.(rec);
-      ran++;
-    }
+    await Promise.all(isos.map(worker));
   } finally {
+    await writes;
     await baseline?.remove();
-    await iso?.cleanup();
-    await rm(isoTmp, { recursive: true, force: true });
+    await cleanupAll();
   }
-  return { ran, remaining: todo.length - ran };
+  if (failures.length > 0) throw failures[0];
+  return { ran, remaining: todo.length - ran, ...(stopped ? { stopped } : {}) };
 }
