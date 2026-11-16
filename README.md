@@ -311,6 +311,7 @@ and [bench/BENCH.md](bench/BENCH.md).
 | pilot-2 (preliminary) | claude-code 2.1.273 | claude-sonnet-5 | perf-bug-new-epic | with-skill / without-skill | 2 (0) | 100% / 0% | +0.21 | 60858 / 56769 | — / — | $0.77 / $0.58 | 288s / 200s | $2.71 |
 | planning-traps-current | claude-code 2.1.312 | claude-sonnet-5 | planning-traps | with-skill | 10 | 20% | — | 83403 | 43988 | $0.96 | 466s | $9.41 |
 | security-fix-cold | claude-code 2.1.322 | claude-sonnet-5 | security-fix | with-skill | 10 | 0% | — | 85339 | 41434 | $1.09 | 432s | $12.02 |
+| security-fix-cuts (preliminary) | claude-code 2.1.325 | claude-sonnet-5 | security-fix | with-skill | 3 | 30% | — | 99760 | 48473 | $1.32 | 520s | $4.52 |
 | security-fix-paired (preliminary) | claude-code 2.1.325 | claude-sonnet-5 | security-fix | with-skill / baseline-skill | 9 (1) | 20% / 0% | +0.06 | 115353 / 88831 | 40657 / 37080 | $1.67 / $1.21 | 571s / 456s | $27.73 |
 
 Tool microbench: status 102 ms, check 123 ms, render 95 ms (median on 50 epics, 1000 tasks).
