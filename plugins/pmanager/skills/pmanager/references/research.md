@@ -37,14 +37,16 @@ never as regular expressions. Run once:
   task that moves the link's key after it: put both in the first draft. The
   same holds for a release whose rollout is in another registered repo (a
   GitOps repo's `newTag` or `image.tag`): its `plan:` line names the tag push,
-  or says the merge is the release, and the task in that repo.
+  or says the merge is the release, and the task in that repo; list that repo
+  in the epic's `repos:` too.
 - When a keyword names a package or base image (`golang.org/x/net`, `x/net`,
   `path-to-regexp`, `node`), a `deps:` block comes first. It has one line per
   registered repo checked out here that carries it, whatever `--repo` names:
   the version, the direct dependency that pulls it in (or `indirect`), and the
   file and line. `not checked:` names a registered repo with no checkout
   here. Plan a task for every repo the finding reaches, or say in the plan why
-  one needs none.
+  one needs none: a scan or ticket that does not name a repo is no reason, since
+  that repo carries the same version. Pass the package names as separate words.
   `deps: none found` with a `skipped:` line means a file that names the
   package could not be read: say so in the plan rather than calling that repo
   unaffected.

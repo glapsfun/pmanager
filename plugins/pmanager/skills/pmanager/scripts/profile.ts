@@ -804,11 +804,19 @@ function releaseLines(
       checks.length > 0
         ? ` (its checks: ${checks.map((c) => `\`${clip(c, 60)}\``).join(", ")})`
         : "";
-    const sets = `that sets ${key} in ${files.join(" or ")}${named}`;
+    // The current tag, so a planner names a version after it, not an example below it.
+    const values = [...new Set(rollouts.map((t) => t.value).filter(Boolean))];
+    const now = values.length === 1 ? ` (now ${values[0]})` : "";
+    const sets = `that sets ${key}${now} in ${files.join(" or ")}${named}`;
+    // The rollout repo is the epic's too: pm check asks for it in repos:.
+    const repos = ` (${[...new Set(rollouts.map((t) => t.project))].join(", ")} in the epic's repos:)`;
+    // Several images each need their own rollout; one image set in several places needs one.
     const target =
-      ids.length === 1
-        ? `a task with parts: [${ids[0]}] ${sets}`
-        : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")} ${sets}`;
+      images.length > 1
+        ? `a task per image with parts: ${ids.map((x) => `[${x}]`).join(", ")}${repos} that sets ${key} in its file${named}`
+        : ids.length === 1
+          ? `a task with parts: [${ids[0]}]${repos} ${sets}`
+          : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")}${repos} ${sets}`;
     const source = partId(projectId, r.folder);
     const plan =
       r.trigger.kind === "branch"
@@ -816,7 +824,7 @@ function releaseLines(
         : r.trigger.kind === "tag"
           ? `    plan: when tasks have parts: [${source}], add a task that pushes a ${r.trigger.pattern} tag (the release) and depends on them, then ${target} and depends on the release`
           : `    plan: when tasks have parts: [${source}], add a task that runs ${r.trigger.pattern} and depends on them, then ${target} and depends on the release`;
-    plans.push(clip(plan, 400));
+    plans.push(clip(plan, 500));
   }
   // A rollout in this repo is the same-repo link's; only a release nobody deploys is reported.
   const lonely = own.filter(

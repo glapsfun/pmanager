@@ -249,7 +249,7 @@ describe("cross-repo release links", () => {
       "  release link: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag; argocd workloads/storefront/kustomization.yaml:11 newTag rolls it out",
     );
     expect(block).toContain(
-      "    plan: when tasks have parts: [storefront], add a task that pushes a v* tag (the release) and depends on them, then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml and depends on the release",
+      "    plan: when tasks have parts: [storefront], add a task that pushes a v* tag (the release) and depends on them, then a task with parts: [argocd/workloads/storefront] (argocd in the epic's repos:) that sets newTag (now 2.3.0) in workloads/storefront/kustomization.yaml and depends on the release",
     );
     expect(formatPartsBlock("argocd", argocd, null, undefined, cross).join("\n")).toContain(
       "rolls out storefront's ghcr.io/pm-example/storefront (release on a v* tag)",
@@ -270,7 +270,7 @@ describe("cross-repo release links", () => {
     );
     expect(block.join("\n")).toContain("on a push to main;");
     expect(block.join("\n")).toContain(
-      "then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml to the tag CI pushes on merge (a version or commit SHA), and depends on them",
+      "then a task with parts: [argocd/workloads/storefront] (argocd in the epic's repos:) that sets newTag (now 2.3.0) in workloads/storefront/kustomization.yaml to the tag CI pushes on merge (a version or commit SHA), and depends on them",
     );
   });
 

@@ -326,6 +326,8 @@ export const partRules: Rule = (repo, opts) => {
   if (profiles.size === 0) return [];
   // A release of the epic's repos that ships through another repo makes that repo's parts usable,
   // whether or not repos: names it: the rollout task lives there.
+  // The epic's own repos; a rollout repo loaded below must still be listed in repos:.
+  const listed = new Set(profiles.keys());
   const cross = crossLinks(opts.profiles).filter((c) => profiles.has(c.project));
   for (const c of cross) {
     for (const r of c.rollouts) {
@@ -389,6 +391,18 @@ export const partRules: Rule = (repo, opts) => {
             "E-PRT-002",
             `${t.id} names ${id}, which no stored profile has`,
             `use one of ${known}`,
+          ),
+        );
+        continue;
+      }
+      if (!listed.has(hit.project)) {
+        const url = opts.catalog.projects.find((x) => x.id === hit.project)?.url ?? hit.project;
+        out.push(
+          err(
+            t.path,
+            "E-PRT-002",
+            `${t.id} names ${id}, in ${hit.project}, which the epic's repos: does not list`,
+            `add ${url} to repos: in epic.md`,
           ),
         );
         continue;
@@ -463,14 +477,22 @@ const TAG_PUSH =
 // Research's own wording, quoted into a task: "... pushes ghcr.io/x/y on a v* tag".
 const QUOTED_RELEASE = /\bpushes\s+\S+(?:,\s*\S+)*\s+on\s+a\s+\S+\s+tag\b/gi;
 
-/** Whether the text pushes a tag the trigger matches: `v*` needs a version like v1.2.3. */
+/**
+ * Whether the text pushes a tag the trigger matches: a version like v1.2.3, the pattern as
+ * research writes it ("push a `v*` tag"), or a new version or release tag. Line breaks are spaces.
+ */
 function pushesMatchingTag(r: ImageRelease, text: string): boolean {
-  if (r.trigger.kind !== "tag") return text.includes(r.trigger.pattern);
-  const clean = text.replace(QUOTED_RELEASE, "");
+  const flat = text.replace(/\s+/g, " ");
+  if (r.trigger.kind !== "tag") return flat.includes(r.trigger.pattern);
+  const clean = flat.replace(QUOTED_RELEASE, "");
   if (!TAG_PUSH.test(clean)) return false;
   const prefix = r.trigger.pattern.split("*")[0] ?? "";
+  const literal = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
-    !prefix || new RegExp(`\\b${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\d`).test(clean)
+    !prefix ||
+    new RegExp(`\\b${literal(prefix)}\\d`).test(clean) ||
+    clean.includes(r.trigger.pattern) ||
+    /\b(?:new\s+)?(?:version|release)\s+tag\b/i.test(clean)
   );
 }
 
@@ -497,12 +519,11 @@ function crossReleaseFindings(
       key: r.key,
       file: r.file,
     }));
-    // A release task: in the releasing repo (or naming no part), not a rollout, after every
-    // change it ships, and pushing a tag the trigger matches.
+    // A release task: in the releasing repo (or naming no part), after every change it ships,
+    // and pushing a tag the trigger matches. It may also roll out, as one task.
     const isRelease = (t: EpicRecord["tasks"][number]) => {
       const ids = named.get(t.id) ?? [];
       if (ids.length > 0 && !ids.includes(source)) return false;
-      if (places.some((x) => ids.includes(x.id))) return false;
       if (!changed.every((x) => x.id === t.id || reachesAny(e, t.id, new Set([x.id]))))
         return false;
       return pushesMatchingTag(c.release, taskText(t));
@@ -549,9 +570,14 @@ export const depRules: Rule = (repo, opts) => {
   const e = repo.epics.find((x) => x.slug === opts.epic);
   if (!e?.epic || !opts.carriers || opts.carriers.size === 0 || e.tasks.some(started)) return [];
   const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
-  const skipped = new Set(
-    getList(e.epic.frontmatter, "dep-skip").map((x) => x.split(":")[0]?.trim() ?? ""),
+  // "webshop: not deployed" skips webshop; a reason that only cites the scan proves nothing.
+  const reasons = new Map(
+    getList(e.epic.frontmatter, "dep-skip").map((x) => {
+      const at = x.indexOf(":");
+      return [(at < 0 ? x : x.slice(0, at)).trim(), at < 0 ? "" : x.slice(at + 1).trim()] as const;
+    }),
   );
+  const proven = (why: string) => !SCAN_ONLY.test(why) || EVIDENCE_WORDS.test(why);
   const parts = live.flatMap((t) => getList(t.frontmatter, "parts"));
   const covered = (project: string) =>
     parts.some((id) => id === project || id.startsWith(`${project}/`));
@@ -561,7 +587,9 @@ export const depRules: Rule = (repo, opts) => {
     for (const b of bumpTargets(taskText(t))) {
       for (const c of opts.carriers.get(b.name.toLowerCase()) ?? []) {
         const older = compareVersions(c.ecosystem, c.version, b.version);
-        if (older === null || older >= 0 || covered(c.project) || skipped.has(c.project)) continue;
+        if (older === null || older >= 0 || covered(c.project)) continue;
+        const why = reasons.get(c.project);
+        if (why !== undefined && proven(why)) continue;
         const k = `${c.project}\0${c.name}`;
         if (seen.has(k)) continue;
         seen.add(k);
@@ -569,8 +597,10 @@ export const depRules: Rule = (repo, opts) => {
           err(
             e.epic.path,
             "E-DEP-001",
-            `${c.project} also carries ${c.name} ${c.version} (${c.file}:${c.line}); no task in this epic changes it`,
-            `add a task with parts in ${c.project} that moves it to ${b.version}, or set dep-skip: ["${c.project}: <why>"] on the epic`,
+            why !== undefined
+              ? `${c.project} also carries ${c.name} ${c.version} (${c.file}:${c.line}); its dep-skip reason cites only the scan, and a scan not naming a repo is no proof it is unaffected`
+              : `${c.project} also carries ${c.name} ${c.version} (${c.file}:${c.line}); no task in this epic changes it`,
+            `add a task with parts in ${c.project} that moves it to ${b.version}, or, when it truly is not affected, add it to the epic as\ndep-skip:\n  - "${c.project}: <why it is not affected>"`,
           ),
         );
       }
@@ -578,6 +608,12 @@ export const depRules: Rule = (repo, opts) => {
   }
   return out;
 };
+
+// A dep-skip reason that only says the scan or ticket did not name the repo.
+const SCAN_ONLY = /\b(?:scan\w*|ticket|report\w*|flag\w*|named|listed|mention\w*)\b/i;
+// What would show a repo unaffected: not deployed, not built, never imports it, already fixed.
+const EVIDENCE_WORDS =
+  /\b(?:deploy\w*|retired|archived|unused|not used|never imports?|imports? no|not built|replace[ds]?|already|pinned|lockfile|go\.mod)\b/i;
 
 /**
  * What E-DEP-001 reads: for each package a task of the epic under work bumps, the registered repos

@@ -820,10 +820,15 @@ const argoProfile = (folders = ["workloads/storefront"]): Profile => ({
   })),
 });
 
-/** The fixture epic planned against storefront; argocd is registered but not in its repos. */
+/** The fixture epic planned against storefront and argocd, the repo that rolls it out. */
 async function crossFixture(): Promise<string> {
   const root = await fixture();
-  await edit(root, EPIC, "  - git@github.com:glapsfun/webshop.git", `  - ${SF_URL}`);
+  await edit(
+    root,
+    EPIC,
+    "  - git@github.com:glapsfun/webshop.git",
+    `  - ${SF_URL}\n  - ${ARGO_URL}`,
+  );
   for (const t of TASKS) await edit(root, t, "\ndepends-on:", "\nparts: []\ndepends-on:");
   return root;
 }
@@ -1005,5 +1010,82 @@ describe("review fixes: a release task must push a matching tag", () => {
         found: true,
       });
     }
+  });
+});
+
+describe("cuts after the paired run", () => {
+  test("the plan line's own wording, a line break, and one task that releases and rolls out are the release", async () => {
+    for (const notes of [
+      "Push a `v*` tag (the release).",
+      "Cut and push a new\n`v*` tag for storefront.",
+    ]) {
+      const root = await crossFixture();
+      await setTask(root, T01, "[storefront]", "`npm test` passes");
+      await setTask(root, T02, "[storefront]", notes);
+      expect({ notes, found: ids(await crossRules(root)).includes("E-REL-001 epic.md") }).toEqual({
+        notes,
+        found: false,
+      });
+    }
+    const both = await crossFixture();
+    await setTask(both, T01, "[storefront]", "`npm test` passes");
+    await setTask(
+      both,
+      T02,
+      "[storefront, argocd/workloads/storefront]",
+      "Push a v* tag, then set newTag in workloads/storefront/kustomization.yaml.",
+    );
+    expect(await crossRules(both)).toEqual([]);
+  });
+
+  test("a task in a repo the epic's repos: lacks is named, with the fix", async () => {
+    const root = await crossFixture();
+    await edit(root, EPIC, `\n  - ${ARGO_URL}`, "");
+    await setTask(
+      root,
+      T04,
+      "[argocd/workloads/storefront]",
+      "Set newTag in workloads/storefront/kustomization.yaml.",
+    );
+    const found = (await crossRules(root)).filter((f) => f.rule === "E-PRT-002");
+    expect(found).toHaveLength(1);
+    expect(found[0]?.fix).toContain(ARGO_URL);
+  });
+
+  test("a dep-skip that only cites the scan is no reason; one with evidence is", async () => {
+    const carriers = new Map([["golang.org/x/net", [XNET("webshop", "v0.23.0")]]]);
+    const run = async (reason: string) => {
+      const root = await partFixture();
+      await setTask(
+        root,
+        T01,
+        "[orders]",
+        "Run go get golang.org/x/net@v0.36.0; `make test` passes",
+      );
+      await edit(root, EPIC, "\nrepos:", `\ndep-skip:\n  - "webshop: ${reason}"\nrepos:`);
+      return check(await loadPmRepo(root), {
+        ...OPTS,
+        epic: "app-performance",
+        catalog: CATALOG,
+        carriers,
+      }).filter((f) => f.rule === "E-DEP-001");
+    };
+    const scanOnly = await run("not in the scan's flagged list");
+    expect(scanOnly).toHaveLength(1);
+    expect(scanOnly[0]?.message).toContain("no proof");
+    expect(await run("not deployed anywhere; the service was retired")).toEqual([]);
+  });
+
+  test("the E-DEP-001 hint shows dep-skip as a list item, which survives a comma", async () => {
+    const root = await partFixture();
+    await setTask(root, T01, "[orders]", "Run go get golang.org/x/net@v0.36.0; `make test` passes");
+    const carriers = new Map([["golang.org/x/net", [XNET("webshop", "v0.23.0")]]]);
+    const [f] = check(await loadPmRepo(root), {
+      ...OPTS,
+      epic: "app-performance",
+      catalog: CATALOG,
+      carriers,
+    }).filter((x) => x.rule === "E-DEP-001");
+    expect(f?.fix).toContain('dep-skip:\n  - "webshop: <why it is not affected>"');
   });
 });

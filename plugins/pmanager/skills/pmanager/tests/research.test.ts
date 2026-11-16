@@ -68,6 +68,14 @@ describe("normalizeKeywords", () => {
   test("lowercases, trims, dedupes, drops empties", () => {
     expect(normalizeKeywords([" Orders", "orders", "", "Timeout "])).toEqual(["orders", "timeout"]);
   });
+
+  test("cuts (#65): one quoted argument with several words is several keywords", () => {
+    expect(normalizeKeywords(["golang.org/x/net x/net", "Timeout"])).toEqual([
+      "golang.org/x/net",
+      "x/net",
+      "timeout",
+    ]);
+  });
 });
 
 describe("collectHits + rankFiles", () => {
@@ -779,7 +787,7 @@ describe("pm research cross-repo release links", () => {
       "release link: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag; argocd workloads/storefront/kustomization.yaml:6 newTag rolls it out",
     );
     expect(r.stdout).toContain(
-      "then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml and depends on the release",
+      "then a task with parts: [argocd/workloads/storefront] (argocd in the epic's repos:) that sets newTag (now 2.3.0) in workloads/storefront/kustomization.yaml and depends on the release",
     );
   });
 });
