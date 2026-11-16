@@ -1,5 +1,5 @@
 export type Command = "run" | "tool" | "report" | "experiment" | "agent-e2e";
-export type ExperimentSub = "new" | "run" | "report";
+export type ExperimentSub = "new" | "run" | "report" | "recheck";
 export type ConditionArg = "with-skill" | "without-skill" | "both";
 
 export interface ParsedArgs {
@@ -26,10 +26,12 @@ export interface ParsedArgs {
   baseline: string | undefined;
   maxBudgetUsd: number | undefined;
   configPath: string | undefined;
+  /** attempts `experiment run` runs at once */
+  concurrency: number;
 }
 
 const COMMANDS = new Set<string>(["run", "tool", "report", "experiment", "agent-e2e"]);
-const SUBS = new Set<string>(["new", "run", "report"]);
+const SUBS = new Set<string>(["new", "run", "report", "recheck"]);
 /** Values agent-e2e takes from its config file only. */
 const AGENT_E2E_CONFIG_FLAGS = new Set<string>(["--runs", "--scenario", "--harness", "--model"]);
 /** Flags only agent-e2e reads; any other command would silently ignore them. */
@@ -66,6 +68,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     baseline: undefined,
     maxBudgetUsd: undefined,
     configPath: undefined,
+    concurrency: 3,
   };
   const first = argv[0];
   if (first && COMMANDS.has(first)) a.command = first as Command;
@@ -73,7 +76,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   if (a.command === "experiment") {
     const sub = argv[1];
     if (!sub || !SUBS.has(sub))
-      throw new Error("experiment needs a subcommand: new | run | report");
+      throw new Error("experiment needs a subcommand: new | run | report | recheck");
     a.sub = sub as ExperimentSub;
     start = 2;
   }
@@ -147,6 +150,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--reasoning":
         a.reasoning = next();
+        break;
+      case "--concurrency":
+        a.concurrency = int(flag, next());
         break;
       case "--yes":
         a.yes = true;

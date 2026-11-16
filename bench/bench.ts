@@ -16,6 +16,7 @@ import {
 } from "./experiment";
 import { appendHistory, readHistory } from "./history";
 import { runMicrobench, toToolLine } from "./microbench/run";
+import { formatRecheck, recheckExperiment } from "./recheck";
 import { writeReport } from "./report";
 import { writeExperimentReport } from "./report-experiment";
 import { buildEnv, repoSha, runScenario } from "./runner";
@@ -41,8 +42,9 @@ const USAGE = `usage:
   bun run bench/bench.ts report
   bun run bench/bench.ts agent-e2e [--config <path>] [--max-budget-usd N] [--timeout-s N]      (paid; needs the repo owner's yes)
   bun run bench/bench.ts experiment new --id <id> --harness <name> --model <id> [--reasoning <effort>] [--condition with-skill|without-skill|both | --baseline <git-ref>] [--pairs N] [--scenario <name>]... [--timeout-s N]
-  bun run bench/bench.ts experiment run --id <id> [--yes]      (without --yes: dry run, exit 3)
+  bun run bench/bench.ts experiment run --id <id> [--concurrency N] [--yes]      (without --yes: dry run, exit 3; N attempts at once, default 3)
   bun run bench/bench.ts experiment report --id <id>
+  bun run bench/bench.ts experiment recheck --id <id>      (offline: replays the saved plans through this checkout's pm check)
 common: [--history <path>] [--report <path>] [--raw-dir <dir>] [--experiments-dir <dir>]
 scenarios: ${SCENARIOS.map((s) => s.name).join(", ")}; measurement only: ${MEASUREMENT_SCENARIOS.map((s) => s.name).join(", ")}
 `;
@@ -115,6 +117,15 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
     io.err(`no experiment at ${dir}\n`);
     return 1;
   }
+  if (a.sub === "recheck") {
+    try {
+      io.out(formatRecheck(manifest.id, manifest.conditions, await recheckExperiment(dir)));
+      return 0;
+    } catch (e) {
+      io.err(`${(e as Error).message}\n`);
+      return 1;
+    }
+  }
   if (a.sub === "report") {
     await writeExperimentReport(dir);
     await writeReport(
@@ -167,12 +178,17 @@ async function cmdExperiment(a: ParsedArgs, io: Io): Promise<number> {
       env: buildEnv(adapter),
       home: process.env.HOME ?? "",
       tmp: tmpdir(),
+      concurrency: a.concurrency,
       onAttempt: (rec) => {
         const reason = rec.statusReason ? ` (${rec.statusReason})` : "";
         io.out(`  ${rec.attemptId}: ${rec.status} score ${rec.score.toFixed(2)}${reason}\n`);
       },
     });
     io.out(`ran ${r.ran}, remaining ${r.remaining}\n`);
+    if (r.stopped) {
+      io.err(`stopped: ${r.stopped}; run the same command again to resume\n`);
+      return 1;
+    }
   } catch (e) {
     io.err(`${(e as Error).message}\n`);
     return 1;

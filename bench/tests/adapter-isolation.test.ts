@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helpers";
 import { claudeCode } from "../adapters/claude-code";
@@ -34,6 +34,19 @@ describe("adapter isolation", () => {
     expect(iso?.args("without-skill", "/f")).toEqual([]);
     await iso?.cleanup();
     await expect(stat(cfg)).rejects.toThrow();
+  });
+
+  test("claude-code: refresh copies in the login the user has now", async () => {
+    const home = await fakeHome();
+    const iso = await claudeCode.isolate({ home, tmp: await makeTempDir("bench-iso") });
+    const copy = join(iso?.env.CLAUDE_CONFIG_DIR as string, ".credentials.json");
+    await writeFile(
+      join(home, ".claude", ".credentials.json"),
+      '{"claudeAiOauth":{"accessToken":"y"}}',
+    );
+    await iso?.refresh?.();
+    expect(await readFile(copy, "utf8")).toContain('"y"');
+    await iso?.cleanup();
   });
 
   test("claude-code: no credentials file and no API key means no isolation", async () => {

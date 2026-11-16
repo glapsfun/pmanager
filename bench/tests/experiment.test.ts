@@ -7,6 +7,7 @@ import { makeTempDir } from "../../plugins/pmanager/skills/pmanager/tests/helper
 import type { Adapter, RunOptions, RunOutcome, Telemetry } from "../adapters/types";
 import type { BaselineInfo } from "../baseline";
 import {
+  accountStop,
   createExperiment,
   planAttempts,
   readAttempts,
@@ -399,4 +400,121 @@ describe("baseline experiments", () => {
       ),
     ).rejects.toThrow(/is not a commit/);
   });
+});
+
+describe("parallel runs", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function make(root: string, id: string, a: Adapter, pairs: number) {
+    await createExperiment(
+      {
+        id,
+        harness: "claude-code",
+        model: "claude-sonnet-5",
+        conditions: ["with-skill", "without-skill"],
+        pairs,
+        scenarios: [CLAIM],
+        timeoutS: 10,
+      },
+      deps(a, root),
+    );
+    return join(root, id);
+  }
+
+  test("runs up to N attempts at once and records each one", async () => {
+    const root = await makeTempDir("bench-par");
+    let inFlight = 0;
+    let most = 0;
+    const a = adapter(async () => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await sleep(400);
+      inFlight--;
+      return {};
+    });
+    const dir = await make(root, "p1", a, 3);
+    const r = await runExperiment(dir, {
+      adapter: a,
+      env: { PATH: "" },
+      home: root,
+      tmp: root,
+      concurrency: 3,
+    });
+    expect(r).toEqual({ ran: 6, remaining: 0 });
+    expect(most).toBeGreaterThanOrEqual(2);
+    expect(most).toBeLessThanOrEqual(3);
+    expect((await readAttempts(dir)).map((x) => x.attemptId).sort()).toEqual(
+      (await readManifest(dir)).planned.map((p) => p.attemptId).sort(),
+    );
+  }, 60_000);
+
+  test("each worker isolates once and refreshes its login before every attempt", async () => {
+    const root = await makeTempDir("bench-par");
+    let isolates = 0;
+    let refreshes = 0;
+    const base = adapter(async () => ({}));
+    const a: Adapter = {
+      ...base,
+      async isolate() {
+        isolates++;
+        return {
+          mode: "fake",
+          env: { FAKE_ISO: "1" },
+          args: (c) => [`--cond=${c}`],
+          refresh: async () => {
+            refreshes++;
+          },
+          cleanup: async () => undefined,
+        };
+      },
+    };
+    const dir = await make(root, "p2", a, 2);
+    isolates = 0; // createExperiment probes the isolation mode once
+    await runExperiment(dir, {
+      adapter: a,
+      env: { PATH: "" },
+      home: root,
+      tmp: root,
+      concurrency: 2,
+    });
+    expect(isolates).toBe(2);
+    expect(refreshes).toBe(4);
+  }, 60_000);
+
+  test("a usage limit or an expired login stops the run and leaves the attempt to resume", async () => {
+    const root = await makeTempDir("bench-par");
+    let calls = 0;
+    const limited = adapter(async () => {
+      calls++;
+      return calls === 2
+        ? {
+            exitCode: 1,
+            telemetry: {
+              ...OK,
+              finalMessage: "You've hit your 5-hour limit · resets 1:20pm (UTC)",
+            },
+          }
+        : {};
+    });
+    const dir = await make(root, "p3", limited, 2);
+    const r = await runExperiment(dir, {
+      adapter: limited,
+      env: { PATH: "" },
+      home: root,
+      tmp: root,
+    });
+    expect(r.stopped).toContain("limit");
+    expect(r.ran).toBe(1);
+    expect(await readAttempts(dir)).toHaveLength(1);
+    const rest = await runExperiment(dir, {
+      adapter: adapter(async () => ({})),
+      env: { PATH: "" },
+      home: root,
+      tmp: root,
+    });
+    expect(rest).toEqual({ ran: 3, remaining: 0 });
+    expect(
+      accountStop("Failed to authenticate: OAuth session expired and could not be refreshed"),
+    ).toContain("login");
+    expect(accountStop("done")).toBeNull();
+  }, 60_000);
 });

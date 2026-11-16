@@ -164,6 +164,10 @@ export async function isolateClaude(opts: IsolateOptions): Promise<Isolation | n
     mode: "config-dir",
     env: { CLAUDE_CONFIG_DIR: dir },
     args: () => [],
+    // Claude Code renews the user's own login; a copy taken hours ago can no longer renew itself.
+    refresh: async () => {
+      if (hasFile) await copyFile(creds, join(dir, ".credentials.json"));
+    },
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }
