@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { git, gitOk } from "./git";
+import { extractImages, type ImageRelease, type TagSetting } from "./images";
 import type { Catalog } from "./projects";
 import { replaceBetweenMarkers } from "./render";
 
@@ -46,6 +47,10 @@ export interface Profile {
   notes: string[];
   /** repo-wide commands: CI jobs with no path filter, and root docs when the root is not a part */
   shared: Command[];
+  /** the images this repo pushes, and on what */
+  releases: ImageRelease[];
+  /** the places this repo sets an image's tag */
+  tagSettings: TagSetting[];
 }
 
 const STACKS: [RegExp, string][] = [
@@ -71,8 +76,8 @@ const CHANGE_EVENTS = new Set(["push", "pull_request", "pull_request_target", "m
 const DEPLOY = /^(?:terraform (?:plan|apply)|helm (?:upgrade|install)|kubectl (?:apply|rollout))\b/;
 const RELEASE = /^(?:make release|docker push|git tag)\b|\bpublish\b/;
 const VERSION = /^v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?$/;
-/** 2: make targets carry what their recipe runs. */
-export const PROFILE_FORMAT = 2;
+/** 2: make targets carry what their recipe runs. 3: image releases and tag settings. */
+export const PROFILE_FORMAT = 3;
 // GNU make's search order.
 const MAKEFILES = ["GNUmakefile", "makefile", "Makefile"];
 const isMakefile = (file: string) => MAKEFILES.includes(posix.basename(file));
@@ -338,6 +343,26 @@ function parseYaml(raw: string, file: string, notes: string[]): Record<string, u
   }
 }
 
+/** Every document of a YAML file; a document pm cannot parse is noted once and skipped. */
+function yamlDocs(raw: string, file: string, notes: string[]): unknown[] {
+  const out: unknown[] = [];
+  for (const chunk of raw.split(/^---[ \t]*$/m)) {
+    if (!chunk.trim()) {
+      out.push(null);
+      continue;
+    }
+    try {
+      out.push(Bun.YAML.parse(chunk));
+    } catch (e) {
+      if (!notes.some((n) => n.startsWith(`${file}:`))) {
+        notes.push(`${file}: not valid YAML (${(e as Error).message.split("\n")[0]})`);
+      }
+      out.push(null);
+    }
+  }
+  return out;
+}
+
 interface Literal {
   value: string;
   file: string;
@@ -394,7 +419,10 @@ const LITERAL_FILE =
 const isDeployConfig = (file: string) =>
   /^(?:values.*|kustomization)\.ya?ml$/.test(posix.basename(file));
 
-export async function extractProfile(checkout: string): Promise<Profile> {
+export async function extractProfile(
+  checkout: string,
+  opts: { url?: string; registry?: string } = {},
+): Promise<Profile> {
   const notes: string[] = [];
   const head = await git(["rev-parse", "HEAD"], checkout);
   if (head.code !== 0) {
@@ -404,6 +432,8 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links: [],
       notes: ["no commits: nothing to read yet"],
       shared: [],
+      releases: [],
+      tagSettings: [],
       format: PROFILE_FORMAT,
     };
   }
@@ -526,7 +556,15 @@ export async function extractProfile(checkout: string): Promise<Profile> {
       links.push({ value: c.value, source: end(s), consumer: end(c), release });
     }
   }
-  return { revision, parts, links, notes, shared, format: PROFILE_FORMAT };
+  const { releases, tagSettings } = await extractImages(
+    files,
+    read,
+    (raw, f) => yamlDocs(raw, f, notes),
+    async (f) => recipes(await read(f)),
+    { ...opts, partOf: (f) => byDepth.find((x) => inside(f, x)) ?? null },
+    notes,
+  );
+  return { revision, parts, links, notes, shared, releases, tagSettings, format: PROFILE_FORMAT };
 }
 
 export function partId(projectId: string, folder: string): string {
@@ -590,6 +628,19 @@ export function renderProfileSection(projectId: string, p: Profile): string {
       );
     }
   }
+  if (p.releases.length > 0) {
+    lines.push("", "Image releases:", "");
+    for (const r of p.releases.slice(0, 20)) {
+      const what = r.image ? `\`${r.image}\`` : `unresolved (${r.unresolved ?? "unknown"})`;
+      lines.push(`- ${what} on a ${r.trigger.pattern} ${r.trigger.kind} (${r.source})`);
+    }
+  }
+  if (p.tagSettings.length > 0) {
+    lines.push("", "Image tags set here:", "");
+    for (const t of p.tagSettings.slice(0, 20)) {
+      lines.push(`- \`${t.image}\` \`${t.key}\` in ${t.file}:${t.line} (\`${t.value}\`)`);
+    }
+  }
   for (const n of p.notes) lines.push(`- skipped ${n}`);
   lines.push("", "```json", JSON.stringify(p), "```", PARTS_END);
   return `${lines.join("\n")}\n`;
@@ -604,7 +655,12 @@ export function readProfile(raw: string): Profile | null {
   try {
     const p = JSON.parse(block) as Profile;
     return Array.isArray(p.parts) && Array.isArray(p.links) && typeof p.revision === "string"
-      ? { ...p, shared: Array.isArray(p.shared) ? p.shared : [] }
+      ? {
+          ...p,
+          shared: Array.isArray(p.shared) ? p.shared : [],
+          releases: Array.isArray(p.releases) ? p.releases : [],
+          tagSettings: Array.isArray(p.tagSettings) ? p.tagSettings : [],
+        }
       : null;
   } catch {
     return null;
@@ -634,7 +690,7 @@ export async function loadProfiles(catalog: Catalog): Promise<Map<string, Profil
 /** Research's view of a stored profile: kept out of pruning, so it is short by construction. */
 /** Files whose change can change a profile; any other commit leaves it current. */
 const PROFILE_INPUT =
-  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|GNUmakefile|makefile|Makefile)$|\.tf$|(?:^|\/)values[^/]*\.ya?ml$/;
+  /^\.github\/workflows\/|^\.gitlab-ci\.ya?ml$|(?:^|\/)(?:AGENTS|README)\.md$|(?:^|\/)(?:go\.mod|Chart\.yaml|kustomization\.ya?ml|package\.json|pyproject\.toml|Cargo\.toml|GNUmakefile|makefile|Makefile)$|\.tf$|\.ya?ml$/;
 
 export function profileInputChanged(changed: string[]): boolean {
   return changed.some((f) => PROFILE_INPUT.test(f));

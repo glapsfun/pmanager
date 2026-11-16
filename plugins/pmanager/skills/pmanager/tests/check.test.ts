@@ -737,7 +737,15 @@ describe("final review: rules", () => {
   test("I4: a profile with no parts and no shared commands asks nothing", async () => {
     const root = await partFixture();
     await edit(root, T01, "parts: []\n", "");
-    const empty: Profile = { revision: "r", parts: [], links: [], notes: [], shared: [] };
+    const empty: Profile = {
+      revision: "r",
+      parts: [],
+      links: [],
+      notes: [],
+      shared: [],
+      releases: [],
+      tagSettings: [],
+    };
     expect(await partRules(root, { profiles: new Map([["orders", empty]]) })).toEqual([]);
   });
 
@@ -754,6 +762,8 @@ describe("final review: rules", () => {
       links: [],
       notes: [],
       shared: [{ text: "tflint --recursive", role: "check", source: "AGENTS.md:1" }],
+      releases: [],
+      tagSettings: [],
     };
     const [f] = await partRules(root, { profiles: new Map([["orders", many]]) });
     expect(f?.rule).toBe("E-PRT-002");
