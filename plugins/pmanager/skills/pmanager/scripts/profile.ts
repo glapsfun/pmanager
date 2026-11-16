@@ -708,11 +708,91 @@ function some(cs: Command[], role: Role, n: number): string {
  * Research's view of a stored profile, kept out of pruning, so it holds itself to a character
  * budget: a few commands per part, parts with the same checks collapsed, the rest in the file.
  */
+/** A release joined to the places in other registered repos that set its image's tag. */
+export interface CrossLink {
+  project: string;
+  release: ImageRelease;
+  rollouts: (TagSetting & { project: string })[];
+}
+
+/** Joins releases to tag settings across projects by image name; same-repo ones are links'. */
+export function crossLinks(profiles: Map<string, Profile>): CrossLink[] {
+  const out: CrossLink[] = [];
+  for (const [project, p] of profiles) {
+    for (const release of p.releases ?? []) {
+      const rollouts = [...profiles].flatMap(([q, other]) =>
+        q === project || !release.image
+          ? []
+          : (other.tagSettings ?? [])
+              .filter((t) => t.image === release.image)
+              .map((t) => ({ ...t, project: q })),
+      );
+      out.push({ project, release, rollouts });
+    }
+  }
+  return out;
+}
+
+const triggerPhrase = (t: ImageRelease["trigger"]) =>
+  t.kind === "tag"
+    ? `on a ${t.pattern} tag`
+    : t.kind === "branch"
+      ? `on a push to ${t.pattern}`
+      : `with ${t.pattern}`;
+const fileOf = (source: string) => source.replace(/:\d+$/, "");
+
+/** The lines a release that ships through another repo adds to its own repo's block. */
+function releaseLines(projectId: string, p: Profile, c: CrossLink): string[] {
+  const r = c.release;
+  const where = fileOf(r.source);
+  if (!r.image)
+    return [
+      clip(
+        `  release: ${projectId} ${where}: image name unresolved: ${r.unresolved ?? "unknown"}`,
+        300,
+      ),
+    ];
+  const how = triggerPhrase(r.trigger);
+  if (c.rollouts.length === 0) {
+    // A rollout in this repo is the same-repo link's; only a release nobody deploys is reported.
+    if ((p.tagSettings ?? []).some((t) => t.image === r.image)) return [];
+    return [
+      clip(
+        `  release: ${projectId} ${where} pushes ${r.image} ${how}; rollout: none found in registered repos`,
+        300,
+      ),
+    ];
+  }
+  const places = c.rollouts.map((t) => `${t.project} ${t.file}:${t.line} ${t.key}`).join(", ");
+  const ids = [...new Set(c.rollouts.map((t) => partId(t.project, t.folder)))];
+  const files = [...new Set(c.rollouts.map((t) => t.file))];
+  const key = c.rollouts[0]?.key ?? "the tag";
+  const target =
+    ids.length === 1
+      ? `a task with parts: [${ids[0]}] that sets ${key} in ${files.join(" or ")}`
+      : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")} that sets ${key} in ${files.join(" or ")}`;
+  const own = partId(projectId, r.folder);
+  const plan =
+    r.trigger.kind === "branch"
+      ? `    plan: when tasks have parts: [${own}], the merge is the release; then ${target} to the tag CI pushes on merge (a version or commit SHA), and depends on them`
+      : r.trigger.kind === "tag"
+        ? `    plan: when tasks have parts: [${own}], add a task that pushes a ${r.trigger.pattern} tag (the release) and depends on them, then ${target} and depends on the release`
+        : `    plan: when tasks have parts: [${own}], add a task that runs ${r.trigger.pattern} and depends on them, then ${target} and depends on the release`;
+  return [
+    clip(
+      `  release link: ${projectId} ${where} pushes ${r.image} ${how}; ${places} rolls it out`,
+      300,
+    ),
+    clip(plan, 400),
+  ];
+}
+
 export function formatPartsBlock(
   projectId: string,
   p: Profile,
   stale: string | null,
   budget = 1500,
+  cross: CrossLink[] = [],
 ): string[] {
   const head = [`parts: ${projectId} @ ${p.revision.slice(0, 7)}`];
   if (stale) {
@@ -724,6 +804,24 @@ export function formatPartsBlock(
     head.push(`stale: stored by an older pm; tell the user to run pm project refresh ${projectId}`);
   }
   const body: string[] = [];
+  // Cross-repo releases lead, like same-repo release links: the plan line is what first drafts miss.
+  const seenRelease = new Set<string>();
+  for (const c of cross.filter((x) => x.project === projectId)) {
+    const k = JSON.stringify([c.release.image, c.release.source, c.release.unresolved]);
+    if (seenRelease.has(k)) continue;
+    seenRelease.add(k);
+    body.push(...releaseLines(projectId, p, c));
+  }
+  for (const c of cross) {
+    for (const t of c.rollouts.filter((x) => x.project === projectId)) {
+      body.push(
+        clip(
+          `  ${partId(projectId, t.folder)}: ${t.file}:${t.line} ${t.key} rolls out ${c.project}'s ${c.release.image} (release ${triggerPhrase(c.release.trigger)})`,
+          300,
+        ),
+      );
+    }
+  }
   const linkLine = (l: Link) =>
     clip(
       `  ${l.release ? "release link" : "link"}: ${l.consumer.file} ${l.consumer.key} follows ${l.source.file} ${l.source.key}`,

@@ -34,7 +34,10 @@ never as regular expressions. Run once:
   user to run `pm project refresh <id>`, do not refresh mid-plan. Name those
   part ids in each task's `parts:` and copy each part's checks into its
   criteria. A `plan:` line under a release link names the release task and the
-  task that moves the link's key after it: put both in the first draft.
+  task that moves the link's key after it: put both in the first draft. The
+  same holds for a release whose rollout is in another registered repo (a
+  GitOps repo's `newTag` or `image.tag`): its `plan:` line names the tag push,
+  or says the merge is the release, and the task in that repo.
 - When a keyword names a package or base image (`golang.org/x/net`, `x/net`,
   `path-to-regexp`, `node`), a `deps:` block comes first. It has one line per
   registered repo checked out here that carries it, whatever `--repo` names:

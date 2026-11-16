@@ -46,7 +46,7 @@ import {
 const RESERVED_SLUGS = new Set([LOG_DIR, PROJECTS_DIR]);
 
 import { carriersAcross, formatDepsBlock } from "./deps";
-import { formatPartsBlock, loadProfiles, profileInputChanged } from "./profile";
+import { crossLinks, formatPartsBlock, loadProfiles, profileInputChanged } from "./profile";
 import { buildResearch, formatResearch, memoryOnce, normalizeKeywords } from "./research";
 import { ownershipProblem } from "./session";
 import {
@@ -489,6 +489,8 @@ async function runResearch(root: string, args: Args): Promise<number> {
     args.full ? { ...r, pruned: null } : prune(r, budget),
   );
   const profiles = await loadProfiles(catalog);
+  // Joined across every registered repo, so researching either side shows the other.
+  const cross = crossLinks(profiles);
   // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
   const parts = await Promise.all(
     views.map(async (v, i) => {
@@ -502,7 +504,7 @@ async function runResearch(root: string, args: Args): Promise<number> {
         const changed = d.code === 0 ? d.stdout.split("\n").filter(Boolean) : null;
         if (changed === null || profileInputChanged(changed)) stale = v.ref;
       }
-      return formatPartsBlock(id, p, stale);
+      return formatPartsBlock(id, p, stale, undefined, cross);
     }),
   );
   if (args.json) {

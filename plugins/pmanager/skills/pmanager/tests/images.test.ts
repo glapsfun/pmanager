@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeImage } from "../scripts/images";
-import { extractProfile, formatPartsBlock, PROFILE_FORMAT, readProfile } from "../scripts/profile";
+import { type ImageRelease, normalizeImage, type TagSetting } from "../scripts/images";
+import {
+  crossLinks,
+  extractProfile,
+  formatPartsBlock,
+  PROFILE_FORMAT,
+  type Profile,
+  readProfile,
+} from "../scripts/profile";
 import { gitOk, initGitRepo, makeTempDir, writeTree } from "./helpers";
 
 async function repoWith(files: Record<string, string>): Promise<string> {
@@ -14,6 +21,8 @@ async function repoWith(files: Record<string, string>): Promise<string> {
 
 // A tag set from a variable pm cannot know.
 const UNSET = "$" + "{TAG}";
+// A GitHub expression pm cannot resolve.
+const SECRET = "$" + "{{ secrets.IMAGE }}";
 
 const workflow = (on: string, steps: string, extra = "") => `name: release
 on:
@@ -185,5 +194,143 @@ describe("normalizeImage and the stored format", () => {
     expect(formatPartsBlock("x", old as NonNullable<typeof old>, null).join("\n")).toContain(
       "stored by an older pm",
     );
+  });
+});
+
+describe("cross-repo release links", () => {
+  const base = (over: Partial<Profile>): Profile => ({
+    revision: "abcdef0123",
+    format: PROFILE_FORMAT,
+    parts: [],
+    links: [],
+    notes: [],
+    shared: [],
+    releases: [],
+    tagSettings: [],
+    ...over,
+  });
+  const release = (
+    image: string | null,
+    kind: "tag" | "branch" = "tag",
+    pattern = "v*",
+  ): ImageRelease => ({
+    image,
+    trigger: { kind, pattern },
+    context: "",
+    folder: "",
+    source: ".github/workflows/release.yml:20",
+  });
+  const setting = (folder: string, image = "ghcr.io/pm-example/storefront"): TagSetting => ({
+    image,
+    key: "newTag",
+    folder,
+    file: `${folder}/kustomization.yaml`,
+    line: 11,
+    value: "2.3.0",
+  });
+  const storefront = base({
+    parts: [{ folder: "", stacks: ["node"], commands: [] }],
+    releases: [release("ghcr.io/pm-example/storefront")],
+  });
+  const argocd = base({
+    parts: [{ folder: "workloads/storefront", stacks: ["kustomize"], commands: [] }],
+    tagSettings: [setting("workloads/storefront")],
+  });
+  const profiles = (sf: Profile, ac: Profile) =>
+    new Map([
+      ["storefront", sf],
+      ["argocd", ac],
+    ]);
+
+  test("a tag release prints its rollout in the other repo and the plan line", () => {
+    const cross = crossLinks(profiles(storefront, argocd));
+    const block = formatPartsBlock("storefront", storefront, null, undefined, cross);
+    expect(block).toContain(
+      "  release link: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag; argocd workloads/storefront/kustomization.yaml:11 newTag rolls it out",
+    );
+    expect(block).toContain(
+      "    plan: when tasks have parts: [storefront], add a task that pushes a v* tag (the release) and depends on them, then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml and depends on the release",
+    );
+    expect(formatPartsBlock("argocd", argocd, null, undefined, cross).join("\n")).toContain(
+      "rolls out storefront's ghcr.io/pm-example/storefront (release on a v* tag)",
+    );
+  });
+
+  test("a branch release: the merge is the release", () => {
+    const sf = base({
+      ...storefront,
+      releases: [release("ghcr.io/pm-example/storefront", "branch", "main")],
+    });
+    const block = formatPartsBlock(
+      "storefront",
+      sf,
+      null,
+      undefined,
+      crossLinks(profiles(sf, argocd)),
+    );
+    expect(block.join("\n")).toContain("on a push to main;");
+    expect(block.join("\n")).toContain(
+      "then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml to the tag CI pushes on merge (a version or commit SHA), and depends on them",
+    );
+  });
+
+  test("several places: every one listed, at least one asked for", () => {
+    const ac = base({ tagSettings: [setting("overlays/staging"), setting("overlays/prod")] });
+    const text = formatPartsBlock(
+      "storefront",
+      storefront,
+      null,
+      undefined,
+      crossLinks(profiles(storefront, ac)),
+    ).join("\n");
+    expect(text).toContain(
+      "at least one task with parts: [argocd/overlays/staging] or [argocd/overlays/prod]",
+    );
+    expect(text).toContain(
+      "overlays/staging/kustomization.yaml or overlays/prod/kustomization.yaml",
+    );
+  });
+
+  test("an image nobody deploys, and one pm could not name", () => {
+    const sf = base({
+      ...storefront,
+      releases: [
+        release("ghcr.io/pm-example/storefront"),
+        release("ghcr.io/x/b"),
+        { ...release(null), unresolved: `${SECRET} is not in this file` },
+      ],
+    });
+    const text = formatPartsBlock(
+      "storefront",
+      sf,
+      null,
+      undefined,
+      crossLinks(profiles(sf, argocd)),
+    ).join("\n");
+    expect(text).toContain(
+      "  release: storefront .github/workflows/release.yml pushes ghcr.io/x/b on a v* tag; rollout: none found in registered repos",
+    );
+    expect(text).toContain(`image name unresolved: ${SECRET} is not in this file`);
+    expect(text.match(/release link:/g)).toHaveLength(1);
+  });
+
+  test("a same-repo rollout is the in-repo link's, not a missing one", () => {
+    const orders = base({
+      releases: [
+        {
+          ...release("ghcr.io/pm-example/orders"),
+          trigger: { kind: "command", pattern: "make release" },
+        },
+      ],
+      tagSettings: [setting("deploy/chart", "ghcr.io/pm-example/orders")],
+    });
+    const text = formatPartsBlock(
+      "orders",
+      orders,
+      null,
+      undefined,
+      crossLinks(new Map([["orders", orders]])),
+    ).join("\n");
+    expect(text).not.toContain("none found");
   });
 });

@@ -740,3 +740,46 @@ describe("pm research deps block", () => {
     expect(r.stdout).toContain("[deps] not checked: worker (not mapped)");
   });
 });
+
+describe("pm research cross-repo release links", () => {
+  test("researching storefront alone prints the argocd rollout and the plan line", async () => {
+    const root = await orchestrationRepo();
+    const repos: [string, Record<string, string>][] = [
+      [
+        "storefront",
+        {
+          "package.json": '{ "name": "storefront", "version": "2.3.0" }\n',
+          ".github/workflows/release.yml":
+            'on:\n  push:\n    tags: ["v*"]\njobs:\n  image:\n    runs-on: ubuntu-latest\n    steps:\n      - id: meta\n        uses: docker/metadata-action@v5\n        with:\n          images: ghcr.io/pm-example/storefront\n      - uses: docker/build-push-action@v6\n        with:\n          push: true\n          tags: ' +
+            "$" +
+            "{{ steps.meta.outputs.tags }}\n",
+        },
+      ],
+      [
+        "argocd",
+        {
+          "workloads/storefront/kustomization.yaml":
+            "resources:\n  - deployment.yaml\nimages:\n  - name: storefront\n    newName: ghcr.io/pm-example/storefront\n    newTag: 2.3.0\n",
+        },
+      ],
+    ];
+    for (const [name, files] of repos) {
+      const dir = join(await makeTempDir("research-cross"), name);
+      await writeTree(dir, files);
+      await initGitRepo(dir);
+      await gitOk(["add", "-A"], dir);
+      await gitOk(["commit", "-q", "-m", "seed"], dir);
+      await gitOk(["remote", "add", "origin", `https://github.com/pm-example/${name}.git`], dir);
+      const add = await runPm(["project", "add", dir], root);
+      if (add.code !== 0) throw new Error(add.stderr);
+    }
+    const r = await runPm(["research", "release", "--no-gh", "--repo", "storefront"], root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(
+      "release link: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag; argocd workloads/storefront/kustomization.yaml:6 newTag rolls it out",
+    );
+    expect(r.stdout).toContain(
+      "then a task with parts: [argocd/workloads/storefront] that sets newTag in workloads/storefront/kustomization.yaml and depends on the release",
+    );
+  });
+});
