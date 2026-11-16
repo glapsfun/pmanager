@@ -246,7 +246,7 @@ describe("formatDepsBlock", () => {
       ...report,
       carriers: Array.from({ length: 25 }, (_, i) => ({ ...report.carriers[0], line: i + 1 })),
     } as CarrierReport;
-    expect(formatDepsBlock(many, 20).at(-2)).toBe("  +5 more");
+    expect(formatDepsBlock(many, 20).at(-2)).toBe("  +5 more in webshop");
     expect(formatDepsBlock({ carriers: [], unchecked: report.unchecked, skipped: [] })).toEqual([]);
   });
 });
@@ -333,8 +333,8 @@ describe("carriersAcross", () => {
     await writeTree(repo, {
       "poetry.lock": '[[package]]\nname = "requests"\nversion = "2.31.0"\n',
       "pyproject.toml": '[tool.poetry.dependencies]\nrequests = "^2.31"\n',
-      "web/package-lock.json": "{ truncated",
-      "big/package-lock.json": `{"pad":"${"x".repeat(11 * 1024 * 1024)}"}`,
+      "web/package-lock.json": '{ "packages": { "node_modules/requests": ',
+      "big/package-lock.json": `{"requests":"${"x".repeat(11 * 1024 * 1024)}"}`,
     });
     await gitOk(["add", "-A"], repo);
     await gitOk(["commit", "-q", "-m", "deps"], repo);
@@ -374,4 +374,121 @@ describe("carriersAcross", () => {
       skipped: [],
     });
   }, 30_000);
+});
+
+describe("review fixes: package facts", () => {
+  test("a 3000-entry lockfile parses in well under a second", () => {
+    const packages: Record<string, unknown> = { "": { dependencies: { root0: "1.0.0" } } };
+    for (let i = 0; i < 3000; i++) {
+      packages[`node_modules/pkg${i}`] = {
+        version: "1.0.0",
+        dependencies: i + 1 < 3000 ? { [`pkg${i + 1}`]: "1.0.0" } : {},
+      };
+    }
+    packages["node_modules/root0"] = { version: "1.0.0", dependencies: { pkg0: "1.0.0" } };
+    const raw = JSON.stringify({ lockfileVersion: 3, packages }, null, 2);
+    const started = performance.now();
+    const { deps } = parseDeps("package-lock.json", raw);
+    expect(deps.length).toBe(3001);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("hashed pins and go.mod replace lines", () => {
+    const req = "requests==2.31.0 \\\n    --hash=sha256:aaa \\\n    --hash=sha256:bbb\nidna==3.7\n";
+    expect(parseDeps("requirements.txt", req).deps.map((d) => [d.name, d.version, d.line])).toEqual(
+      [
+        ["requests", "2.31.0", 1],
+        ["idna", "3.7", 4],
+      ],
+    );
+    const mod =
+      "module x\n\nrequire golang.org/x/net v0.23.0 // indirect\n\nreplace golang.org/x/net => golang.org/x/net v0.36.0\n";
+    expect(parseDeps("go.mod", mod).deps.find((d) => d.name === "golang.org/x/net")?.version).toBe(
+      "v0.36.0",
+    );
+  });
+
+  test("bumpTargets reads arrows and floors, and not a config key", () => {
+    expect(bumpTargets("bump golang.org/x/net v0.23.0 -> v0.36.0")).toEqual([
+      { name: "golang.org/x/net", version: "v0.36.0" },
+    ]);
+    expect(bumpTargets("golang.org/x/net → v0.36.0")).toEqual([
+      { name: "golang.org/x/net", version: "v0.36.0" },
+    ]);
+    expect(bumpTargets("pip install requests>=2.32.4")).toEqual([
+      { name: "requests", version: "2.32.4" },
+    ]);
+    expect(bumpTargets("uv add 'requests>=2.32.4'")).toEqual([
+      { name: "requests", version: "2.32.4" },
+    ]);
+    expect(bumpTargets("Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml")).toEqual(
+      [],
+    );
+  });
+
+  test("every repo keeps a line when one repo has many copies", () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      project: "storefront",
+      file: "package-lock.json",
+      line: i + 1,
+      name: "debug",
+      version: `2.${i}.0`,
+      ecosystem: "npm" as const,
+      direct: false,
+      via: null,
+    }));
+    const lines = formatDepsBlock({
+      carriers: [...many, { ...many[0], project: "admin", line: 9 } as (typeof many)[number]],
+      unchecked: [],
+      skipped: [],
+    });
+    expect(lines.some((l) => l.startsWith("  [admin "))).toBe(true);
+    expect(lines.some((l) => l.includes("more in storefront"))).toBe(true);
+  });
+});
+
+describe("review fixes: a skipped file that may carry the package", () => {
+  async function workerWith(files: Record<string, string>) {
+    const root = await makeTempDir("deps-manager");
+    await initGitRepo(root);
+    const repo = await makeTempDir("deps-worker");
+    await initGitRepo(repo);
+    await writeTree(repo, files);
+    await gitOk(["add", "-A"], repo);
+    await gitOk(["commit", "-q", "-m", "deps"], repo);
+    await gitOk(["remote", "add", "origin", "https://github.com/pm-example/worker.git"], repo);
+    await mkdir(join(root, "docs/pm/.local"), { recursive: true });
+    await writeFile(
+      join(root, "docs/pm/.local/repos.json"),
+      JSON.stringify({ "https://github.com/pm-example/worker.git": repo }),
+    );
+    const catalog: Catalog = {
+      projects: [
+        {
+          id: "worker",
+          name: "Worker",
+          url: "https://github.com/pm-example/worker.git",
+          added: "2026-11-16",
+          file: "worker.md",
+        },
+      ],
+      invalid: [],
+      index: null,
+    };
+    return { root, catalog };
+  }
+
+  test("an invalid lockfile that names the package is reported even with no carrier", async () => {
+    const { root, catalog } = await workerWith({
+      "package-lock.json": '{ "packages": { "node_modules/path-to-regexp": ',
+    });
+    const lines = formatDepsBlock(await carriersAcross(root, catalog, ["path-to-regexp"]));
+    expect(lines[0]).toBe("deps: none found");
+    expect(lines.join("\n")).toContain("[deps] skipped: worker package-lock.json: invalid");
+  });
+
+  test("an invalid lockfile that does not name it prints nothing", async () => {
+    const { root, catalog } = await workerWith({ "package-lock.json": "{ truncated" });
+    expect(formatDepsBlock(await carriersAcross(root, catalog, ["path-to-regexp"]))).toEqual([]);
+  });
 });

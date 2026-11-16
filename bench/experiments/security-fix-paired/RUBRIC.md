@@ -124,6 +124,7 @@ The manifest's fixture hash covers only the manager repo, so the targets' trees 
 - Whether research printed a `deps:` block naming webshop, and a storefront release link with its `plan:` line.
 - Whether the first draft already had webshop's task and storefront's release and rollout tasks, or a `pm record` finding added them (E-DEP-001, E-REL-001, E-REL-002), and how many fix rounds it took.
 - Any E-DEP-001 or E-REL finding that fired on a plan the hand audit calls right (a rule false positive), with its message.
+- A rule false negative: a plan the hand audit fails on `hit-repos-covered` or `fix-reaches-deploy` while `pm record` raised no E-DEP-001, E-REL-001 or E-REL-002 for it, with why the rule missed it.
 
 ## Ship bar (copied from the plan, fixed before the run)
 

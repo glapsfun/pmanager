@@ -460,8 +460,18 @@ export const partRules: Rule = (repo, opts) => {
 const TAG_PUSH =
   /\bgit\s+tag\b|\bpush\w*\b[^\n]{0,40}?\btags?\b|\btag\s+`?v?\d|\bcreate\w*\b[^\n]{0,40}?\btag\b|\bcut\b[^\n]{0,30}?\b(?:tag|release)\b/i;
 
-function releasesBy(r: ImageRelease, text: string): boolean {
-  return r.trigger.kind === "tag" ? TAG_PUSH.test(text) : text.includes(r.trigger.pattern);
+// Research's own wording, quoted into a task: "... pushes ghcr.io/x/y on a v* tag".
+const QUOTED_RELEASE = /\bpushes\s+\S+(?:,\s*\S+)*\s+on\s+a\s+\S+\s+tag\b/gi;
+
+/** Whether the text pushes a tag the trigger matches: `v*` needs a version like v1.2.3. */
+function pushesMatchingTag(r: ImageRelease, text: string): boolean {
+  if (r.trigger.kind !== "tag") return text.includes(r.trigger.pattern);
+  const clean = text.replace(QUOTED_RELEASE, "");
+  if (!TAG_PUSH.test(clean)) return false;
+  const prefix = r.trigger.pattern.split("*")[0] ?? "";
+  return (
+    !prefix || new RegExp(`\\b${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\d`).test(clean)
+  );
 }
 
 /**
@@ -482,11 +492,24 @@ function crossReleaseFindings(
     const changed = live.filter((t) => named.get(t.id)?.includes(source));
     if (changed.length === 0) continue;
     const { kind, pattern } = c.release.trigger;
+    const places = c.rollouts.map((r) => ({
+      id: partId(r.project, r.folder),
+      key: r.key,
+      file: r.file,
+    }));
+    // A release task: in the releasing repo (or naming no part), not a rollout, after every
+    // change it ships, and pushing a tag the trigger matches.
+    const isRelease = (t: EpicRecord["tasks"][number]) => {
+      const ids = named.get(t.id) ?? [];
+      if (ids.length > 0 && !ids.includes(source)) return false;
+      if (places.some((x) => ids.includes(x.id))) return false;
+      if (!changed.every((x) => x.id === t.id || reachesAny(e, t.id, new Set([x.id]))))
+        return false;
+      return pushesMatchingTag(c.release, taskText(t));
+    };
     // A branch-triggered release ships on merge: the change tasks are the release.
     const releasers = new Set(
-      kind === "branch"
-        ? changed.map((t) => t.id)
-        : live.filter((t) => releasesBy(c.release, taskText(t))).map((t) => t.id),
+      kind === "branch" ? changed.map((t) => t.id) : live.filter(isRelease).map((t) => t.id),
     );
     if (releasers.size === 0) {
       const how = kind === "tag" ? `pushes a ${pattern} tag` : `runs ${pattern}`;
@@ -499,11 +522,6 @@ function crossReleaseFindings(
         ),
       );
     }
-    const places = c.rollouts.map((r) => ({
-      id: partId(r.project, r.folder),
-      key: r.key,
-      file: r.file,
-    }));
     const movers = live.filter((t) =>
       places.some((x) => named.get(t.id)?.includes(x.id) && taskText(t).includes(x.key)),
     );

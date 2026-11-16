@@ -92,10 +92,11 @@ function resolve(ref: string, v: Vars): { values: string[]; unresolved?: string 
     CI_REGISTRY_IMAGE: v.registry && path ? `${v.registry}/${path}` : undefined,
   };
   let values = [ref];
-  for (;;) {
+  for (let round = 0; ; round++) {
     const sample = values[0] ?? "";
     const m = sample.match(/\$\{\{\s*([\w.-]+)\s*\}\}|\$\{(\w+)\}|\$(\w+)/);
     if (!m) break;
+    if (round >= 32) return { values: [], unresolved: `${m[0]} does not resolve in 32 steps` };
     const expr = (m[1] ?? m[2] ?? m[3]) as string;
     const token = m[0];
     const matrixKey = expr.startsWith("matrix.") ? expr.slice("matrix.".length) : null;
@@ -106,6 +107,7 @@ function resolve(ref: string, v: Vars): { values: string[]; unresolved?: string 
     }
     const envKey = expr.startsWith("env.") ? expr.slice("env.".length) : expr;
     const value = builtin[expr] ?? v.env[envKey];
+    if (value?.includes(token)) return { values: [], unresolved: `${token} refers to itself` };
     if (value === undefined) {
       const why =
         expr === "CI_REGISTRY_IMAGE"
@@ -116,6 +118,20 @@ function resolve(ref: string, v: Vars): { values: string[]; unresolved?: string 
     values = values.map((x) => x.replace(token, value));
   }
   return { values };
+}
+
+/** An env layer read against the layers outside it, as GitHub and GitLab resolve them. */
+function layer(
+  outer: Record<string, string>,
+  inner: Record<string, string>,
+  v: Omit<Vars, "env">,
+): Record<string, string> {
+  const out = { ...outer };
+  for (const [k, raw] of Object.entries(inner)) {
+    const r = resolve(raw, { ...v, env: outer });
+    out[k] = r.values.length === 1 ? (r.values[0] as string) : raw;
+  }
+  return out;
 }
 
 function strs(v: unknown): string[] {
@@ -132,27 +148,52 @@ function envOf(v: unknown): Record<string, string> {
   return out;
 }
 
-// `${{ … }}` holds spaces, so it is masked before a shell line is split into words.
-function shellRefs(line: string): string[] {
+// Options of docker build whose value is the next word, so the context is not mistaken for one.
+const VALUE_OPTS = new Set(
+  "-t --tag -f --file --build-arg --platform --label --target --cache-from --cache-to --output -o --secret --progress --network --iidfile --metadata-file --provenance --sbom --builder --ssh --add-host --build-context --annotation".split(
+    " ",
+  ),
+);
+const unquote = (w: string) => w.replace(/^["']+|["']+$/g, "");
+
+/** The images a shell line pushes, each with its build context; `${{ … }}` is masked first. */
+function shellRefs(line: string): { ref: string; context: string }[] {
   const masks: string[] = [];
   const masked = line.replace(/\$\{\{[^}]*\}\}/g, (m) => `@@pmexpr${masks.push(m) - 1}@@`);
-  const words = masked.split(/\s+/);
-  const unmask = (w: string) => w.replace(/@@pmexpr(\d+)@@/g, (_, i) => masks[Number(i)] ?? "");
-  const out: string[] = [];
+  const words = masked.split(/\s+/).filter(Boolean);
+  const unmask = (w: string) =>
+    unquote(w.replace(/@@pmexpr(\d+)@@/g, (_, i) => masks[Number(i)] ?? ""));
+  const out: { ref: string; context: string }[] = [];
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== "docker") continue;
-    if (words[i + 1] === "push" && words[i + 2]) out.push(unmask(words[i + 2] as string));
-    const build =
-      words[i + 1] === "build" || (words[i + 1] === "buildx" && words[i + 2] === "build");
-    if (build && words.includes("--push")) {
-      for (let j = i + 2; j < words.length; j++) {
-        if ((words[j] === "-t" || words[j] === "--tag") && words[j + 1])
-          out.push(unmask(words[j + 1] as string));
-      }
+    if (words[i + 1] === "push" && words[i + 2])
+      out.push({ ref: unmask(words[i + 2] as string), context: "" });
+    const at =
+      words[i + 1] === "build"
+        ? i + 2
+        : words[i + 1] === "buildx" && words[i + 2] === "build"
+          ? i + 3
+          : -1;
+    if (at < 0 || !words.slice(at).includes("--push")) continue;
+    const tags: string[] = [];
+    let context = "";
+    for (let j = at; j < words.length; j++) {
+      const w = words[j] as string;
+      if (w === "&&" || w === ";" || w === "|") break;
+      if (w === "-t" || w === "--tag") tags.push(unmask(words[j + 1] ?? ""));
+      if (VALUE_OPTS.has(w)) j++;
+      else if (!w.startsWith("-") && !context)
+        context = unmask(w)
+          .replace(/^\.\/?/, "")
+          .replace(/\/$/, "");
     }
+    for (const ref of tags.filter(Boolean)) out.push({ ref, context });
   }
   return out;
 }
+
+/** A shell block with its backslash continuations joined into single lines. */
+const shellLines = (block: string) => block.replace(/\\\r?\n\s*/g, " ").split("\n");
 
 function githubTrigger(doc: Record<string, unknown>): ImageRelease["trigger"] | null {
   const on = doc.on ?? doc.true;
@@ -199,9 +240,11 @@ function githubReleases(
     for (const [k, x] of Object.entries(job?.strategy?.matrix ?? {}))
       if (Array.isArray(x)) matrix[k] = x.map(String);
     const metaImages = new Map<string, string[]>();
+    const base = { url: opts.url, registry: opts.registry, matrix };
+    const jobEnv = layer(layer({}, envOf(doc.env), base), envOf(job?.env), base);
     for (const step of job?.steps ?? []) {
-      const env = { ...envOf(doc.env), ...envOf(job?.env), ...envOf(step?.env) };
-      const vars: Vars = { url: opts.url, registry: opts.registry, env, matrix };
+      const env = layer(jobEnv, envOf(step?.env), base);
+      const vars: Vars = { ...base, env };
       const uses = step?.uses ?? "";
       const at = (needle: string) => `${file}:${lineAfter(raw, needle, needle)}`;
       if (uses.startsWith("docker/metadata-action")) {
@@ -240,17 +283,10 @@ function githubReleases(
         for (const ref of refs) emit(ref, vars, trigger, context, at(uses), opts, add);
         continue;
       }
-      for (const line of strs(step?.run).flatMap((r) => r.split("\n"))) {
-        for (const ref of shellRefs(line))
-          emit(
-            imagePart(ref),
-            vars,
-            trigger,
-            "",
-            `${file}:${lineAfter(raw, line.trim(), line.trim())}`,
-            opts,
-            add,
-          );
+      for (const line of strs(step?.run).flatMap(shellLines)) {
+        const at = `${file}:${lineAfter(raw, "docker", "docker", raw.indexOf(line.trim().split(/\s+/)[0] ?? ""))}`;
+        for (const r of shellRefs(line))
+          emit(imagePart(r.ref), vars, trigger, r.context, at, opts, add);
       }
     }
   }
@@ -295,20 +331,13 @@ function gitlabReleases(
   for (const [name, v] of Object.entries(doc)) {
     if (GITLAB_RESERVED.has(name) || name.startsWith(".") || !v || typeof v !== "object") continue;
     const job = v as Record<string, unknown>;
-    const env = { ...envOf(doc.variables), ...envOf(job.variables) };
-    const vars: Vars = { url: opts.url, registry: opts.registry, env, matrix: {} };
-    for (const line of strs(job.script)) {
-      for (const ref of shellRefs(line)) {
-        emit(
-          imagePart(ref),
-          vars,
-          gitlabTrigger(job),
-          "",
-          `${file}:${lineAfter(raw, line.trim(), line.trim())}`,
-          opts,
-          add,
-        );
-      }
+    const base = { url: opts.url, registry: opts.registry, matrix: {} };
+    const env = layer(layer({}, envOf(doc.variables), base), envOf(job.variables), base);
+    const vars: Vars = { ...base, env };
+    for (const line of strs(job.script).flatMap(shellLines)) {
+      const at = `${file}:${lineAfter(raw, line.trim().slice(0, 40), line.trim().slice(0, 40))}`;
+      for (const r of shellRefs(line))
+        emit(imagePart(r.ref), vars, gitlabTrigger(job), r.context, at, opts, add);
     }
   }
 }
@@ -340,7 +369,7 @@ function makeReleases(
   add: (r: ImageRelease) => void,
 ): void {
   for (const line of recipes?.get("release") ?? []) {
-    for (const ref of shellRefs(line)) {
+    for (const { ref } of shellRefs(line)) {
       const image = imagePart(ref);
       if (image.includes("$")) continue;
       add({
@@ -366,7 +395,7 @@ function tagSettings(
   if (/(?:^|\/)kustomization\.ya?ml$/.test(file)) {
     for (const e of (Array.isArray(doc.images) ? doc.images : []) as Record<string, unknown>[]) {
       const name = String(e?.newName ?? e?.name ?? "");
-      if (!name || e?.newTag === undefined) continue;
+      if (!name || !e || !("newTag" in e)) continue;
       const anchor = `${e?.name ?? name}`;
       add({
         image: normalizeImage(name),
@@ -374,7 +403,7 @@ function tagSettings(
         folder,
         file,
         line: lineAfter(raw, anchor, "newTag:", from),
-        value: String(e.newTag),
+        value: e.newTag == null ? "" : String(e.newTag),
       });
     }
     return;
@@ -452,8 +481,8 @@ function tagSettings(
     const o = v as Record<string, unknown>;
     if (
       typeof o.repository === "string" &&
-      o.tag !== undefined &&
-      (typeof o.tag === "string" || typeof o.tag === "number")
+      "tag" in o &&
+      (o.tag === null || typeof o.tag === "string" || typeof o.tag === "number")
     ) {
       const registry = typeof o.registry === "string" ? `${o.registry}/` : "";
       add({
@@ -462,7 +491,7 @@ function tagSettings(
         folder,
         file,
         line: lineAfter(raw, `repository: ${o.repository}`, "tag:", from),
-        value: String(o.tag),
+        value: o.tag == null ? "" : String(o.tag),
       });
     }
     for (const [k, x] of Object.entries(o)) visit(x, prefix ? `${prefix}.${k}` : k);
@@ -510,17 +539,26 @@ export async function extractImages(
   }
   for (const f of files.filter((x) => /(?:^|\/)(?:GNUmakefile|makefile|Makefile)$/.test(x)))
     makeReleases(await recipesOf(f), f, opts, addRelease);
+  // A chart's templates are Go templates, not YAML: reading them only adds noise.
+  const charts = files
+    .filter((x) => /(?:^|\/)Chart\.ya?ml$/.test(x))
+    .map((x) => x.replace(/Chart\.ya?ml$/, ""));
+  const template = (x: string) => charts.some((c) => x.startsWith(`${c}templates/`));
   for (const f of files.filter(
     (x) =>
-      /\.ya?ml$/.test(x) && !x.startsWith(".github/") && !/(?:^|\/)\.gitlab-ci\.ya?ml$/.test(x),
+      /\.ya?ml$/.test(x) &&
+      !x.startsWith(".github/") &&
+      !/(?:^|\/)\.gitlab-ci\.ya?ml$/.test(x) &&
+      !template(x),
   )) {
     const raw = await read(f);
     let from = 0;
     for (const doc of parseYaml(raw, f)) {
       if (doc && typeof doc === "object" && !Array.isArray(doc)) {
-        tagSettings(doc as Record<string, unknown>, raw, f, from, opts.partOf(f) ?? "", (t) =>
-          settings.push(t),
-        );
+        // A name built from a template or a variable names no image pm can match.
+        tagSettings(doc as Record<string, unknown>, raw, f, from, opts.partOf(f) ?? "", (t) => {
+          if (!/\{\{|\$\{/.test(t.image)) settings.push(t);
+        });
       }
       const next = raw.indexOf("\n---", from + 1);
       from = next < 0 ? raw.length : next + 1;

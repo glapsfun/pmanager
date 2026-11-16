@@ -45,6 +45,9 @@ never as regular expressions. Run once:
   file and line. `not checked:` names a registered repo with no checkout
   here. Plan a task for every repo the finding reaches, or say in the plan why
   one needs none.
+  `deps: none found` with a `skipped:` line means a file that names the
+  package could not be read: say so in the plan rather than calling that repo
+  unaffected.
 - The output is pruned to about 1500 tokens per repo: import lines and data
   files (lockfiles, `*.jsonl`, `dist/`, minified bundles) go first, then each
   section keeps its strongest lines. The `pruned:` line says how much was

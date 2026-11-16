@@ -334,3 +334,188 @@ describe("cross-repo release links", () => {
     expect(text).not.toContain("none found");
   });
 });
+
+describe("review fixes: releases and tag settings", () => {
+  const ENV_IMAGE = "$" + "{{ env.IMAGE }}";
+  test("an env value that reads an outer one resolves; one that reads itself is unresolved, not a hang", async () => {
+    const steps = `      - env:\n          IMAGE: ${ENV_IMAGE}-debug\n        run: docker push ${ENV_IMAGE}:1\n`;
+    const raw = workflow('  push:\n    tags: ["v*"]', steps, "env:\n  IMAGE: ghcr.io/x/y\n");
+    const p = await extractProfile(
+      await repoWith({ "go.mod": "module x\n", ".github/workflows/release.yml": raw }),
+    );
+    expect(p.releases.map((r) => r.image)).toEqual(["ghcr.io/x/y-debug"]);
+    const loop = workflow(
+      '  push:\n    tags: ["v*"]',
+      `      - run: docker push ${ENV_IMAGE}:1\n`,
+      `env:\n  IMAGE: ${ENV_IMAGE}/api\n`,
+    );
+    const q = await extractProfile(
+      await repoWith({ "go.mod": "module x\n", ".github/workflows/release.yml": loop }),
+    );
+    expect(q.releases[0]?.image).toBeNull();
+    expect(q.releases[0]?.unresolved).toContain("IMAGE");
+  }, 10_000);
+
+  test("quoted refs, continued lines and a build context argument", async () => {
+    const ci =
+      'release:\n  script:\n    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"\n  rules:\n    - if: $CI_COMMIT_TAG\n';
+    const g = await extractProfile(
+      await repoWith({ "go.mod": "module x\n", ".gitlab-ci.yml": ci }),
+      { url: "https://gitlab.example.com/group/app.git", registry: "registry.example.com" },
+    );
+    expect(g.releases[0]?.image).toBe("registry.example.com/group/app");
+    const steps =
+      "      - run: |\n          docker buildx build \\\n            --push \\\n            -t ghcr.io/x/api:1 \\\n            services/api\n";
+    const p = await extractProfile(
+      await repoWith({
+        "services/api/package.json": "{}",
+        "go.mod": "module x\n",
+        ".github/workflows/release.yml": workflow('  push:\n    tags: ["v*"]', steps),
+      }),
+    );
+    expect(p.releases.map((r) => [r.image, r.context, r.folder])).toEqual([
+      ["ghcr.io/x/api", "services/api", "services/api"],
+    ]);
+  });
+
+  test("Helm templates are not read for tags, and empty tags are settings with an empty value", async () => {
+    const p = await extractProfile(
+      await repoWith({
+        "deploy/chart/Chart.yaml": "apiVersion: v2\nname: c\nversion: 0.1.0\n",
+        "deploy/chart/templates/deployment.yaml":
+          "spec:\n  image: {{ .Values.image.repository }}:{{ .Values.image.tag }}\n{{- if .Values.x }}\n",
+        "deploy/chart/templates/svc.yaml":
+          'image:\n  repository: "{{ .Values.image.repository }}"\n  tag: x\n',
+        "workloads/a/kustomization.yaml": "images:\n  - name: ghcr.io/x/a\n    newTag:\n",
+        "values.yaml": "image:\n  repository: ghcr.io/x/b\n  tag:\n",
+      }),
+    );
+    expect(p.notes.filter((n) => n.includes("templates/"))).toEqual([]);
+    expect(p.tagSettings.map((t) => [t.image, t.key, t.value]).sort()).toEqual([
+      ["ghcr.io/x/a", "newTag", ""],
+      ["ghcr.io/x/b", "image.tag", ""],
+    ]);
+  });
+});
+
+describe("review fixes: cross-repo lines", () => {
+  const base = (over: Partial<Profile>): Profile => ({
+    revision: "abcdef0123",
+    format: PROFILE_FORMAT,
+    parts: [],
+    links: [],
+    notes: [],
+    shared: [],
+    releases: [],
+    tagSettings: [],
+    ...over,
+  });
+  const rel = (
+    image: string | null,
+    source = ".github/workflows/release.yml:20",
+  ): ImageRelease => ({
+    image,
+    trigger: { kind: "tag", pattern: "v*" },
+    context: "",
+    folder: "",
+    source,
+  });
+  const set = (folder: string, image: string): TagSetting => ({
+    image,
+    key: "newTag",
+    folder,
+    file: `${folder}/kustomization.yaml`,
+    line: 6,
+    value: "1",
+  });
+
+  test("an older or missing GitOps profile is named, never reported as no rollout", () => {
+    const sf = base({ releases: [rel("ghcr.io/pm-example/storefront")] });
+    const argo = base({ format: 2 });
+    const text = formatPartsBlock(
+      "storefront",
+      sf,
+      null,
+      undefined,
+      crossLinks(
+        new Map([
+          ["storefront", sf],
+          ["argocd", argo],
+        ]),
+        ["worker"],
+      ),
+    ).join("\n");
+    expect(text).not.toContain("none found in registered repos");
+    expect(text).toContain(
+      "not read: argocd (profile older than format 3: pm project refresh argocd), worker (no profile)",
+    );
+  });
+
+  test("one link and one plan line per release step; same-repo plans and checks are never cut", () => {
+    const images = ["ghcr.io/x/a", "ghcr.io/x/b", "ghcr.io/x/c"];
+    const orders = base({
+      parts: [
+        {
+          folder: "",
+          stacks: ["go"],
+          commands: [
+            { text: "make test", role: "check", source: "README.md:3" },
+            { text: "make release", role: "release", source: "Makefile:9" },
+          ],
+        },
+        {
+          folder: "deploy/chart",
+          stacks: ["helm"],
+          commands: [{ text: "helm unittest deploy/chart", role: "check", source: "chart.yml:9" }],
+        },
+      ],
+      links: [
+        {
+          value: "1.4.0",
+          release: true,
+          source: { folder: "", file: "Makefile", line: 1, key: "VERSION" },
+          consumer: {
+            folder: "deploy/chart",
+            file: "deploy/chart/values.yaml",
+            line: 3,
+            key: "image.tag",
+          },
+        },
+      ],
+      releases: [
+        ...images.map((i) => rel(i)),
+        ...Array.from({ length: 12 }, (_, n) => ({
+          ...rel(null, `.github/workflows/w${n}.yml:3`),
+          unresolved: "secret",
+        })),
+      ],
+    });
+    const argo = base({
+      parts: images.map((i) => ({
+        folder: `workloads/${i.slice(-1)}`,
+        stacks: ["kustomize"],
+        commands: [{ text: "kubeconform -strict", role: "check" as const, source: "ci.yml:4" }],
+      })),
+      tagSettings: images.map((i) => set(`workloads/${i.slice(-1)}`, i)),
+    });
+    const block = formatPartsBlock(
+      "orders",
+      orders,
+      null,
+      undefined,
+      crossLinks(
+        new Map([
+          ["orders", orders],
+          ["argocd", argo],
+        ]),
+      ),
+    );
+    const text = block.join("\n");
+    expect(text.match(/release link: orders \.github/g)).toHaveLength(1);
+    expect(text).toContain("ghcr.io/x/a, ghcr.io/x/b, ghcr.io/x/c");
+    expect(text).toContain("then a task with parts: [orders/deploy/chart] that sets image.tag");
+    expect(text).toContain("helm unittest deploy/chart");
+    expect(text).toContain("12 releases with an unresolved image name");
+    expect(text).toContain("its checks: `kubeconform -strict`");
+  });
+});

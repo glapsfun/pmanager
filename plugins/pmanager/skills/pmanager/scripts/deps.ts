@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join, posix } from "node:path";
 import { git } from "./git";
 import { readLocalRepoMap, repoMapPmDir } from "./handoff";
@@ -33,8 +33,36 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const DEP_FILE =
   /^(?:package-lock\.json|bun\.lock|go\.mod|go\.sum|uv\.lock|poetry\.lock|requirements[\w.-]*\.txt|Dockerfile[\w.-]*)$/;
 
-const lineAt = (raw: string, index: number) =>
-  index < 0 ? 1 : raw.slice(0, index).split("\n").length;
+/**
+ * Line numbers by offset from an index built once per file, and keys found with a forward cursor:
+ * entries come in file order, so a 6000-entry lockfile is read once, not once per entry.
+ */
+function lineFinder(raw: string): {
+  at: (index: number) => number;
+  find: (needle: string) => number;
+} {
+  const starts = [0];
+  for (let i = raw.indexOf("\n"); i >= 0; i = raw.indexOf("\n", i + 1)) starts.push(i + 1);
+  const at = (index: number) => {
+    if (index < 0) return 1;
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if ((starts[mid] as number) <= index) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  let cursor = 0;
+  const find = (needle: string) => {
+    let i = raw.indexOf(needle, cursor);
+    if (i < 0) i = raw.indexOf(needle);
+    if (i >= 0) cursor = i + needle.length;
+    return at(i);
+  };
+  return { at, find };
+}
 
 /**
  * Shortest chain from a root dependency: breadth-first over `children`, so each node keeps the
@@ -79,6 +107,7 @@ type NpmEntry = {
 };
 
 function npmLock(file: string, raw: string): Dep[] {
+  const lines = lineFinder(raw);
   const lock = JSON.parse(raw) as {
     packages?: Record<
       string,
@@ -116,7 +145,7 @@ function npmLock(file: string, raw: string): Dep[] {
       version: e.version,
       ecosystem: "npm",
       file,
-      line: lineAt(raw, raw.indexOf(`"${key}"`)),
+      line: lines.find(`"${key}"`),
       direct,
       via,
     });
@@ -129,6 +158,7 @@ function npmLock(file: string, raw: string): Dep[] {
 }
 
 function bunLock(file: string, raw: string): Dep[] {
+  const lines = lineFinder(raw);
   // bun.lock is JSON with trailing commas.
   const lock = JSON.parse(raw.replace(/,(\s*[}\]])/g, "$1")) as {
     workspaces?: Record<
@@ -193,7 +223,7 @@ function bunLock(file: string, raw: string): Dep[] {
       version,
       ecosystem: "npm",
       file,
-      line: lineAt(raw, raw.indexOf(`"${key}"`)),
+      line: lines.find(`"${key}"`),
       direct,
       via,
     });
@@ -207,24 +237,35 @@ function bunLock(file: string, raw: string): Dep[] {
 
 function goMod(file: string, raw: string): Dep[] {
   const out: Dep[] = [];
-  let block = false;
+  // replace A => B vX: the build uses vX, so a repo patched this way reads as patched.
+  const replaced = new Map<string, string>();
+  let block: "require" | "replace" | null = null;
   raw.split("\n").forEach((text, i) => {
-    const l = text.trim();
-    if (/^require\s*\($/.test(l)) {
-      block = true;
+    const l = text.replace(/\/\/(?!\s*indirect).*$/, "").trim();
+    const opens = l.match(/^(require|replace)\s*\($/);
+    if (opens) {
+      block = opens[1] as "require" | "replace";
       return;
     }
     if (block && l === ")") {
-      block = false;
+      block = null;
       return;
     }
-    const body = block ? l : l.startsWith("require ") ? l.slice("require ".length).trim() : null;
-    const m = body?.match(/^(\S+)\s+(v\S+)(.*)$/);
+    const kind =
+      block ?? (l.startsWith("require ") ? "require" : l.startsWith("replace ") ? "replace" : null);
+    if (!kind) return;
+    const body = block ? l : l.slice(kind.length).trim();
+    if (kind === "replace") {
+      const m = body.match(/^(\S+)(?:\s+v\S+)?\s*=>\s*\S+\s+(v\S+)/);
+      if (m?.[1] && m[2]) replaced.set(m[1], m[2]);
+      return;
+    }
+    const m = body.match(/^(\S+)\s+(v\S+)(.*)$/);
     if (!m?.[1] || !m[2]) return;
-    const direct = !/\/\/\s*indirect\b/.test(m[3] ?? "");
+    const direct = !/\/\/\s*indirect\b/.test(text);
     out.push({ name: m[1], version: m[2], ecosystem: "go", file, line: i + 1, direct, via: null });
   });
-  return out;
+  return out.map((d) => ({ ...d, version: replaced.get(d.name) ?? d.version }));
 }
 
 function goSum(file: string, raw: string): Dep[] {
@@ -250,6 +291,7 @@ function goSum(file: string, raw: string): Dep[] {
 const PEP503 = (n: string) => n.toLowerCase().replace(/[-_.]+/g, "-");
 
 function uvLock(file: string, raw: string): Dep[] {
+  const lines = lineFinder(raw);
   type Pkg = {
     name: string;
     version?: string;
@@ -285,7 +327,7 @@ function uvLock(file: string, raw: string): Dep[] {
       version: p.version,
       ecosystem: "pypi",
       file,
-      line: lineAt(raw, at),
+      line: lines.at(at),
       direct,
       via,
     });
@@ -294,6 +336,7 @@ function uvLock(file: string, raw: string): Dep[] {
 }
 
 function poetryLock(file: string, raw: string, pyproject?: string): Dep[] {
+  const lines = lineFinder(raw);
   const lock = Bun.TOML.parse(raw) as { package?: { name: string; version?: string }[] };
   let directNames = new Set<string>();
   if (pyproject) {
@@ -323,7 +366,7 @@ function poetryLock(file: string, raw: string, pyproject?: string): Dep[] {
         version: p.version,
         ecosystem: "pypi" as const,
         file,
-        line: lineAt(raw, at),
+        line: lines.at(at),
         direct: directNames.has(PEP503(p.name)),
         via: null,
       },
@@ -333,7 +376,15 @@ function poetryLock(file: string, raw: string, pyproject?: string): Dep[] {
 
 function requirements(file: string, raw: string): Dep[] {
   const out: Dep[] = [];
+  // pip-compile --generate-hashes continues each pin onto --hash lines with a trailing backslash.
+  const joined: [string, number][] = [];
   raw.split("\n").forEach((l, i) => {
+    const last = joined.at(-1);
+    if (last?.[0].endsWith("\\")) last[0] = `${last[0].slice(0, -1)} ${l.trim()}`;
+    else joined.push([l, i]);
+  });
+  joined.forEach(([text, i]) => {
+    const l = text.replace(/\s--hash=\S+/g, "");
     const m = l
       .replace(/#.*$/, "")
       .split(";")[0]
@@ -442,12 +493,15 @@ async function readText(path: string): Promise<string | null> {
   }
 }
 
-async function sizeOf(path: string): Promise<number> {
-  try {
-    return (await stat(path)).size;
-  } catch {
-    return 0;
-  }
+/** Whether a file's text could name a keyword's package (Python names under either separator). */
+function mentions(raw: string, keyword: string): boolean {
+  const lower = raw.toLowerCase();
+  const k = keyword.toLowerCase();
+  return (
+    lower.includes(k) ||
+    lower.includes(k.replace(/[-_.]/g, "-")) ||
+    lower.includes(k.replace(/[-_.]/g, "_"))
+  );
 }
 
 /** The dependency files of one checkout that name a keyword. */
@@ -464,17 +518,14 @@ async function carriersIn(
   for (const f of files) {
     if (basename(f) === "go.sum" && hasGoMod.has(dirname(f))) continue;
     const path = join(checkout, f);
-    const size = await sizeOf(path);
-    if (size > MAX_BYTES) {
-      r.skipped.push({
-        project,
-        file: f,
-        why: `over ${MAX_BYTES / 1024 / 1024} MB (${Math.round(size / 1024 / 1024)} MB)`,
-      });
+    const raw = await readText(path);
+    // A file that never names a keyword carries none of them: it is not parsed at all.
+    if (raw === null || !keywords.some((k) => mentions(raw, k))) continue;
+    if (raw.length > MAX_BYTES) {
+      const mb = Math.round(raw.length / 1024 / 1024);
+      r.skipped.push({ project, file: f, why: `over ${MAX_BYTES / 1024 / 1024} MB (${mb} MB)` });
       continue;
     }
-    const raw = await readText(path);
-    if (raw === null) continue;
     const beside = join(checkout, posix.join(dirname(f), "pyproject.toml"));
     const pyproject =
       basename(f) === "poetry.lock" ? ((await readText(beside)) ?? undefined) : undefined;
@@ -510,30 +561,53 @@ function describe(c: Carrier): string {
   return `  [${c.project} ${c.file}:${c.line}] ${c.name} ${c.version} ${how}`;
 }
 
-/** The research block: nothing when no repo carries the package, so other runs stay as they were. */
+// Each repo keeps lines of its own, so one repo's nested copies never hide another hit repo.
+const PER_REPO = 5;
+
+/**
+ * The research block: nothing when no repo carries the package and no file that names it was
+ * skipped, so other runs stay as they were.
+ */
 export function formatDepsBlock(r: CarrierReport, limit = 20): string[] {
-  if (r.carriers.length === 0) return [];
-  const shown = r.carriers.slice(0, limit).map(describe);
-  const more = r.carriers.length > limit ? [`  +${r.carriers.length - limit} more`] : [];
-  return [
-    "deps:",
-    ...shown,
-    ...more,
+  const notes = [
     ...r.skipped.map((s) => `  [deps] skipped: ${s.project} ${s.file}: ${s.why}`),
     ...r.unchecked.map((u) => `  [deps] not checked: ${u.project} (${u.availability})`),
   ];
+  if (r.carriers.length === 0) return r.skipped.length > 0 ? ["deps: none found", ...notes] : [];
+  const byRepo = new Map<string, Carrier[]>();
+  for (const c of r.carriers) byRepo.set(c.project, [...(byRepo.get(c.project) ?? []), c]);
+  const per = Math.max(PER_REPO, Math.floor(limit / byRepo.size));
+  const shown: string[] = [];
+  for (const [project, cs] of byRepo) {
+    shown.push(...cs.slice(0, per).map(describe));
+    if (cs.length > per) shown.push(`  +${cs.length - per} more in ${project}`);
+  }
+  return ["deps:", ...shown, ...notes];
 }
 
 const INSTALL =
   /\b(?:go\s+get|npm\s+(?:i|install|add)|bun\s+add|yarn\s+add|pnpm\s+add|pip3?\s+install|uv\s+(?:add|pip\s+install))\s+/gi;
+// "golang.org/x/net v0.23.0 -> v0.36.0", "golang.org/x/net → v0.36.0"
+const ARROW_TO =
+  /`?([A-Za-z0-9@][\w@./-]*)`?\s+(?:`?v?\d[\w.+-]*`?\s*)?(?:->|→|=>)\s*`?(v?\d[\w.+-]*)/g;
+// Settings a task sets "to" a version, not packages: a rollout task's newTag is the common one.
+const NOT_PACKAGES = new Set([
+  "newtag",
+  "tag",
+  "image",
+  "image.tag",
+  "version",
+  "chart",
+  "appversion",
+]);
 const BUMP_TO =
   /\b(?:bump|upgrade|update|raise|move|set|pin)\w*\s+(?:the\s+)?`?([A-Za-z0-9@][\w@./-]*)`?\s+(?:(?:dependency|package|module)\s+)?(?:from\s+`?v?[\w.+-]+`?\s+)?to\s+`?(v?\d[\w.+-]*)/gi;
 
-/** `name@version` or `name==version`; a scoped npm name keeps its leading @. */
+/** `name@version`, `name==version` or a floor `name>=version`; a scoped npm name keeps its @. */
 function pinned(token: string): { name: string; version: string } | null {
   const t = token.replace(/^[`'"(]+|[`'"),;.:]+$/g, "");
-  const eq = t.indexOf("==");
-  if (eq > 0) return { name: t.slice(0, eq), version: t.slice(eq + 2) };
+  const op = t.match(/^([A-Za-z0-9][\w.-]*)(?:\[[^\]]*\])?(?:==|>=|≥|~=)(v?\d[\w.+-]*)$/);
+  if (op?.[1] && op[2]) return { name: op[1], version: op[2] };
   const at = t.lastIndexOf("@");
   return at > 0 ? { name: t.slice(0, at), version: t.slice(at + 1) } : null;
 }
@@ -554,7 +628,9 @@ export function bumpTargets(text: string): { name: string; version: string }[] {
       push(b);
     }
   }
-  for (const m of text.matchAll(BUMP_TO))
-    push({ name: m[1] as string, version: (m[2] as string).replace(/[.,;:]+$/, "") });
-  return out;
+  for (const re of [BUMP_TO, ARROW_TO]) {
+    for (const m of text.matchAll(re))
+      push({ name: m[1] as string, version: (m[2] as string).replace(/[.,;:]+$/, "") });
+  }
+  return out.filter((b) => !NOT_PACKAGES.has(b.name.toLowerCase()));
 }

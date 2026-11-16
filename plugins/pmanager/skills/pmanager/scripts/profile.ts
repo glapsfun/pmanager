@@ -712,22 +712,39 @@ function some(cs: Command[], role: Role, n: number): string {
 export interface CrossLink {
   project: string;
   release: ImageRelease;
-  rollouts: (TagSetting & { project: string })[];
+  rollouts: (TagSetting & { project: string; checks: string[] })[];
+  /** registered repos whose tag settings pm could not read: no profile, or one before format 3 */
+  unread: string[];
 }
 
-/** Joins releases to tag settings across projects by image name; same-repo ones are links'. */
-export function crossLinks(profiles: Map<string, Profile>): CrossLink[] {
+/**
+ * Joins releases to tag settings across projects by image name; same-repo ones are links'.
+ * `missing` names the registered projects with no stored profile.
+ */
+export function crossLinks(profiles: Map<string, Profile>, missing: string[] = []): CrossLink[] {
   const out: CrossLink[] = [];
   for (const [project, p] of profiles) {
+    const unread = [
+      ...[...profiles]
+        .filter(([q, other]) => q !== project && (other.format ?? 1) < 3)
+        .map(([q]) => `${q} (profile older than format 3: pm project refresh ${q})`),
+      ...missing.filter((q) => q !== project).map((q) => `${q} (no profile)`),
+    ];
     for (const release of p.releases ?? []) {
       const rollouts = [...profiles].flatMap(([q, other]) =>
         q === project || !release.image
           ? []
           : (other.tagSettings ?? [])
               .filter((t) => t.image === release.image)
-              .map((t) => ({ ...t, project: q })),
+              .map((t) => ({
+                ...t,
+                project: q,
+                checks: (other.parts.find((x) => x.folder === t.folder)?.commands ?? [])
+                  .filter((c) => c.role === "check")
+                  .map((c) => c.text),
+              })),
       );
-      out.push({ project, release, rollouts });
+      out.push({ project, release, rollouts, unread });
     }
   }
   return out;
@@ -741,50 +758,107 @@ const triggerPhrase = (t: ImageRelease["trigger"]) =>
       : `with ${t.pattern}`;
 const fileOf = (source: string) => source.replace(/:\d+$/, "");
 
-/** The lines a release that ships through another repo adds to its own repo's block. */
-function releaseLines(projectId: string, p: Profile, c: CrossLink): string[] {
-  const r = c.release;
-  const where = fileOf(r.source);
-  if (!r.image)
-    return [
-      clip(
-        `  release: ${projectId} ${where}: image name unresolved: ${r.unresolved ?? "unknown"}`,
-        300,
-      ),
-    ];
-  const how = triggerPhrase(r.trigger);
-  if (c.rollouts.length === 0) {
-    // A rollout in this repo is the same-repo link's; only a release nobody deploys is reported.
-    if ((p.tagSettings ?? []).some((t) => t.image === r.image)) return [];
-    return [
-      clip(
-        `  release: ${projectId} ${where} pushes ${r.image} ${how}; rollout: none found in registered repos`,
-        300,
-      ),
-    ];
+/**
+ * What a project's own cross-repo releases add to its block, in two groups. `plans` (a link and
+ * its plan line per release step) lead the block; `rest` (releases nobody deploys, names pm could
+ * not resolve) follow everything else, so the budget cuts them first.
+ */
+function releaseLines(
+  projectId: string,
+  p: Profile,
+  cross: CrossLink[],
+): { plans: string[]; rest: string[] } {
+  const own = cross.filter((c) => c.project === projectId);
+  const plans: string[] = [];
+  const rest: string[] = [];
+  // One link per release step: a matrix of images in one step shares its trigger and its plan.
+  const steps = new Map<string, CrossLink[]>();
+  for (const c of own.filter((x) => x.release.image && x.rollouts.length > 0)) {
+    const k = JSON.stringify([c.release.source, c.release.trigger, c.release.folder]);
+    steps.set(k, [...(steps.get(k) ?? []), c]);
   }
-  const places = c.rollouts.map((t) => `${t.project} ${t.file}:${t.line} ${t.key}`).join(", ");
-  const ids = [...new Set(c.rollouts.map((t) => partId(t.project, t.folder)))];
-  const files = [...new Set(c.rollouts.map((t) => t.file))];
-  const key = c.rollouts[0]?.key ?? "the tag";
-  const target =
-    ids.length === 1
-      ? `a task with parts: [${ids[0]}] that sets ${key} in ${files.join(" or ")}`
-      : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")} that sets ${key} in ${files.join(" or ")}`;
-  const own = partId(projectId, r.folder);
-  const plan =
-    r.trigger.kind === "branch"
-      ? `    plan: when tasks have parts: [${own}], the merge is the release; then ${target} to the tag CI pushes on merge (a version or commit SHA), and depends on them`
-      : r.trigger.kind === "tag"
-        ? `    plan: when tasks have parts: [${own}], add a task that pushes a ${r.trigger.pattern} tag (the release) and depends on them, then ${target} and depends on the release`
-        : `    plan: when tasks have parts: [${own}], add a task that runs ${r.trigger.pattern} and depends on them, then ${target} and depends on the release`;
-  return [
-    clip(
-      `  release link: ${projectId} ${where} pushes ${r.image} ${how}; ${places} rolls it out`,
-      300,
-    ),
-    clip(plan, 400),
-  ];
+  for (const group of steps.values()) {
+    const r = (group[0] as CrossLink).release;
+    const images = [...new Set(group.map((c) => c.release.image as string))];
+    const rollouts = group
+      .flatMap((c) => c.rollouts)
+      .filter(
+        (t, i, all) =>
+          all.findIndex(
+            (x) => x.project === t.project && x.file === t.file && x.line === t.line,
+          ) === i,
+      );
+    const places = rollouts.map((t) => `${t.project} ${t.file}:${t.line} ${t.key}`).join(", ");
+    const them = images.length === 1 ? "rolls it out" : "roll them out";
+    plans.push(
+      clip(
+        `  release link: ${projectId} ${fileOf(r.source)} pushes ${images.join(", ")} ${triggerPhrase(r.trigger)}; ${places} ${them}`,
+        300,
+      ),
+    );
+    const ids = [...new Set(rollouts.map((t) => partId(t.project, t.folder)))];
+    const files = [...new Set(rollouts.map((t) => t.file))];
+    const checks = [...new Set(rollouts.flatMap((t) => t.checks))].slice(0, 2);
+    const key = rollouts[0]?.key ?? "the tag";
+    const named =
+      checks.length > 0
+        ? ` (its checks: ${checks.map((c) => `\`${clip(c, 60)}\``).join(", ")})`
+        : "";
+    const sets = `that sets ${key} in ${files.join(" or ")}${named}`;
+    const target =
+      ids.length === 1
+        ? `a task with parts: [${ids[0]}] ${sets}`
+        : `at least one task with parts: ${ids.map((x) => `[${x}]`).join(" or ")} ${sets}`;
+    const source = partId(projectId, r.folder);
+    const plan =
+      r.trigger.kind === "branch"
+        ? `    plan: when tasks have parts: [${source}], the merge is the release; then ${target} to the tag CI pushes on merge (a version or commit SHA), and depends on them`
+        : r.trigger.kind === "tag"
+          ? `    plan: when tasks have parts: [${source}], add a task that pushes a ${r.trigger.pattern} tag (the release) and depends on them, then ${target} and depends on the release`
+          : `    plan: when tasks have parts: [${source}], add a task that runs ${r.trigger.pattern} and depends on them, then ${target} and depends on the release`;
+    plans.push(clip(plan, 400));
+  }
+  // A rollout in this repo is the same-repo link's; only a release nobody deploys is reported.
+  const lonely = own.filter(
+    (c) =>
+      c.release.image &&
+      c.rollouts.length === 0 &&
+      !(p.tagSettings ?? []).some((t) => t.image === c.release.image),
+  );
+  if (lonely.length > 0) {
+    const r = (lonely[0] as CrossLink).release;
+    const images = [...new Set(lonely.map((c) => c.release.image as string))];
+    const unread = (lonely[0] as CrossLink).unread;
+    const found =
+      unread.length > 0
+        ? `rollout: not found; not read: ${unread.join(", ")}`
+        : "rollout: none found in registered repos";
+    rest.push(
+      clip(
+        `  release: ${projectId} ${fileOf(r.source)} pushes ${images.join(", ")} ${triggerPhrase(r.trigger)}; ${found}`,
+        300,
+      ),
+    );
+  }
+  const unresolved = own.filter((c) => !c.release.image);
+  if (unresolved.length === 1) {
+    const r = (unresolved[0] as CrossLink).release;
+    rest.push(
+      clip(
+        `  release: ${projectId} ${fileOf(r.source)}: image name unresolved: ${r.unresolved ?? "unknown"}`,
+        300,
+      ),
+    );
+  } else if (unresolved.length > 1) {
+    const r = (unresolved[0] as CrossLink).release;
+    rest.push(
+      clip(
+        `  ${unresolved.length} releases with an unresolved image name (first: ${fileOf(r.source)}: ${r.unresolved ?? "unknown"})`,
+        300,
+      ),
+    );
+  }
+  return { plans, rest };
 }
 
 export function formatPartsBlock(
@@ -804,17 +878,14 @@ export function formatPartsBlock(
     head.push(`stale: stored by an older pm; tell the user to run pm project refresh ${projectId}`);
   }
   const body: string[] = [];
-  // Cross-repo releases lead, like same-repo release links: the plan line is what first drafts miss.
-  const seenRelease = new Set<string>();
-  for (const c of cross.filter((x) => x.project === projectId)) {
-    const k = JSON.stringify([c.release.image, c.release.source, c.release.unresolved]);
-    if (seenRelease.has(k)) continue;
-    seenRelease.add(k);
-    body.push(...releaseLines(projectId, p, c));
-  }
+  // Cross-repo release plans lead, like same-repo release links: the plan line is what first
+  // drafts miss. Rollouts this repo performs and lone or unresolved releases come last.
+  const { plans, rest } = releaseLines(projectId, p, cross);
+  body.push(...plans);
+  const rollsOut: string[] = [];
   for (const c of cross) {
     for (const t of c.rollouts.filter((x) => x.project === projectId)) {
-      body.push(
+      rollsOut.push(
         clip(
           `  ${partId(projectId, t.folder)}: ${t.file}:${t.line} ${t.key} rolls out ${c.project}'s ${c.release.image} (release ${triggerPhrase(c.release.trigger)})`,
           300,
@@ -872,6 +943,7 @@ export function formatPartsBlock(
     body.push(`  ${id} (${part.stacks.join(", ")}): ${say.join(" · ")}`);
   }
   for (const l of p.links.filter((x) => !x.release)) body.push(linkLine(l));
+  body.push(...[...new Set(rollsOut)], ...rest);
   const out = [...head];
   let used = out.join("\n").length;
   for (const [i, line] of body.entries()) {

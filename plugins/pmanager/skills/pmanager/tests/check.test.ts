@@ -981,3 +981,29 @@ describe("other repos that carry a bumped package (E-DEP-001)", () => {
     ).toEqual([]);
   });
 });
+
+describe("review fixes: a release task must push a matching tag", () => {
+  test("a quoted research line, a rollout's tag, or unrelated tags are no release", async () => {
+    for (const [task, parts, notes] of [
+      [
+        T02,
+        "[storefront]",
+        "Research says: storefront .github/workflows/release.yml pushes ghcr.io/pm-example/storefront on a v* tag.",
+      ],
+      [
+        T04,
+        "[argocd/workloads/storefront]",
+        "Set the image tag v2.3.1 with newTag in workloads/storefront/kustomization.yaml.",
+      ],
+      [T03, "[]", "Push the docs to the wiki and add tags."],
+    ] as const) {
+      const root = await crossFixture();
+      await setTask(root, T01, "[storefront]", "`npm test` passes");
+      await setTask(root, task, parts, notes);
+      expect({ notes, found: ids(await crossRules(root)).includes("E-REL-001 epic.md") }).toEqual({
+        notes,
+        found: true,
+      });
+    }
+  });
+});

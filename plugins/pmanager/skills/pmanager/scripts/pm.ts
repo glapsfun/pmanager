@@ -490,7 +490,10 @@ async function runResearch(root: string, args: Args): Promise<number> {
   );
   const profiles = await loadProfiles(catalog);
   // Joined across every registered repo, so researching either side shows the other.
-  const cross = crossLinks(profiles);
+  const cross = crossLinks(
+    profiles,
+    catalog.projects.map((x) => x.id).filter((id) => !profiles.has(id)),
+  );
   // A registered repo's parts lead its block, outside pruning: the checks no probe finds.
   const parts = await Promise.all(
     views.map(async (v, i) => {
