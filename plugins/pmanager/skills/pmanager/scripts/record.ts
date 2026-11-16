@@ -1,7 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { BundleFile } from "./bundle";
-import { check } from "./check";
+import { check, epicCarriers } from "./check";
 import { claimBranch } from "./claim";
 import { countBySeverity, type Finding, formatFindings } from "./findings";
 import { fetchOrigin, git, hasRemote, headBranch, pushSetUpstream } from "./git";
@@ -125,13 +125,15 @@ export async function record(target: string, opts: RecordOptions): Promise<Recor
     );
 
   const rendered = await applyRender(await loadPmRepo(target));
-  const findings = check(await loadPmRepo(target), {
+  const recorded = await loadPmRepo(target);
+  const findings = check(recorded, {
     staleDays: opts.staleDays,
     today: opts.today,
     catalog: opts.catalog,
     catalogScope: "epic",
     epic: slug,
     profiles: opts.catalog ? await loadProfiles(opts.catalog) : undefined,
+    carriers: opts.catalog ? await epicCarriers(target, opts.catalog, recorded, slug) : undefined,
   });
   const { errors, warnings } = countBySeverity(findings);
   const result: RecordResult = {

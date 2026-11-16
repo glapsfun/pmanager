@@ -523,3 +523,38 @@ export function formatDepsBlock(r: CarrierReport, limit = 20): string[] {
     ...r.unchecked.map((u) => `  [deps] not checked: ${u.project} (${u.availability})`),
   ];
 }
+
+const INSTALL =
+  /\b(?:go\s+get|npm\s+(?:i|install|add)|bun\s+add|yarn\s+add|pnpm\s+add|pip3?\s+install|uv\s+(?:add|pip\s+install))\s+/gi;
+const BUMP_TO =
+  /\b(?:bump|upgrade|update|raise|move|set|pin)\w*\s+(?:the\s+)?`?([A-Za-z0-9@][\w@./-]*)`?\s+(?:(?:dependency|package|module)\s+)?(?:from\s+`?v?[\w.+-]+`?\s+)?to\s+`?(v?\d[\w.+-]*)/gi;
+
+/** `name@version` or `name==version`; a scoped npm name keeps its leading @. */
+function pinned(token: string): { name: string; version: string } | null {
+  const t = token.replace(/^[`'"(]+|[`'"),;.:]+$/g, "");
+  const eq = t.indexOf("==");
+  if (eq > 0) return { name: t.slice(0, eq), version: t.slice(eq + 2) };
+  const at = t.lastIndexOf("@");
+  return at > 0 ? { name: t.slice(0, at), version: t.slice(at + 1) } : null;
+}
+
+/** The packages a task moves to a named version: install commands, or "bump X ... to V". */
+export function bumpTargets(text: string): { name: string; version: string }[] {
+  const out: { name: string; version: string }[] = [];
+  const push = (b: { name: string; version: string } | null) => {
+    if (b?.name && b.version && !out.some((x) => x.name === b.name && x.version === b.version))
+      out.push(b);
+  };
+  for (const m of text.matchAll(INSTALL)) {
+    const rest = text.slice((m.index ?? 0) + m[0].length).split("\n")[0] ?? "";
+    for (const word of rest.split(/\s+/)) {
+      if (word.startsWith("-")) continue;
+      const b = pinned(word);
+      if (!b) break;
+      push(b);
+    }
+  }
+  for (const m of text.matchAll(BUMP_TO))
+    push({ name: m[1] as string, version: (m[2] as string).replace(/[.,;:]+$/, "") });
+  return out;
+}

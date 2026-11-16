@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  bumpTargets,
   type CarrierReport,
   carriersAcross,
   compareVersions,
@@ -172,6 +173,24 @@ describe("matchesPackage", () => {
     expect(
       matchesPackage("node:20.18.1-alpine3.20", dep("node", "image", "20.18.1-alpine3.20")),
     ).toBe(true);
+  });
+});
+
+describe("bumpTargets", () => {
+  test("explicit targets only", () => {
+    expect(bumpTargets("go get golang.org/x/net@v0.36.0")).toEqual([
+      { name: "golang.org/x/net", version: "v0.36.0" },
+    ]);
+    expect(bumpTargets("bump express from 4.21.1 to 4.21.2")).toEqual([
+      { name: "express", version: "4.21.2" },
+    ]);
+    expect(bumpTargets("express 4.21.1 pins path-to-regexp 0.1.10")).toEqual([]);
+    expect(
+      bumpTargets("npm install path-to-regexp@0.1.12 and pip install requests==2.32.4"),
+    ).toEqual([
+      { name: "path-to-regexp", version: "0.1.12" },
+      { name: "requests", version: "2.32.4" },
+    ]);
   });
 });
 

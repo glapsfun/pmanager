@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { type BundleFile, parseBundle } from "./bundle";
-import { check } from "./check";
+import { check, epicCarriers } from "./check";
 import { claim, claimBranch, release, remoteEpicOf } from "./claim";
 import { EPIC_TYPES, parseDoc, sessionOf } from "./contract";
 import { draftClaim } from "./draft";
@@ -667,6 +667,7 @@ export async function main(
         catalogScope: target === main ? "main" : "epic",
         epic: args.epic,
         profiles: await loadProfiles(catalog),
+        carriers: await epicCarriers(root, catalog, checked, args.epic),
       });
       const { errors, warnings } = countBySeverity(findings);
       out(

@@ -23,9 +23,12 @@ import {
   TASK_STATUSES,
   TASK_V1_FIELDS,
 } from "./contract";
+import { bumpTargets, type Carrier, carriersAcross, compareVersions, matchesPackage } from "./deps";
 import type { Finding } from "./findings";
+import type { ImageRelease } from "./images";
 import {
   type Command,
+  crossLinks,
   namesCommand,
   namesVerbatim,
   type Profile,
@@ -47,6 +50,11 @@ import { type EpicRecord, epicId, type PmRepo } from "./repo";
 export interface CheckOptions {
   /** stored profiles by project id; the part and release-link rules read them */
   profiles?: Map<string, Profile>;
+  /**
+   * For E-DEP-001: by package a task of the epic under work bumps (lowercased), the registered
+   * repos checked out here that carry it. Absent when the epic bumps nothing.
+   */
+  carriers?: Map<string, Carrier[]>;
   staleDays: number;
   today: string;
   /** the main checkout's project catalog; absent or empty means no catalog rules */
@@ -316,6 +324,21 @@ export const partRules: Rule = (repo, opts) => {
     if (p && !empty && repos.some((u) => sameRepo(u, project.url))) profiles.set(project.id, p);
   }
   if (profiles.size === 0) return [];
+  // A release of the epic's repos that ships through another repo makes that repo's parts usable,
+  // whether or not repos: names it: the rollout task lives there.
+  const cross = crossLinks(opts.profiles).filter((c) => profiles.has(c.project));
+  for (const c of cross) {
+    for (const r of c.rollouts) {
+      const q = opts.profiles.get(r.project);
+      if (q) profiles.set(r.project, q);
+    }
+  }
+  // The parts a tag-triggered release covers: a task that only pushes the tag is that release.
+  const tagReleased = new Set(
+    cross
+      .filter((c) => c.release.trigger.kind === "tag")
+      .map((c) => partId(c.project, c.release.folder)),
+  );
   const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
   // The ids a planner can use, capped: a hint repeated per task must stay short.
   const allIds = [...profiles].flatMap(([id, p]) => [
@@ -374,7 +397,8 @@ export const partRules: Rule = (repo, opts) => {
       // A release task that runs the release as written, after the part's checked work, is checked
       // by that release: asking it for a test cost a round. A task that changes code still is not.
       const releases =
-        hit.part.commands.some((c) => c.role === "release" && namesVerbatim(text, c)) &&
+        (hit.part.commands.some((c) => c.role === "release" && namesVerbatim(text, c)) ||
+          (tagReleased.has(partId(hit.project, hit.part.folder)) && TAG_PUSH.test(text))) &&
         reachesAny(e, t.id, checkedBy.get(partKey(hit)) ?? new Set());
       if (checks.length > 0 && !releases && !checks.some((c) => namesCommand(text, c))) {
         out.push(
@@ -427,8 +451,135 @@ export const partRules: Rule = (repo, opts) => {
       }
     }
   }
+  out.push(...crossReleaseFindings(e.epic.path, e, live, named, cross));
   return out;
 };
+
+/** A task that pushes a release tag: `git tag v1.2.3`, "push a v1.2.3 tag", "tag v1.2.3". */
+// A version holds dots, so the words may be a short span apart, not a sentence apart.
+const TAG_PUSH =
+  /\bgit\s+tag\b|\bpush\w*\b[^\n]{0,40}?\btags?\b|\btag\s+`?v?\d|\bcreate\w*\b[^\n]{0,40}?\btag\b|\bcut\b[^\n]{0,30}?\b(?:tag|release)\b/i;
+
+function releasesBy(r: ImageRelease, text: string): boolean {
+  return r.trigger.kind === "tag" ? TAG_PUSH.test(text) : text.includes(r.trigger.pattern);
+}
+
+/**
+ * E-REL-001 and E-REL-002 for a release whose rollout is in another registered repo (#17): in
+ * the security-fix run 9 of 10 plans fixed storefront and never shipped it.
+ */
+function crossReleaseFindings(
+  epicPath: string,
+  e: EpicRecord,
+  live: EpicRecord["tasks"],
+  named: Map<string, string[]>,
+  cross: ReturnType<typeof crossLinks>,
+): Finding[] {
+  const out: Finding[] = [];
+  for (const c of cross) {
+    if (!c.release.image || c.rollouts.length === 0) continue;
+    const source = partId(c.project, c.release.folder);
+    const changed = live.filter((t) => named.get(t.id)?.includes(source));
+    if (changed.length === 0) continue;
+    const { kind, pattern } = c.release.trigger;
+    // A branch-triggered release ships on merge: the change tasks are the release.
+    const releasers = new Set(
+      kind === "branch"
+        ? changed.map((t) => t.id)
+        : live.filter((t) => releasesBy(c.release, taskText(t))).map((t) => t.id),
+    );
+    if (releasers.size === 0) {
+      const how = kind === "tag" ? `pushes a ${pattern} tag` : `runs ${pattern}`;
+      out.push(
+        err(
+          epicPath,
+          "E-REL-001",
+          `${changed.map((t) => t.id).join(", ")} change ${source}, and no task releases it`,
+          `add a task that ${how} after those changes, or set no-release: <why> on the epic when it ships no release`,
+        ),
+      );
+    }
+    const places = c.rollouts.map((r) => ({
+      id: partId(r.project, r.folder),
+      key: r.key,
+      file: r.file,
+    }));
+    const movers = live.filter((t) =>
+      places.some((x) => named.get(t.id)?.includes(x.id) && taskText(t).includes(x.key)),
+    );
+    if (!movers.some((t) => releasers.has(t.id) || reachesAny(e, t.id, releasers))) {
+      const first = places[0] as (typeof places)[number];
+      const after = kind === "branch" ? `the tasks that change ${source}` : "the release task";
+      out.push(
+        err(
+          epicPath,
+          "E-REL-002",
+          `no task naming ${places.map((x) => x.id).join(" or ")} moves ${first.key} after ${source}'s release`,
+          `add a task with parts: [${first.id}] that sets ${first.key} in ${first.file} and depends on ${after}`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * E-DEP-001: a task bumps a package, and another registered repo still carries an older version
+ * that no task of the epic changes. In the security-fix run every plan missed webshop.
+ */
+export const depRules: Rule = (repo, opts) => {
+  const e = repo.epics.find((x) => x.slug === opts.epic);
+  if (!e?.epic || !opts.carriers || opts.carriers.size === 0 || e.tasks.some(started)) return [];
+  const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
+  const skipped = new Set(
+    getList(e.epic.frontmatter, "dep-skip").map((x) => x.split(":")[0]?.trim() ?? ""),
+  );
+  const parts = live.flatMap((t) => getList(t.frontmatter, "parts"));
+  const covered = (project: string) =>
+    parts.some((id) => id === project || id.startsWith(`${project}/`));
+  const out: Finding[] = [];
+  const seen = new Set<string>();
+  for (const t of live) {
+    for (const b of bumpTargets(taskText(t))) {
+      for (const c of opts.carriers.get(b.name.toLowerCase()) ?? []) {
+        const older = compareVersions(c.ecosystem, c.version, b.version);
+        if (older === null || older >= 0 || covered(c.project) || skipped.has(c.project)) continue;
+        const k = `${c.project}\0${c.name}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(
+          err(
+            e.epic.path,
+            "E-DEP-001",
+            `${c.project} also carries ${c.name} ${c.version} (${c.file}:${c.line}); no task in this epic changes it`,
+            `add a task with parts in ${c.project} that moves it to ${b.version}, or set dep-skip: ["${c.project}: <why>"] on the epic`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+};
+
+/**
+ * What E-DEP-001 reads: for each package a task of the epic under work bumps, the registered repos
+ * checked out here that carry it. Undefined when the epic bumps nothing, so no checkout is read.
+ */
+export async function epicCarriers(
+  root: string,
+  catalog: Catalog,
+  repo: PmRepo,
+  epic: string | undefined,
+): Promise<Map<string, Carrier[]> | undefined> {
+  const e = repo.epics.find((x) => x.slug === epic);
+  if (!e) return undefined;
+  const names = [
+    ...new Set(e.tasks.flatMap((t) => bumpTargets(taskText(t)).map((b) => b.name.toLowerCase()))),
+  ];
+  if (names.length === 0) return undefined;
+  const r = await carriersAcross(root, catalog, names);
+  return new Map(names.map((n) => [n, r.carriers.filter((c) => matchesPackage(n, c))]));
+}
 
 function findCycle(epic: EpicRecord): string[] | null {
   const deps = new Map(epic.tasks.map((t) => [t.id, getList(t.frontmatter, "depends-on")]));
@@ -855,6 +1006,7 @@ export const RULES = [
   "E-PRT-003",
   "E-REL-001",
   "E-REL-002",
+  "E-DEP-001",
   "E-RND-001",
   "E-RND-002",
   "E-RND-003",
@@ -881,6 +1033,7 @@ const rules: Rule[] = [
   referenceRules,
   planGraphRules,
   partRules,
+  depRules,
   derivedViewRules,
   stateRules,
   acceptanceRules,
