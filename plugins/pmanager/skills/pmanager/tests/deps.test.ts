@@ -231,6 +231,7 @@ describe("formatDepsBlock", () => {
     ],
     unchecked: [{ project: "worker", availability: "not mapped" }],
     skipped: [],
+    unread: [],
   };
   test("one line per carrier, then the repos that were not checked", () => {
     const lines = formatDepsBlock(report);
@@ -247,7 +248,9 @@ describe("formatDepsBlock", () => {
       carriers: Array.from({ length: 25 }, (_, i) => ({ ...report.carriers[0], line: i + 1 })),
     } as CarrierReport;
     expect(formatDepsBlock(many, 20).at(-2)).toBe("  +5 more in webshop");
-    expect(formatDepsBlock({ carriers: [], unchecked: report.unchecked, skipped: [] })).toEqual([]);
+    expect(
+      formatDepsBlock({ carriers: [], unchecked: report.unchecked, skipped: [], unread: [] }),
+    ).toEqual([]);
   });
 });
 
@@ -372,6 +375,7 @@ describe("carriersAcross", () => {
       carriers: [],
       unchecked: [],
       skipped: [],
+      unread: [],
     });
   }, 30_000);
 });
@@ -441,6 +445,7 @@ describe("review fixes: package facts", () => {
       carriers: [...many, { ...many[0], project: "admin", line: 9 } as (typeof many)[number]],
       unchecked: [],
       skipped: [],
+      unread: [],
     });
     expect(lines.some((l) => l.startsWith("  [admin "))).toBe(true);
     expect(lines.some((l) => l.includes("more in storefront"))).toBe(true);
@@ -490,5 +495,119 @@ describe("review fixes: a skipped file that may carry the package", () => {
   test("an invalid lockfile that does not name it prints nothing", async () => {
     const { root, catalog } = await workerWith({ "package-lock.json": "{ truncated" });
     expect(formatDepsBlock(await carriersAcross(root, catalog, ["path-to-regexp"]))).toEqual([]);
+  });
+
+  test("a lockfile pm cannot read is named when it names the package", async () => {
+    const { root, catalog } = await workerWith({
+      "yarn.lock": 'leaf@^1.0.0:\n  version "1.0.0"\n',
+      "web/pnpm-lock.yaml": "packages:\n  /leaf@1.0.0:\n    resolution: {}\n",
+      "old/bun.lockb": "\u0000\u0001leaf\u0000",
+      "other/yarn.lock": 'express@^4.0.0:\n  version "4.21.1"\n',
+    });
+    const lines = formatDepsBlock(await carriersAcross(root, catalog, ["leaf"]));
+    expect(lines[0]).toBe("deps: none found");
+    const notes = lines.filter((l) => l.startsWith("  [deps] not read: worker "));
+    expect(notes.map((l) => l.split(" ")[6])).toEqual([
+      "old/bun.lockb:",
+      "web/pnpm-lock.yaml:",
+      "yarn.lock:",
+    ]);
+  });
+
+  test("a lockfile beside one pm reads is not noted", async () => {
+    const { root, catalog } = await workerWith({
+      "package.json": '{ "dependencies": { "leaf": "1.0.0" } }',
+      "package-lock.json": JSON.stringify({
+        packages: {
+          "": { dependencies: { leaf: "1.0.0" } },
+          "node_modules/leaf": { version: "1.0.0" },
+        },
+      }),
+      "yarn.lock": 'leaf@^1.0.0:\n  version "1.0.0"\n',
+    });
+    const lines = formatDepsBlock(await carriersAcross(root, catalog, ["leaf"]));
+    expect(lines.filter((l) => l.includes("not read"))).toEqual([]);
+    expect(lines).toContain("  [worker package-lock.json:1] leaf 1.0.0 direct");
+  });
+
+  test("a package.json with no lockfile is named when it declares the package", async () => {
+    const { root, catalog } = await workerWith({
+      "package.json": '{ "name": "legacy", "dependencies": { "leaf": "^1.2.0" } }',
+    });
+    expect(formatDepsBlock(await carriersAcross(root, catalog, ["leaf"]))).toEqual([
+      "deps: none found",
+      "  [deps] not read: worker package.json: no lockfile; it declares leaf ^1.2.0, but not the version that installs or what it pulls in",
+    ]);
+  });
+
+  test("a package.json with no lockfile is named whenever the block prints", async () => {
+    const { root, catalog } = await workerWith({
+      "api/package-lock.json": JSON.stringify({
+        packages: {
+          "": { dependencies: { leaf: "1.0.0" } },
+          "node_modules/leaf": { version: "1.0.0" },
+        },
+      }),
+      "api/package.json": '{ "dependencies": { "leaf": "1.0.0" } }',
+      "web/package.json": '{ "dependencies": { "express": "^4.0.0" } }',
+      "web/node_modules/express/package.json": '{ "name": "express" }',
+    });
+    const lines = formatDepsBlock(await carriersAcross(root, catalog, ["leaf"]));
+    expect(lines.filter((l) => l.includes("not read"))).toEqual([
+      "  [deps] not read: worker web/package.json: no lockfile, so what it pulls in is unknown",
+    ]);
+  });
+
+  test("a package.json with no lockfile that does not name it prints nothing on its own", async () => {
+    const { root, catalog } = await workerWith({
+      "package.json": '{ "dependencies": { "express": "^4.0.0", "leafy": "1.0.0" } }',
+    });
+    expect(formatDepsBlock(await carriersAcross(root, catalog, ["leaf"]))).toEqual([]);
+  });
+});
+
+describe("workspace members", () => {
+  const expected = [
+    ["express", "4.21.1", true, null],
+    ["leaf", "1.0.0", true, null],
+    ["leaf", "2.0.0", true, null],
+    ["qs", "6.13.0", false, "express 4.21.1"],
+  ];
+  const shape = (deps: { name: string; version: string; direct: boolean; via: string | null }[]) =>
+    deps.filter((d) => d.name !== "app").map((d) => [d.name, d.version, d.direct, d.via]);
+
+  test("package-lock.json: a member's own dependencies are direct, and theirs come via them", () => {
+    const raw = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "root", workspaces: ["packages/*"], dependencies: { leaf: "1.0.0" } },
+        "node_modules/app": { resolved: "packages/app", link: true },
+        "node_modules/express": { version: "4.21.1", dependencies: { qs: "6.13.0" } },
+        "node_modules/leaf": { version: "1.0.0" },
+        "node_modules/qs": { version: "6.13.0" },
+        "packages/app": { version: "0.1.0", dependencies: { express: "4.21.1", leaf: "2.0.0" } },
+        "packages/app/node_modules/leaf": { version: "2.0.0" },
+      },
+    });
+    expect(shape(parseDeps("package-lock.json", raw).deps)).toEqual(expected);
+  });
+
+  test("bun.lock: a member's own dependencies are direct, and theirs come via them", () => {
+    const raw = `{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": { "name": "root", "dependencies": { "leaf": "1.0.0", }, },
+    "packages/app": { "name": "app", "version": "0.1.0", "dependencies": { "express": "4.21.1", "leaf": "2.0.0", }, },
+  },
+  "packages": {
+    "app": ["app@workspace:packages/app"],
+    "app/leaf": ["leaf@2.0.0", "", {}, "sha512-b"],
+    "express": ["express@4.21.1", "", { "dependencies": { "qs": "6.13.0" } }, "sha512-a"],
+    "leaf": ["leaf@1.0.0", "", {}, "sha512-c"],
+    "qs": ["qs@6.13.0", "", {}, "sha512-d"],
+  },
+}
+`;
+    expect(shape(parseDeps("bun.lock", raw).deps)).toEqual(expected);
   });
 });

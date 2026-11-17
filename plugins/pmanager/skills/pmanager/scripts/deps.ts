@@ -26,12 +26,17 @@ export interface CarrierReport {
   carriers: Carrier[];
   unchecked: { project: string; availability: string }[];
   skipped: { project: string; file: string; why: string }[];
+  /** npm-family files pm cannot resolve; `names` when the file names a keyword's package */
+  unread: { project: string; file: string; why: string; names: boolean }[];
 }
 
 // A lockfile this large is not one a planning run should wait on.
 const MAX_BYTES = 10 * 1024 * 1024;
 const DEP_FILE =
   /^(?:package-lock\.json|bun\.lock|go\.mod|go\.sum|uv\.lock|poetry\.lock|requirements[\w.-]*\.txt|Dockerfile[\w.-]*)$/;
+const JS_LOCK_READ = /^(?:package-lock\.json|bun\.lock)$/;
+const JS_LOCK_UNREAD = /^(?:bun\.lockb|yarn\.lock|pnpm-lock\.yaml|npm-shrinkwrap\.json)$/;
+const DECLARED = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 
 /**
  * Line numbers by offset from an index built once per file, and keys found with a forward cursor:
@@ -118,16 +123,19 @@ function npmLock(file: string, raw: string): Dep[] {
     >;
   };
   const pkgs = lock.packages ?? {};
-  const root = pkgs[""] ?? {};
-  const rootNames = Object.keys({
-    ...root.dependencies,
-    ...root.devDependencies,
-    ...root.optionalDependencies,
-    ...root.peerDependencies,
-  });
   const has = (k: string) => k in pkgs;
   const childNames = (e: NpmEntry) => Object.keys({ ...e.dependencies, ...e.optionalDependencies });
-  const roots = rootNames.flatMap((n) => resolveNested(has, "", n) ?? []);
+  // The root ("") and each workspace member (a key outside node_modules) declare direct dependencies.
+  const roots = Object.entries(pkgs).flatMap(([key, e]) =>
+    key.includes("node_modules/")
+      ? []
+      : Object.keys({
+          ...e.dependencies,
+          ...e.devDependencies,
+          ...e.optionalDependencies,
+          ...e.peerDependencies,
+        }).flatMap((n) => resolveNested(has, key, n) ?? []),
+  );
   const rootOf = chains(roots, (key) =>
     childNames(pkgs[key] ?? {}).flatMap((n) => resolveNested(has, key, n) ?? []),
   );
@@ -138,7 +146,7 @@ function npmLock(file: string, raw: string): Dep[] {
     if (!key.includes("node_modules/") || !e.version) continue;
     const name = nameOf(key);
     const top = rootOf.get(key);
-    const direct = top === key && key === `node_modules/${name}`;
+    const direct = top === key;
     const via = !direct && top ? `${nameOf(top)} ${pkgs[top]?.version ?? ""}`.trim() : null;
     out.push({
       name,
@@ -164,6 +172,7 @@ function bunLock(file: string, raw: string): Dep[] {
     workspaces?: Record<
       string,
       {
+        name?: string;
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
         optionalDependencies?: Record<string, string>;
@@ -180,7 +189,6 @@ function bunLock(file: string, raw: string): Dep[] {
     >;
   };
   const pkgs = lock.packages ?? {};
-  const ws = lock.workspaces?.[""] ?? {};
   const has = (k: string) => k in pkgs;
   // A child of key K resolves at "K/child" when bun nested it there, else at the top.
   const resolve = (parent: string, name: string): string | null => {
@@ -200,11 +208,13 @@ function bunLock(file: string, raw: string): Dep[] {
       ? { name: id.slice(0, at), version: id.slice(at + 1) }
       : { name: id, version: "" };
   };
-  const roots = Object.keys({
-    ...ws.dependencies,
-    ...ws.devDependencies,
-    ...ws.optionalDependencies,
-  }).flatMap((n) => resolve("", n) ?? []);
+  // The root and each workspace member declare direct dependencies; bun keys a member's own
+  // copies under the member's name ("app/leaf"), not its path.
+  const roots = Object.entries(lock.workspaces ?? {}).flatMap(([path, w]) =>
+    Object.keys({ ...w.dependencies, ...w.devDependencies, ...w.optionalDependencies }).flatMap(
+      (n) => resolve(path === "" ? "" : (w.name ?? ""), n) ?? [],
+    ),
+  );
   const rootOf = chains(roots, (key) => {
     const meta = pkgs[key]?.[2] ?? {};
     return Object.keys({ ...meta.dependencies, ...meta.optionalDependencies }).flatMap(
@@ -216,7 +226,7 @@ function bunLock(file: string, raw: string): Dep[] {
     const { name, version } = spec(key);
     if (!name || !version) continue;
     const top = rootOf.get(key);
-    const direct = top === key && key === name;
+    const direct = top === key;
     const via = !direct && top ? `${spec(top).name} ${spec(top).version}` : null;
     out.push({
       name,
@@ -513,7 +523,8 @@ async function carriersIn(
 ): Promise<void> {
   const ls = await git(["ls-files"], checkout);
   if (ls.code !== 0) return;
-  const files = ls.stdout.split("\n").filter((f) => DEP_FILE.test(basename(f)));
+  const all = ls.stdout.split("\n").filter(Boolean);
+  const files = all.filter((f) => DEP_FILE.test(basename(f)));
   const hasGoMod = new Set(files.filter((f) => basename(f) === "go.mod").map((f) => dirname(f)));
   for (const f of files) {
     if (basename(f) === "go.sum" && hasGoMod.has(dirname(f))) continue;
@@ -534,6 +545,65 @@ async function carriersIn(
     for (const d of deps)
       if (keywords.some((k) => matchesPackage(k, d))) r.carriers.push({ ...d, project });
   }
+  await unreadIn(checkout, project, keywords, all, r);
+}
+
+/** The package and range a package.json declares for a keyword, as "name range". */
+function declaredIn(raw: string | null, keywords: string[]): string | null {
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(raw ?? "");
+  } catch {
+    return null;
+  }
+  if (!pkg || typeof pkg !== "object") return null;
+  for (const section of DECLARED) {
+    const deps = (pkg as Record<string, unknown>)[section];
+    if (!deps || typeof deps !== "object") continue;
+    for (const [name, range] of Object.entries(deps)) {
+      const version = String(range);
+      if (keywords.some((k) => matchesPackage(k, { name, ecosystem: "npm", version })))
+        return `${name} ${version}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * npm-family files pm cannot resolve, so a repo is never silently "not affected": a lockfile in a
+ * format pm does not parse, and a package.json with no lockfile in its directory or above.
+ */
+async function unreadIn(
+  checkout: string,
+  project: string,
+  keywords: string[],
+  files: string[],
+  r: CarrierReport,
+): Promise<void> {
+  const own = files.filter((f) => !f.split("/").includes("node_modules"));
+  const lockDirs = (re: RegExp) =>
+    new Set(own.filter((f) => re.test(basename(f))).map((f) => dirname(f)));
+  const readable = lockDirs(JS_LOCK_READ);
+  const unreadable = lockDirs(JS_LOCK_UNREAD);
+  const locked = (dir: string): boolean =>
+    readable.has(dir) || unreadable.has(dir) || (dir !== "." && locked(dirname(dir)));
+  for (const f of own) {
+    const name = basename(f);
+    if (JS_LOCK_UNREAD.test(name) && !readable.has(dirname(f))) {
+      const raw = await readText(join(checkout, f));
+      const k = raw === null ? undefined : keywords.find((x) => mentions(raw, x));
+      if (k) {
+        const why = `pm does not read this format, and it mentions ${k}`;
+        r.unread.push({ project, file: f, why, names: true });
+      }
+    } else if (name === "package.json" && !locked(dirname(f))) {
+      const declared = declaredIn(await readText(join(checkout, f)), keywords);
+      const why = declared
+        ? `no lockfile; it declares ${declared}, but not the version that installs or what it pulls in`
+        : "no lockfile, so what it pulls in is unknown";
+      r.unread.push({ project, file: f, why, names: declared !== null });
+    }
+  }
 }
 
 /** Every registered project checked out here that carries a keyword's package; read now, never stored. */
@@ -542,7 +612,7 @@ export async function carriersAcross(
   catalog: Catalog,
   keywords: string[],
 ): Promise<CarrierReport> {
-  const r: CarrierReport = { carriers: [], unchecked: [], skipped: [] };
+  const r: CarrierReport = { carriers: [], unchecked: [], skipped: [], unread: [] };
   if (keywords.length === 0 || catalog.projects.length === 0) return r;
   const map = await readLocalRepoMap(await repoMapPmDir(root));
   for (const p of catalog.projects) {
@@ -566,14 +636,19 @@ const PER_REPO = 5;
 
 /**
  * The research block: nothing when no repo carries the package and no file that names it was
- * skipped, so other runs stay as they were.
+ * skipped or left unread, so other runs stay as they were. Once it prints, every unread file
+ * shows, since a package.json with no lockfile hides what it pulls in.
  */
 export function formatDepsBlock(r: CarrierReport, limit = 20): string[] {
   const notes = [
     ...r.skipped.map((s) => `  [deps] skipped: ${s.project} ${s.file}: ${s.why}`),
+    ...r.unread.map((u) => `  [deps] not read: ${u.project} ${u.file}: ${u.why}`),
     ...r.unchecked.map((u) => `  [deps] not checked: ${u.project} (${u.availability})`),
   ];
-  if (r.carriers.length === 0) return r.skipped.length > 0 ? ["deps: none found", ...notes] : [];
+  if (r.carriers.length === 0)
+    return r.skipped.length > 0 || r.unread.some((u) => u.names)
+      ? ["deps: none found", ...notes]
+      : [];
   const byRepo = new Map<string, Carrier[]>();
   for (const c of r.carriers) byRepo.set(c.project, [...(byRepo.get(c.project) ?? []), c]);
   const per = Math.max(PER_REPO, Math.floor(limit / byRepo.size));
