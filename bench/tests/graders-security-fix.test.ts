@@ -543,4 +543,63 @@ describe("security-fix grader", () => {
       ],
     ).toBe(true);
   });
+
+  const safe = async (tasks: T[], epicBody?: string) =>
+    (await grade(tasks, epicBody === undefined ? {} : { epicBody })).passed["no-unproven-safe"];
+  const bump = async (tasks: T[]) => (await grade(tasks)).passed["right-bump"];
+
+  test("v3: an out-of-scope line about the repo the task fixes is not a safe claim", async () => {
+    const scope = "- Changing orders' Dockerfile or base image: unaffected by this finding.";
+    expect(await safe(swap(T05, { what: `${T05.what}\n\n${scope}` }))).toBe(true);
+    const other = "- Changing webshop: unaffected by this finding.";
+    expect(await safe(swap(T01, { what: `${T01.what}\n\n${other}` }))).toBe(false);
+  });
+
+  test("v3: the version a repo has now is where it starts, not a choice", async () => {
+    const quote = (repo: string, v: string) =>
+      `Run \`go get ${GO.pkg}@>=${GO.fixed}\` (or the minimum version that\nsatisfies the fix) in the ${repo} module, then \`go mod tidy\`.\n\nEvidence: [${repo} go.mod:7] \`require ${GO.pkg} ${v} // indirect\`;\n[${repo} go.sum:3-4].`;
+    const tasks = swap(T05, { what: quote("orders", "v0.17.0") }).map((t) =>
+      t.id === "T08" ? { ...t, what: quote("webshop", "v0.23.0") } : t,
+    );
+    expect(await bump(tasks)).toBe(true);
+    expect(await bump(swap(T05, { what: `In orders, run go get ${GO.pkg}@v0.23.0.` }))).toBe(false);
+  });
+
+  test("v3: a webshop task with the same CVE as orders is no orders fix", async () => {
+    const title = `Bump ${GO.pkg} in webshop (same CVE as orders, found in research)`;
+    expect((await grade(swap(T08, { title }))).passed["fix-reaches-deploy"]).toBe(true);
+    const accept = `The commit/PR notes this addresses the same ${GO.cve} class as\n      orders, found during research rather than by the original scan.`;
+    expect((await grade(swap(T08, { accept }))).passed["fix-reaches-deploy"]).toBe(true);
+  });
+
+  test("v3: a not-affected claim about the base image cites what the repo builds from", async () => {
+    const img = finding("image");
+    const context = `${img.cve} (${img.advisory}) was flagged against \`${BASE_IMAGE.osPackage}\n${BASE_IMAGE.installed}\` in \`${BASE_IMAGE.image}\`, fixed in \`${BASE_IMAGE.fixed}\`. storefront's\n\`Dockerfile\` builds from exactly this tag: \`FROM ${BASE_IMAGE.image}\`\n[storefront Dockerfile:1]. webshop is not affected: it builds from\n\`golang:1.23\` and \`gcr.io/distroless/static\`, not a Node/Alpine image\n[pm research webshop].`;
+    expect(await safe(swap(T02, { what: `${context}\n\n${T02.what}` }))).toBe(true);
+    const bare = `webshop is not affected by ${img.cve}.`;
+    expect(await safe(swap(T02, { what: `${bare}\n\n${T02.what}` }))).toBe(false);
+  });
+
+  test("v3: a claim that states the locked version cites the lockfile", async () => {
+    const claim = `- **Should:** T09: the currently-locked \`${PY.pkg}\` version is already\n  patched (2.34.2 ≥ ${PY.fixed}), so shipping the floor bump hardens against a\n  future regression but is not required to clear the *current* flagged\n  finding, which T01 may close on its own with evidence.`;
+    expect(await safe(ALL, claim)).toBe(true);
+    expect(await safe(ALL, `The worker's \`${PY.pkg}\` is already patched.`)).toBe(false);
+  });
+
+  test("v3: a FROM line moved to a tag chosen by its libssl3 passes right-bump", async () => {
+    const what = `- Identify a \`node\` image tag (same major/minor Node 20 line where possible) whose Alpine base reports \`${BASE_IMAGE.osPackage} >= ${BASE_IMAGE.fixed}\`.\n- Update \`storefront/Dockerfile:1\`'s \`FROM\` line to that tag (pin to a specific tag, not a floating one).\n- Rebuild the image locally and confirm \`apk info ${BASE_IMAGE.osPackage}\` reports \`>= ${BASE_IMAGE.fixed}\`.`;
+    const title = `Bump storefront's base image off the vulnerable ${BASE_IMAGE.osPackage} build`;
+    expect(await bump(swap(T02, { title, what }))).toBe(true);
+    const pull = `Rebuild the image with \`docker build --pull\` and confirm \`apk info ${BASE_IMAGE.osPackage}\` reports \`>= ${BASE_IMAGE.fixed}\`.`;
+    expect(await bump(swap(T02, { title, what: pull }))).toBe(false);
+  });
+
+  test("v3: a parent's version raised by rule, and a move to the next patch tag, pass right-bump", async () => {
+    const npm = `- In \`storefront/package.json\`, bump the \`express\` version to the first\n  release line that bundles \`${NPM.pkg}\` >= ${NPM.fixed} (assumption: 4.21.2\n  - confirm against the installed \`node_modules/${NPM.pkg}/package.json\`\n  after install).\n- Run \`npm install\` to regenerate \`package-lock.json\`.`;
+    expect(await bump(swap(T01, { what: npm }))).toBe(true);
+    const image = `- Rebuild storefront's image so it picks up current Alpine 3.20 packages:\n  either by re-pulling/re-building against a newer \`${BASE_IMAGE.image}\`\n  digest, or, if that tag's packages\n  are frozen, moving to the next patch tag in the \`node:20.18.x-alpine3.20\`\n  line that includes the ${BASE_IMAGE.osPackage} fix.`;
+    expect(await bump(swap(T02, { title: "Patch storefront's base image", what: image }))).toBe(
+      true,
+    );
+  });
 });

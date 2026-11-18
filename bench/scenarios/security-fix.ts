@@ -123,7 +123,7 @@ async function prepareSecurityFixCondition(
 export const securityFix: Scenario = {
   name: "security-fix",
   task: SECURITY_FIX_REQUEST,
-  graderVersion: 2,
+  graderVersion: 3,
   offline: true,
   buildFixture: buildSecurityFixFixture,
   prepareCondition: prepareSecurityFixCondition,

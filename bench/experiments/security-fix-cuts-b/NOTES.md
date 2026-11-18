@@ -55,11 +55,23 @@ Each cause from the paired run's NOTES, against this run:
 
 ## Grader disagreements
 
-The hand verdict stands. Each is a grader-version-2 false failure:
+The hand verdict stands. Each is a grader-version-2 false failure, and grader version 3 (#69) passes each:
 - cuts-b p3, `no-unproven-safe`: it read an out-of-scope line ("Changing orders' Dockerfile or base image: unaffected by this finding") as an uncited safety claim. orders is fixed in the same task.
-- cuts-b p4, `right-bump`: it read the current versions named in T03 and T04 (0.17.0, 0.23.0) as the chosen ones. The tasks move x/net to 0.36.0 or later.
-- cuts-b p5, `fix-reaches-deploy`: "orders Go: the release does not wait for the fix". T08 (orders release) depends on T02 (the orders fix). The grader likely took T03, whose title mentions orders, as an orders fix.
-- cuts-b p5, `no-unproven-safe`: it read the restated finding ("CVE-2024-12797 was flagged against `libssl3 3.3.2-r1`") as a claim.
+- cuts-b p4, `right-bump`: it read the current versions quoted in T03 and T04 (`require golang.org/x/net v0.17.0 // indirect`, and v0.23.0 for webshop) as the chosen ones. The tasks move x/net to 0.36.0 or later.
+- cuts-b p5, `fix-reaches-deploy`: "orders Go: the release does not wait for the fix". T08 (orders release) depends on T02 (the orders fix), but T03's title says webshop has the "same CVE as orders", so the grader took T03 as an orders fix.
+- cuts-b p5, `no-unproven-safe`: T05 says webshop is not affected because it builds from `golang:1.23` and `gcr.io/distroless/static`. Version 2 took only dependency files as a citation, never what an image builds from. Its evidence quoted the start of the paragraph, the restated finding, which hid the claim.
+
+## Grader version 3
+
+Version 2 disagreed with the hand audits in 8 verdicts across the 38 saved security-fix plans: the four above, and four in `../security-fix-paired/NOTES.md`. Version 3 agrees with every verdict of all 38, and changes none of the cold run's. Each fix has a test from a run's own wording, and each test failed first.
+- **fix-reaches-deploy:** "same ... as orders" in another repo's task ("the same CVE as orders", "the same CVE-2025-22870 class as orders") names orders without working there.
+- **right-bump**
+  - A version a repo has now (`require golang.org/x/net v0.17.0 // indirect` in orders) is where it starts, not a choice.
+  - "bump the `express` version to the first release line that ..." names the parent by rule.
+  - A `FROM` line moved to "a tag whose Alpine base reports `libssl3 >= 3.3.3-r0`", or "moving to the next patch tag", is a base move.
+- **no-unproven-safe**
+  - In the task that fixes orders, "Changing orders' Dockerfile or base image: unaffected by this finding" is the task's scope, not a claim.
+  - "The currently-locked `requests` version" cites the lockfile, and what a repo builds from (its Dockerfile, "builds from `golang:1.23`") cites a claim about the base image.
 
 ## Cost by phase
 

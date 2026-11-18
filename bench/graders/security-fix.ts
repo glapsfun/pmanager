@@ -36,9 +36,10 @@ const PATHS: Partial<Record<Target, RegExp>> = {
   argocd: /\bworkloads\/|\bkustomization\.ya?ml\b|\bnewTag\b/i,
 };
 
-// "The same change as in orders" names orders without working there.
+// "The same change as in orders", "the same CVE-2025-22870 class as orders": names orders
+// without working there.
 const CROSS_REF =
-  /\b(?:the\s+)?same\s+(?:change|fix|bump|upgrade)\s+as\s+(?:in\s+|for\s+)?(?:orders|webshop|storefront)\b|\b(?:as|like)\s+(?:in|for)\s+(?:orders|webshop|storefront)\b/gi;
+  /\bsame\b[^.\n]{0,40}?\bas\s+(?:in\s+|for\s+)?(?:orders|webshop|storefront)\b|\b(?:as|like)\s+(?:in|for)\s+(?:orders|webshop|storefront)\b/gi;
 
 export function targetsOf(t: TaskDoc): Target[] {
   const text = work(t).replace(CROSS_REF, "");
@@ -160,7 +161,7 @@ const LATEST = "latest";
 const RULE = "rule";
 const V = "`?(?:>=|≥)?\\s*[\\^~]?v?(\\d+\\.\\d+(?:\\.\\d+)?)`?";
 const FROM_V =
-  "(?:(?:dependency|package)\\s+)?(?:in\\s+\\S+\\s+)?(?:from\\s+`?v?\\d+\\.\\d+(?:\\.\\d+)?`?\\s+)?";
+  "(?:(?:dependency|package|version)\\s+)?(?:in\\s+\\S+\\s+)?(?:from\\s+`?v?\\d+\\.\\d+(?:\\.\\d+)?`?\\s+)?";
 const ARROW = "(?:→|->|=>)";
 /** Explicit targets right after the name; a version anywhere else on the line says nothing. */
 const AT = new RegExp(`^@${V}`);
@@ -280,6 +281,18 @@ const NEWER_BASE =
 const DIGEST = /@sha256:|\bdigest\b/i;
 const IN_DOCKERFILE = /\bDockerfile\b|\bFROM\b/;
 const NODE_TAG = /\bnode:[\w.-]*\w/g;
+/** "moving to the next patch tag": a tag change, so a Dockerfile change, Dockerfile named or not. */
+const MOVE_TAG =
+  /\b(?:mov|switch|bump|upgrad|chang)\w*\s+to\s+(?:the\s+|a\s+)?(?:next|newer|later|patched)\b[^.\n]*?\btag\b/i;
+const CHANGE_VERB = /\b(?:update|change|move|bump|switch|set|point)\w*\b/i;
+/** The tag named by rule: "a tag whose Alpine base reports `libssl3 >= 3.3.3-r0`". */
+const IMAGE_FLOOR = new RegExp(
+  `\\b${BASE_IMAGE.osPackage}\\s*\`?\\s*(?:>=|≥)\\s*\`?${BASE_IMAGE.fixed.replace(/\./g, "\\.")}`,
+  "i",
+);
+/** A line that changes the FROM line, not one that only rebuilds or checks the image. */
+const changesFrom = (flat: string) =>
+  flat.split("\n").some((l) => CHANGE_VERB.test(l) && /\bFROM\b/.test(l));
 
 /** A node tag newer than the base: a later version, a later Alpine at the same one, or a floating tag. */
 function newerTag(tag: string): boolean {
@@ -318,6 +331,7 @@ function judge(t: TaskDoc, fix: Fix): "ok" | string | null {
     const dockerfile = IN_DOCKERFILE.test(text);
     const flat = text.replace(/\n[ \t]+/g, " ");
     if (APK_UPGRADE.test(flat) || (dockerfile && (newTag || NEWER_BASE.test(flat)))) return "ok";
+    if (MOVE_TAG.test(flat) || (changesFrom(flat) && IMAGE_FLOOR.test(flat))) return "ok";
     return DIGEST.test(text) ? "pins a digest of the same image" : null;
   }
   const parent = parentOf(fix.service);
@@ -325,8 +339,16 @@ function judge(t: TaskDoc, fix: Fix): "ok" | string | null {
   const f = fix.key === "npm" ? NPM : GO;
   const parentNames = fix.key === "npm" ? [parent.pkg] : [parent.pkg, "gorilla/websocket"];
   const pkgNames = fix.key === "npm" ? [f.pkg] : [f.pkg, "x/net"];
-  const parentChoices = parentNames.flatMap((n) => chosenVersions(text, n));
-  const pkgChoices = pkgNames.flatMap((n) => chosenVersions(text, n));
+  // A version the repo has now ("`require golang.org/x/net v0.17.0`") is where it starts.
+  const pkgNow = parent.versions.find((v) => v.version === parent.current)?.resolves ?? null;
+  const now = (v: string, current: string | null) =>
+    current !== null && v !== LATEST && v !== RULE && semver(v) === semver(current);
+  const parentChoices = parentNames
+    .flatMap((n) => chosenVersions(text, n))
+    .filter((v) => !now(v, parent.current));
+  const pkgChoices = pkgNames
+    .flatMap((n) => chosenVersions(text, n))
+    .filter((v) => !now(v, pkgNow));
   const stale = [
     ...parentChoices.filter((v) => below(v, parent.firstFixing)).map((v) => `${parent.pkg} ${v}`),
     ...pkgChoices.filter((v) => below(v, f.fixed)).map((v) => `${f.pkg} ${v}`),
@@ -387,9 +409,10 @@ function items(paragraph: string): string[] {
 const OUTCOME =
   /\bre-?scan\b|\b(?:scan(?:ner)?|govulncheck|trivy|grype|osv-scanner|pip-audit|npm\s+audit)\b[^\n]*?\b(?:reports?|shows?|finds?|lists?)\b/i;
 /** The worker's range admits affected versions, so only its lockfile proves it. */
-const LOCK_EVIDENCE = /\buv\.lock\b|\block ?file\b/i;
+const LOCK_EVIDENCE = /\buv\.lock\b|\block ?file\b|\blocked\b/i;
+// For the image finding, what a repo builds from is its evidence.
 const EVIDENCE =
-  /\buv\.lock\b|\bgo\.(?:sum|mod)\b|\bpackage(?:-lock)?\.json\b|\bpyproject\.toml\b|\block ?file\b/i;
+  /\buv\.lock\b|\bgo\.(?:sum|mod)\b|\bpackage(?:-lock)?\.json\b|\bpyproject\.toml\b|\block ?file\b|\blocked\b|\bDockerfile\b|\bbuilds?\s+from\b/i;
 const SUBJECT = new RegExp(
   [
     "\\b(?:orders|webshop|storefront|worker)\\b",
@@ -403,15 +426,23 @@ const WORKER = new RegExp(
   "i",
 );
 
-function documents(e: EpicRecord): { name: string; text: string }[] {
+/** Each document's text, and for a task the repos it fixes. */
+function documents(e: EpicRecord): { name: string; text: string; fixes: Target[] }[] {
   return [
-    { name: "epic.md", text: e.epic?.body ?? "" },
-    { name: "plan.md", text: e.plan?.body ?? "" },
+    { name: "epic.md", text: e.epic?.body ?? "", fixes: [] },
+    { name: "plan.md", text: e.plan?.body ?? "", fixes: [] },
     ...e.tasks.map((t) => ({
       name: t.id,
       text: `${getString(t.frontmatter, "title") ?? ""}\n\n${t.body}`,
+      fixes: FIXES.filter((f) => covers(t, f)).map((f) => f.service),
     })),
   ];
+}
+
+/** "Changing orders' Dockerfile: unaffected" in the task fixing orders is its scope, not a claim. */
+function aboutOwnFix(item: string, fixes: Target[]): boolean {
+  const named = TARGET_NAMES.filter((n) => NAMES[n].test(item));
+  return named.length > 0 && named.every((n) => fixes.includes(n));
 }
 
 const noUnprovenSafe = epicCheck(
@@ -426,6 +457,7 @@ const noUnprovenSafe = epicCheck(
           .filter((i) => !OUTCOME.test(i))
           .map((i) => i.replace(/"[^"\n]*"/g, ""))
           .filter((i) => SAFE.test(i) && SUBJECT.test(i) && !CONDITIONAL.test(i))
+          .filter((i) => !aboutOwnFix(i, d.fixes))
           .map((i) => ({ doc: d.name, item: i, p, worker: WORKER.test(i) })),
       ),
     );
