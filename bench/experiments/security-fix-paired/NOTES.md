@@ -60,6 +60,14 @@ The change does not ship as is. The ship call goes to the user.
   - pm research's own `gh` probe reached GitHub, as before.
 - **The manager lint detour (#61).** It ran in 4 of 9 change-arm runs and 6 of 9 baseline runs.
 
+## Grader disagreements
+
+Found when grader version 3 (#69) re-graded these plans. The hand verdicts above stand, and version 3 matches them in every row; `../security-fix-cuts-b/NOTES.md` lists what it reads.
+- p1 with-skill, `no-unproven-safe`: "the currently-locked `requests` version is already patched (2.34.2 ≥ 2.32.4)" names the locked version. Version 2 took only `uv.lock` or "lock file" as the citation.
+- p3 with-skill, `fix-reaches-deploy`: webshop's task says it "addresses the same CVE-2025-22870 class as orders", so version 2 counted it as an orders fix that the orders release did not wait for.
+- p4 baseline, `right-bump`: the Dockerfile's `FROM` moves to "a tag whose Alpine base reports `libssl3 >= 3.3.3-r0`", a tag named by rule.
+- p5 baseline, `right-bump`: "bump the `express` version to the first release line that bundles `path-to-regexp` >= 0.1.12" names the parent by rule, and "moving to the next patch tag" is a base move that never says Dockerfile.
+
 ## Cost by phase
 
 Input side, at the prices that reproduce `costUsd`, over the 9 graded pairs:
