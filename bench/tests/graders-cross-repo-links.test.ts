@@ -316,6 +316,253 @@ describe("cross-repo-output", () => {
   });
 });
 
+const ORDERS_ADD: T = {
+  id: "T01",
+  parts: ["orders"],
+  what: "In `internal/orders/store.go`, add `total` (`amount_cents`, `currency`) to GET /orders, still serving `total_cents`.",
+};
+const WS_CHANGE: T = {
+  id: "T02",
+  parts: ["webshop"],
+  deps: ["T01"],
+  what: "In `history.go`, decode `total.amount_cents` and `total.currency`.",
+};
+
+describe("cross-repo-endpoint hedged and search tasks", () => {
+  const one: T = {
+    id: "T01",
+    parts: ["orders"],
+    what: "In `internal/orders/store.go`, replace `total_cents` with `total` (`amount_cents`, `currency`).",
+  };
+  test.each([
+    [
+      "conditional audit",
+      {
+        id: "T02",
+        parts: ["webshop"],
+        deps: ["T01"],
+        what: "Search webshop for any use of `total_cents`; if it reads the field, update it to `total`.",
+      },
+    ],
+    [
+      "smoke test",
+      {
+        id: "T02",
+        parts: ["webshop"],
+        deps: ["T01"],
+        what: "After orders ships, smoke-test webshop pages; `total_cents` is gone from orders' response.",
+      },
+    ],
+    [
+      "grep every repo",
+      {
+        id: "T02",
+        what: "Grep orders, webshop, infra and argocd for `total_cents` and list every consumer.",
+      },
+    ],
+  ] as [string, T][])("%s does not cover the client", async (_n, task) => {
+    const r = await endpoint([one, task]);
+    expect(r.passed["client-covered"]).toBe(false);
+  });
+
+  test("a plain decode task in history.go covers the client", async () => {
+    const r = await endpoint([
+      one,
+      {
+        id: "T02",
+        parts: ["webshop"],
+        what: "In webshop's `history.go`, decode `total.amount_cents`.",
+      },
+    ]);
+    expect(r.passed["client-covered"]).toBe(true);
+  });
+
+  test("a Go struct field and a Total object name the field", async () => {
+    for (const what of [
+      "Update the order history page in `history.go` to read the new Total object and show its Currency.",
+      "In `history.go`, replace the `TotalCents` field with the new struct.",
+    ]) {
+      const r = await endpoint([ORDERS_ADD, { id: "T02", parts: ["webshop"], what }]);
+      expect(r.passed["client-covered"]).toBe(true);
+    }
+  });
+});
+
+describe("cross-repo-endpoint keeps and removal phrasing", () => {
+  const later = (what: string, accept?: string): T => ({
+    id: "T05",
+    parts: ["orders"],
+    deps: ["T02"],
+    what,
+    accept,
+  });
+  const base = [ORDERS_ADD, WS_CHANGE];
+
+  test("an acceptance line saying keep passing is not a keep", async () => {
+    const r = await endpoint([
+      ...base,
+      later("Remove `total_cents` from GET /orders.", "`make test` and `make lint` keep passing"),
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("both files in a one-shot replace is not a keep", async () => {
+    const r = await endpoint([
+      {
+        id: "T01",
+        parts: ["orders"],
+        what: "Replace `total_cents` with `total` in both `store.go` and `store_test.go`.",
+      },
+      { ...WS_CHANGE, deps: [] },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("not backward compatible is not a keep", async () => {
+    const r = await endpoint([
+      ...base,
+      later("Remove `total_cents` from GET /orders. This is not backward compatible."),
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("a removal with no webshop task and keep passing fails", async () => {
+    const r = await endpoint([
+      {
+        id: "T01",
+        parts: ["orders"],
+        what: "Replace `total_cents` with `total` in `internal/orders/store.go`.",
+        accept: "`make test` and `make lint` keep passing",
+      },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("both shapes in one task is a keep", async () => {
+    const r = await endpoint([
+      {
+        id: "T01",
+        parts: ["orders"],
+        what: "Replace `total_cents` handling so GET /orders serves both shapes.",
+      },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(true);
+  });
+
+  test("stop returning is a removal", async () => {
+    const r = await endpoint([...base, later("Stop returning `total_cents` from GET /orders.")]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("no longer includes is a removal", async () => {
+    const r = await endpoint([...base, later("GET /orders no longer includes `total_cents`.")]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("an expand task that says the removal comes later is not a removal", async () => {
+    const r = await endpoint([
+      {
+        ...ORDERS_ADD,
+        what: "Add `total` (`amount_cents`, `currency`) to GET /orders; `total_cents` is removed later in T05, after webshop moves.",
+      },
+      WS_CHANGE,
+      { ...E3, id: "T03", deps: ["T02"] },
+      { ...E4, id: "T04", deps: ["T03"] },
+      { ...E5, id: "T05", deps: ["T04"] },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(true);
+  });
+
+  test("a removal that starts with once the rollout is live is still a removal", async () => {
+    const r = await endpoint([
+      ...base,
+      later("Once webshop 1.5.0 is live, drop `total_cents` from GET /orders."),
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+});
+
+describe("cross-repo-endpoint rollout chain", () => {
+  test("a rollout with no edge to the webshop change does not unlock the removal", async () => {
+    const r = await endpoint([
+      ORDERS_ADD,
+      WS_CHANGE,
+      { ...E3, id: "T03", deps: ["T02"] },
+      { ...E4, id: "T04", deps: [] },
+      { ...E5, id: "T05", deps: ["T04"] },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("a rollout that reaches the webshop change unlocks it", async () => {
+    const r = await endpoint([
+      ORDERS_ADD,
+      WS_CHANGE,
+      { ...E3, id: "T03", deps: ["T02"] },
+      { ...E4, id: "T04", deps: ["T03"] },
+      { ...E5, id: "T05", deps: ["T04"] },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(true);
+  });
+});
+
+describe("cross-repo-output switch task and forward references", () => {
+  const sw = (task: Partial<T>): T[] => [O1, O2, { ...O3, ...task }, O4];
+
+  test.each([
+    [
+      "placed in webshop, names ASSETS_BUCKET",
+      {
+        parts: ["webshop"],
+        what: "Set `ASSETS_BUCKET` to `pm-example-webshop-media` in argocd's webshop deployment.",
+      },
+    ],
+    [
+      "possessive deployment, argocd part, names the new bucket",
+      {
+        parts: ["argocd/workloads/webshop"],
+        what: "Point webshop's deployment at `pm-example-webshop-media`.",
+      },
+    ],
+    [
+      "argocd part, names the new bucket only",
+      {
+        parts: ["argocd/workloads/webshop"],
+        what: "Switch webshop to `pm-example-webshop-media` and let Argo CD sync.",
+      },
+    ],
+  ] as [string, Partial<T>][])("%s is the switch", async (_n, task) => {
+    const r = await output(sw(task));
+    expect(r.passed["consumer-covered"]).toBe(true);
+    expect(r.passed["switch-order"]).toBe(true);
+  });
+
+  test("a hedged check of the deployment is not the switch", async () => {
+    const r = await output(
+      sw({
+        parts: ["argocd/workloads/webshop"],
+        what: "Check argocd's webshop deployment for references to the old bucket.",
+      }),
+    );
+    expect(r.passed["consumer-covered"]).toBe(false);
+  });
+
+  test("an infra copy task that says before removing the old bucket is not a delete", async () => {
+    const r = await output([
+      O1,
+      {
+        id: "T02",
+        parts: ["infra/envs/prod"],
+        deps: ["T01"],
+        what: "Copy every object from `pm-example-webshop-assets` to `pm-example-webshop-media` before removing the old bucket.",
+      },
+      O3,
+      O4,
+    ]);
+    expect(r.passed["switch-order"]).toBe(true);
+  });
+});
+
 describe("reposOf", () => {
   const doc = (what: string, parts: string[] = []) =>
     ({
