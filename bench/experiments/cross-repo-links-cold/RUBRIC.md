@@ -16,7 +16,7 @@ Both links are in the overlay under `bench/scenarios/fixtures/cross-repo-links/`
 | Scenario | Provider | Consumer (file and line) | Correct plan |
 | :--- | :--- | :--- | :--- |
 | cross-repo-endpoint | orders `internal/orders/store.go:12`, `json:"total_cents"`, served by `List` at `:23` for `GET /orders` | webshop `history.go:13` decodes `total_cents`, called from `history.go:17` (`ORDERS_URL` + `/orders?customer=`), route in `main.go:15`; test in `history_test.go:16`. The address is argocd `workloads/webshop/deployment.yaml:21-22` (`ORDERS_URL: http://orders.orders.svc.cluster.local:8080`) | Webshop reads the new `total` object (or both shapes), tags a release and rolls it out (argocd `newTag`). Orders removes `total_cents` only after that rollout, or serves both shapes and defers the removal |
-| cross-repo-output | infra `envs/prod/assets.tf:2`, `bucket = "pm-example-webshop-assets"`, output `webshop_assets_bucket` at `:5` | argocd `workloads/webshop/deployment.yaml:23-24`, `ASSETS_BUCKET: pm-example-webshop-assets`; read in webshop `history.go:36` | Create `pm-example-webshop-media` (versioning on, noncurrent versions expire after 90 days); set `ASSETS_BUCKET` to it in argocd and roll it out; delete the old bucket last, after the switch |
+| cross-repo-output | infra `envs/prod/assets.tf:2`, `bucket = "pm-example-webshop-assets"`, output `webshop_assets_bucket` at `:5` | argocd `workloads/webshop/deployment.yaml:23-24`, `ASSETS_BUCKET: pm-example-webshop-assets`; read in webshop `history.go:38`, called from `history.go:31` | Create `pm-example-webshop-media` (versioning on, noncurrent versions expire after 90 days); set `ASSETS_BUCKET` to it in argocd and roll it out; delete the old bucket last, after the switch |
 
 The orders chart gets a Service (`orders/deploy/chart/templates/service.yaml`) so `orders.orders.svc.cluster.local` resolves to something the chart deploys. Each run carries the other link as background; the checks grade only the link the request touches.
 
@@ -28,11 +28,15 @@ Copied from the design's "Checks" section. The hand audit is the authority: wher
 
 - `client-covered`: a live task changes webshop's decoding of `total_cents` (its `parts:` names a webshop part, or its text names webshop and the field or the new shape).
 - `client-safe-rollout`: no live task removes `total_cents` from orders' response unless it depends, directly or transitively, on the task that rolls webshop's change out (argocd `newTag`), or on the webshop change task when that same task also releases and rolls out. A plan that serves both shapes and defers removal passes. A plan that removes `total_cents` with no webshop task fails.
+- The chain must hold: the removal reaches a rollout, and that rollout is, or reaches, a webshop change task. An argocd `newTag` task with no edge to the webshop change or release does not unlock the removal.
+- A removal task is one that asks for the removal itself ("remove", "replace", "stop returning", "no longer includes" `total_cents`). A sentence that says the removal comes later or from another task ("`total_cents` is removed later in T05", "before removing it") is a reference, not a removal. Keeping is read only where `total_cents` is the object ("keep `total_cents`", "alongside `total_cents`", "both shapes"), not from "keep passing", "both files" or "not backward compatible".
 
 **cross-repo-output**
 
-- `consumer-covered`: a live task changes `ASSETS_BUCKET` in argocd's webshop deployment: its `parts:` names that argocd part, or its text names `ASSETS_BUCKET` or `workloads/webshop/deployment.yaml`.
+- `consumer-covered`: a live task changes `ASSETS_BUCKET` in argocd's webshop deployment: its `parts:` names that argocd part, or its text names `ASSETS_BUCKET` or `workloads/webshop/deployment.yaml`. The grader reads a task as the switch when its text names `ASSETS_BUCKET` anywhere, or when it is placed in argocd and names `pm-example-webshop-media`; a bump-only argocd task (`newTag`) names neither and is not the switch.
 - `switch-order`: that task depends, directly or transitively, on the task creating the new bucket, and the task deleting the old bucket depends on it. A plan that deletes the old bucket with no such task fails.
+
+**Hedged checks.** On either side, a conditional or search task fails the consumer check and does not name the consumer, unless the plan states the link elsewhere (webshop's `history.go`, the order struct or `/account/orders` for the endpoint; `ASSETS_BUCKET` or the webshop deployment setting the bucket for the output). Endpoint example: "Search webshop for any use of `total_cents`; if it reads the field, update it." Output example: "Check argocd's webshop deployment for references to the old bucket." Wording that marks a task as hedged: "whether", "if it/webshop/any", "any use/reference/consumer/client", grep, search, audit, smoke test.
 
 **Hand verdicts.** For the four scenario checks the hand verdict is pass, fail or n/a, following the spec over the grader.
 - A plan that names the consumer but has no task for it fails its order check (the "named but no task" class, which counts toward rule 2).
@@ -77,13 +81,14 @@ Every failed `client-covered` or `consumer-covered` gets exactly one class. Defi
 
 - **Names the consumer** means a plan document (epic, `plan.md`, a task, including notes and assumptions) states the link itself: webshop calls or decodes `GET /orders` or reads `total_cents`; or the bucket name is set in argocd's webshop deployment or `ASSETS_BUCKET`. A passing mention does not count ("webshop unaffected", "verify any clients"), nor does "webshop uses the bucket" without where the name is set.
 - **A generic search task** ("find and update every reference to `pm-example-webshop-assets`") fails the consumer check and does not name the consumer: the plan did not know the consumer when it was written, which is what the atlas would add. The rubric tallies these as their own class, and NOTES says if the decision hinges on them.
+- **A hedged check** ("check whether webshop reads `total_cents` and update it if so", "smoke-test webshop", "check argocd's webshop deployment for references") is its own class beside the generic search task: it fails the consumer check, does not name the consumer, counts toward rule 1, and is tallied apart. NOTES says if the decision hinges on them.
 - **Named but no task:** a plan that names the consumer but has no task for it passes nothing extra: it fails the consumer check, does not count toward rule 1, and its order check fails, so it counts toward rule 2. The rubric tallies these as their own class too.
 
-So each failed consumer check is one of: never names the consumer (counts toward rule 1), passing mention (never names it, counts toward rule 1), generic search task (never names it, counts toward rule 1, tallied apart), or named but no task (counts toward rule 2).
+So each failed consumer check is one of: never names the consumer (counts toward rule 1), passing mention (never names it, counts toward rule 1), generic search task or hedged check (each never names it, counts toward rule 1, tallied apart), or named but no task (counts toward rule 2).
 
 | Attempt | Scenario | Class | Evidence |
 | :--- | :--- | :--- | :--- |
-| | | never names / passing mention / generic search task / named but no task | quote and file |
+| | | never names / passing mention / generic search task / hedged check / named but no task | quote and file |
 
 ## Route
 
@@ -103,14 +108,14 @@ The manifest's fixture hash covers only the manager repo, so the targets' trees 
 
 | Repo | Tree |
 | :--- | :--- |
-| webshop | `402d095a252aa32582c84e05f6c385732c628548` |
+| webshop | `4d88d84fa27c39a732a74be1cfea4228401fe591` |
 | infra | `7f5dce1a19c5e19dbc2f0eb50979bf08ababd69c` |
 | argocd | `96e4411de7aa82732570eaf3444195ba1b7de2ce` |
 | orders | `1f2d57094944e2ae949a2c9ff5512aaca523b407` |
 
-Manifest: `cross-repo-links-cold`, claude-code 2.1.327, `claude-sonnet-5`, condition `with-skill`, 10 pairs, `--timeout-s 1500`, offline. Both scenarios at version 1, grader version 1, fixture hash `sha256:4586c28d5d2b443e769fba3b260fa153af12c2c9c70a31d01efc15b77fcf684b`. 20 planned attempts.
+Manifest: `cross-repo-links-cold`, claude-code 2.1.327, `claude-sonnet-5`, condition `with-skill`, 10 pairs, `--timeout-s 1500`, offline. Both scenarios at version 1, grader version 1, repo `a99b198`, fixture hash `sha256:4586c28d5d2b443e769fba3b260fa153af12c2c9c70a31d01efc15b77fcf684b`. 20 planned attempts.
 
-Cost estimate: `experiment new` prints none. The estimate from `estimateCost` over the harness history is $15.51 for 20 attempts. The design's expectation, from the last cold runs, is about $25 to $30.
+Cost estimate: `experiment new` prints none. The estimate from `estimateCost` over the harness history is $15.51 for 20 attempts (unchanged after the review fixes; `experiment run` without `--yes` prints it and does not spend). The design's expectation, from the last cold runs, is about $25 to $30.
 
 ## Record per attempt, not gated
 
