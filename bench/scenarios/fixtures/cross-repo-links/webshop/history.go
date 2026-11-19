@@ -28,10 +28,12 @@ func history(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, o := range orders {
 		fmt.Fprintf(w, "%s: %.2f EUR\n", o.ID, float64(o.TotalCents)/100)
+		fmt.Fprintf(w, "thumbnail: %s\n", productImage(o.ID+".jpg"))
 	}
 }
 
-// productImage builds a product image URL on the assets bucket.
+// productImage builds a product image URL on the assets bucket, path-style on the same S3 host
+// the infra provider uses.
 func productImage(name string) string {
-	return "https://" + os.Getenv("ASSETS_BUCKET") + ".objects.example.invalid/" + name
+	return "https://objects.eu-central.example.invalid/" + os.Getenv("ASSETS_BUCKET") + "/" + name
 }

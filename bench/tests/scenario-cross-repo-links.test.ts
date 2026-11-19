@@ -17,7 +17,7 @@ import { PM_TODAY } from "../skill-paths";
 
 const TARGET_REPOS = ["webshop", "infra", "argocd", "orders"];
 const TARGET_TREES: Record<string, string> = {
-  webshop: "402d095a252aa32582c84e05f6c385732c628548",
+  webshop: "4d88d84fa27c39a732a74be1cfea4228401fe591",
   infra: "7f5dce1a19c5e19dbc2f0eb50979bf08ababd69c",
   argocd: "96e4411de7aa82732570eaf3444195ba1b7de2ce",
   orders: "1f2d57094944e2ae949a2c9ff5512aaca523b407",
