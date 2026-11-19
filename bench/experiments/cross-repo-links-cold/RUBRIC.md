@@ -125,12 +125,12 @@ On the first attempt, confirm that the `system/init` event in its `raw.jsonl` li
 
 ## Exclusions
 
-Carried over unchanged from `bench/experiments/security-fix-cold/RUBRIC.md` and `bench/experiments/multi-stack-repo-cold-2/RUBRIC.md`, plus the last bullet.
+Carried over from `bench/experiments/security-fix-cold/RUBRIC.md` and `bench/experiments/multi-stack-repo-cold-2/RUBRIC.md`, with the inconclusive threshold adapted to two scenarios, plus the last bullet.
 
 - Harness or API failures (a crash or an API error) are excluded.
 - So is an attempt whose plan is not in the fixture because the agent skipped `--no-worktree`, since its plan cannot be read.
 - A timeout counts as failed.
-- Fewer than 8 graded attempts makes the experiment inconclusive; topping up is the user's call.
+- Fewer than 8 graded attempts in a scenario makes that scenario inconclusive; topping up is the user's call.
 - A timed-out attempt with no plan documents is not a plan for rules 1 and 2: it counts neither as "never names the consumer" nor as an order failure, and is listed separately. A timed-out attempt with plan documents is read as written.
 
 ## Decision rule (copied from the design, fixed before the run)
