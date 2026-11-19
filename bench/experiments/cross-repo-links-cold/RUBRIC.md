@@ -20,6 +20,26 @@ Both links are in the overlay under `bench/scenarios/fixtures/cross-repo-links/`
 
 The orders chart gets a Service (`orders/deploy/chart/templates/service.yaml`) so `orders.orders.svc.cluster.local` resolves to something the chart deploys. Each run carries the other link as background; the checks grade only the link the request touches.
 
+## Check definitions
+
+Copied from the design's "Checks" section. The hand audit is the authority: where the grader differs, the hand verdict stands.
+
+**cross-repo-endpoint**
+
+- `client-covered`: a live task changes webshop's decoding of `total_cents` (its `parts:` names a webshop part, or its text names webshop and the field or the new shape).
+- `client-safe-rollout`: no live task removes `total_cents` from orders' response unless it depends, directly or transitively, on the task that rolls webshop's change out (argocd `newTag`), or on the webshop change task when that same task also releases and rolls out. A plan that serves both shapes and defers removal passes. A plan that removes `total_cents` with no webshop task fails.
+
+**cross-repo-output**
+
+- `consumer-covered`: a live task changes `ASSETS_BUCKET` in argocd's webshop deployment: its `parts:` names that argocd part, or its text names `ASSETS_BUCKET` or `workloads/webshop/deployment.yaml`.
+- `switch-order`: that task depends, directly or transitively, on the task creating the new bucket, and the task deleting the old bucket depends on it. A plan that deletes the old bucket with no such task fails.
+
+**Hand verdicts.** For the four scenario checks the hand verdict is pass, fail or n/a, following the spec over the grader.
+- A plan that names the consumer but has no task for it fails its order check (the "named but no task" class, which counts toward rule 2).
+- A plan that never names the consumer and has no removal task (endpoint) or no delete task (output) gets n/a on its order check and does not count toward rule 2.
+- The grader's `switch-order` skip (no switch task and no delete task) is resolved by these two rules.
+- `client-safe-rollout` has no skip.
+
 ## Per attempt
 
 For each graded attempt, read `artifacts/<attempt>/docs-pm/` (epic, plan, tasks) and the transcript (`raw.jsonl`). Record one row per check:
@@ -27,9 +47,9 @@ For each graded attempt, read `artifacts/<attempt>/docs-pm/` (epic, plan, tasks)
 | Check | Verdict | Source | Class |
 | :--- | :--- | :--- | :--- |
 | client-covered (endpoint) | pass / fail | | |
-| client-safe-rollout (endpoint) | pass / fail / skip | | |
+| client-safe-rollout (endpoint) | pass / fail | | |
 | consumer-covered (output) | pass / fail | | |
-| switch-order (output) | pass / fail / skip | | |
+| switch-order (output) | pass / fail / n/a | | |
 | scoped-diff | pass / fail | | |
 | committed | pass / fail | | |
 | check-no-errors | pass / fail | | |
@@ -105,10 +125,13 @@ On the first attempt, confirm that the `system/init` event in its `raw.jsonl` li
 
 ## Exclusions
 
+Carried over unchanged from `bench/experiments/security-fix-cold/RUBRIC.md` and `bench/experiments/multi-stack-repo-cold-2/RUBRIC.md`, plus the last bullet.
+
 - Harness or API failures (a crash or an API error) are excluded.
 - So is an attempt whose plan is not in the fixture because the agent skipped `--no-worktree`, since its plan cannot be read.
 - A timeout counts as failed.
-- Fewer than 8 graded attempts in a scenario makes that scenario inconclusive; topping up is the user's call.
+- Fewer than 8 graded attempts makes the experiment inconclusive; topping up is the user's call.
+- A timed-out attempt with no plan documents is not a plan for rules 1 and 2: it counts neither as "never names the consumer" nor as an order failure, and is listed separately. A timed-out attempt with plan documents is read as written.
 
 ## Decision rule (copied from the design, fixed before the run)
 
