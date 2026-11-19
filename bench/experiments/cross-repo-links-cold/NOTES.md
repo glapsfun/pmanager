@@ -16,9 +16,11 @@
 
 The rule as written in `RUBRIC.md`, applied to the hand counts:
 
-1. If at least 2 of 10 plans both fail the consumer check and never name the consumer, milestone 1 builds that link type.
+1. If at least 2 of 10 plans both fail the consumer check and never name the consumer, milestone 1 builds that link type (the next design). Evidence labels, the passport view and freshness are designed together with it, only as far as that link type needs them.
 2. Otherwise, if the order check fails in 2 or more of 10 in plans that do name the consumer, the result is input to milestone 2's check rule, not the atlas.
 3. Otherwise nothing is built for that link type.
+
+If neither scenario meets rule 1, milestone 1 closes as measured, not built, and milestone 2 starts.
 
 | Scenario | Consumer check failed | Never named the consumer | Order check failed, consumer named | Rule |
 | :--- | ---: | ---: | ---: | :--- |
@@ -43,7 +45,7 @@ The rule as written in `RUBRIC.md`, applied to the hand counts:
 - **Output, consumer and order: 10 of 10.**
   - Every plan has a task with `parts: [argocd/workloads/webshop]` that changes `ASSETS_BUCKET` from the old bucket to `pm-example-webshop-media`.
   - The switch waits for the task that creates the new bucket, and the delete waits for the switch, in all ten.
-  - Two plans have a webshop test or sweep task that names `ASSETS_BUCKET` without being the switch (p10 T04); one has an inventory task (p7 T01).
+  - Tasks that name `ASSETS_BUCKET` without being the switch: p2 T01 and p8 T01 (in Out of scope, as "changing `ASSETS_BUCKET` anywhere (T03)") and p10 T04 (a webshop regression test). p10 also has T05, a generic reference sweep before the delete. None changes the verdict.
 
 ## Route
 
@@ -108,7 +110,7 @@ Version 1 disagreed with the hand audit in 2 of the 40 rows on the four scenario
 Each fix has a test copied from the saved plan's own wording, and each test failed against v1 first.
 
 - **Removal.** `no longer contain(s) total_cents` is a removal. So is a sentence that replaces or renames a field "instead of `total_cents`".
-- **Switch.** A task is a switch through `ASSETS_BUCKET` only when a change verb acts on it ("set", "point", "change", "update", "switch", "replace", "repoint", "cut over") or it goes "to" or "from" a webshop bucket name. An infra-placed task is never one. An argocd task that names the new bucket still is. A test that asserts the variable "changes" is not a change.
+- **Switch.** A task placed in argocd that names `ASSETS_BUCKET` is a switch unless the mention is negated ("do not change `ASSETS_BUCKET`"), including one also placed in infra. A task not placed in argocd is a switch only when an inflected change verb (set, point, change, update, switch, replace, repoint, flip, edit, migrate, cut over) acts on `ASSETS_BUCKET`, or `ASSETS_BUCKET` goes to or from a webshop bucket name; a verb after "when", "if" or a task id does not count ("the output changes when `ASSETS_BUCKET` changes", "before T03 flips `ASSETS_BUCKET`"). An infra task that is not also in argocd is never one. An argocd task that names the new bucket still is.
 - p2 T01 and p8 T01 (output) name `ASSETS_BUCKET` only under Out of scope, which the grader does not read, and still grade pass.
 
 Re-grade of the saved plans with grader v2: a throwaway script built the fixture once with this checkout, laid each attempt's `docs-pm` over it and ran that scenario's two checks. v1, v2 and hand for the four checks:
@@ -131,7 +133,7 @@ From REPORT.md and each transcript's final `result` event.
 | cross-repo-endpoint | $12.82 | $1.13 | 452 s |
 | cross-repo-output | $11.28 | $1.04 | 393 s |
 
-$24.09 across 20 attempts; the estimate before the run was $15.51 and the design expected $25 to $30. The three dearest runs besides endpoint p10 ($1.72) include two lint detour runs: endpoint p4 $2.36 (78 turns, 745 s) and output p3 $1.77 (592 s).
+$24.09 across 20 attempts; the estimate before the run was $15.51 and the design expected $25 to $30. The dearest runs are endpoint p4 at $2.36 (78 turns, 745 s), output p3 at $1.77 (592 s) and endpoint p10 at $1.72. The first two are lint detour runs.
 
 | Attempt | Endpoint cost, time | Output cost, time |
 | :--- | ---: | ---: |
