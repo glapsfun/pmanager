@@ -92,7 +92,7 @@ function actions(text: string): string {
 }
 
 const REMOVES_FIELD = new RegExp(
-  `\\b${REMOVAL_VERB}\\w*\\b[^\\n]{0,60}\\btotal_cents\\b|\\btotal_cents\\b[^\\n]{0,40}\\b(?:is|are|gets?)\\s+(?:removed|dropped|deleted|replaced|renamed)\\b|\\bstop\\s+(?:returning|serving|emitting)\\b[^\\n]{0,60}\\btotal_cents\\b|\\bno\\s+longer\\s+(?:returns?|includes?|serves?|emits?)\\b[^\\n]{0,60}\\btotal_cents\\b`,
+  `\\b${REMOVAL_VERB}\\w*\\b[^\\n]{0,60}\\btotal_cents\\b|\\btotal_cents\\b[^\\n]{0,40}\\b(?:is|are|gets?)\\s+(?:removed|dropped|deleted|replaced|renamed)\\b|\\bstop\\s+(?:returning|serving|emitting)\\b[^\\n]{0,60}\\btotal_cents\\b|\\bno\\s+longer\\s+(?:returns?|includes?|contains?|serves?|emits?)\\b[^\\n]{0,60}\\btotal_cents\\b|\\b(?:replac|renam)\\w*\\b[^\\n.;]{0,160}\\binstead\\s+of\\b[^\\n]{0,20}\\btotal_cents\\b`,
   "i",
 );
 // The old field has to be the object of the keep: "keep passing" and "both files" keep nothing.
@@ -179,16 +179,22 @@ const DELETES = new RegExp(
 
 // Where the link is stated: the setting itself, or the file that holds it.
 const BUCKET_LINK = /\bASSETS_BUCKET\b|\bdeployment\.ya?ml\b/;
+// A task that names ASSETS_BUCKET changes it only if a change verb acts on it; a regression test
+// or an out-of-scope note names it too.
+const SETS_BUCKET =
+  /\b(?:set|point|change|update|switch|replace|repoint|cut\s*over|cutover)\b[^\n]{0,80}\bASSETS_BUCKET\b|\bASSETS_BUCKET\b[^\n]{0,60}\b(?:to|from)\s+[`"']?pm-example-webshop-/i;
 
 /**
- * Whatever sets the bucket name webshop reads: a task naming ASSETS_BUCKET anywhere, or an argocd
- * task naming the new bucket. A bump-only argocd task names neither.
+ * Whatever sets the bucket name webshop reads: a task that sets ASSETS_BUCKET, or an argocd task
+ * naming the new bucket. An infra task creates or deletes buckets and is never the switch. A
+ * bump-only argocd task names neither.
  */
 function switches(e: EpicRecord): TaskDoc[] {
   return live(e).filter((t) => {
     const text = work(t);
     if (hedged(text, BUCKET_LINK)) return false;
-    return /\bASSETS_BUCKET\b/.test(text) || (inRepo(t, "argocd") && text.includes(NEW_BUCKET));
+    if (inRepo(t, "infra")) return false;
+    return SETS_BUCKET.test(text) || (inRepo(t, "argocd") && text.includes(NEW_BUCKET));
   });
 }
 

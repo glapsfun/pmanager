@@ -563,6 +563,112 @@ describe("cross-repo-output switch task and forward references", () => {
   });
 });
 
+describe("cross-repo-links-cold plans the v1 grader read wrongly", () => {
+  // cross-repo-endpoint p8: T01 removes total_cents in words the removal pattern missed.
+  test("a removal that replaces the field and says the output no longer contains it", async () => {
+    const r = await endpoint([
+      {
+        id: "T01",
+        title: "Add structured total{amount_cents,currency} to orders' Order type",
+        parts: ["orders"],
+        what: 'Replace the `Total` field on `Order` with a nested type so the JSON output becomes `"total": {"amount_cents": <int>, "currency": "EUR"}` instead of `"total_cents": <int>`. Hardcode the currency to the literal `"EUR"` for every order.',
+        accept:
+          '`GET /orders` responses contain `total: {"amount_cents": <int>, "currency": "EUR"}` and no longer contain `total_cents`',
+      },
+      {
+        id: "T02",
+        title: "Release orders with the new total schema",
+        deps: ["T01"],
+        parts: ["orders"],
+        what: "Bump the version in the orders `Makefile`. Run `make release` to build and push the new image.",
+      },
+      {
+        id: "T03",
+        title: "Bump orders' Helm chart image.tag and deploy",
+        deps: ["T02"],
+        parts: ["orders/deploy/chart"],
+        what: "Set `deploy/chart/values.yaml`'s `image.tag` to the version released in T02. Apply the chart.",
+      },
+      {
+        id: "T04",
+        title: "Update webshop's order-history consumer to the new total schema",
+        deps: ["T01"],
+        parts: ["webshop"],
+        what: "Change the `order` struct in `history.go` to decode the nested `total: {amount_cents, currency}` object instead of `total_cents`.",
+      },
+      {
+        id: "T05",
+        title: "Release webshop with the updated consumer",
+        deps: ["T04"],
+        parts: ["webshop"],
+        what: "Push a `v*` tag for the webshop repo at T04's merged commit.",
+      },
+      {
+        id: "T06",
+        title: "Bump argocd's webshop newTag to roll out the release",
+        deps: ["T05"],
+        parts: ["argocd/workloads/webshop"],
+        what: "Set `workloads/webshop/kustomization.yaml`'s `newTag` to the version released in T05.",
+      },
+    ]);
+    expect(r.passed["client-covered"]).toBe(true);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  // cross-repo-output p10: T04 is a webshop test task that names ASSETS_BUCKET; T03 is the switch.
+  test("a webshop regression test that names ASSETS_BUCKET is not the switch", async () => {
+    const r = await output([
+      {
+        id: "T01",
+        title:
+          "Provision pm-example-webshop-media with versioning and a 90-day noncurrent-expiry lifecycle rule",
+        parts: ["infra/envs/prod"],
+        what: 'In `infra/envs/prod` (alongside `assets.tf`), add `aws_s3_bucket.webshop_media` with `bucket = "pm-example-webshop-media"`, versioning and a lifecycle rule. Do not touch the existing `webshop_assets` resource yet.',
+      },
+      {
+        id: "T02",
+        title:
+          "Migrate objects from pm-example-webshop-assets to pm-example-webshop-media and verify parity",
+        deps: ["T01"],
+        what: "Copy every object from `pm-example-webshop-assets` to `pm-example-webshop-media`, preserving keys unchanged. Produce a written parity report.",
+      },
+      {
+        id: "T03",
+        title: "Point webshop's ASSETS_BUCKET at pm-example-webshop-media and roll out",
+        deps: ["T02"],
+        parts: ["argocd/workloads/webshop"],
+        what: "Change `value: pm-example-webshop-assets` to `value: pm-example-webshop-media` for the `ASSETS_BUCKET` env var in `workloads/webshop/deployment.yaml:24`. Let Argo CD sync the change to prod-eu, then smoke-check a known product image URL against the new bucket.",
+        accept:
+          "`ASSETS_BUCKET` value in `workloads/webshop/deployment.yaml` is `pm-example-webshop-media`",
+      },
+      {
+        id: "T04",
+        title: "Confirm webshop needs no code change and regression-test productImage()",
+        parts: ["webshop"],
+        what: "Run webshop's existing test suite to confirm current behavior. Extend `history_test.go` (or add a new test) to assert `productImage()`'s output changes correctly when `ASSETS_BUCKET` changes, and that no bucket name is hardcoded anywhere in webshop's source.",
+        accept:
+          "a test asserts `productImage()`'s output tracks the `ASSETS_BUCKET` env var's value, with no hardcoded bucket name in webshop source",
+      },
+      {
+        id: "T05",
+        title: "Sweep infra/argocd/webshop for remaining references before deleting the old bucket",
+        deps: ["T03", "T04"],
+        what: "Search the three repos for any remaining reference to the old bucket name.",
+      },
+      {
+        id: "T06",
+        title: "Delete pm-example-webshop-assets and its Terraform resource",
+        deps: ["T05"],
+        parts: ["infra/envs/prod"],
+        what: "Remove the `webshop_assets` resource and its output from `infra/envs/prod/assets.tf`, then delete the old bucket `pm-example-webshop-assets`.",
+      },
+    ]);
+    expect(r.passed["consumer-covered"]).toBe(true);
+    expect(r.passed["switch-order"]).toBe(true);
+    expect(r.evidence["consumer-covered"]).toBe("T03 switch webshop's bucket");
+  });
+});
+
 describe("reposOf", () => {
   const doc = (what: string, parts: string[] = []) =>
     ({
