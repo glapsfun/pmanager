@@ -94,7 +94,7 @@ async function securityFixture(dir: string): Promise<FixtureInfo> {
 }
 
 /** Both skill arms run on main as a real workspace has it since #60: with profiles. */
-async function prepareSecurityFixCondition(
+export async function prepareSecurityFixCondition(
   dir: string,
   condition: Condition,
   info: FixtureInfo,

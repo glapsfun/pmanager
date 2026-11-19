@@ -1,3 +1,4 @@
+import { crossRepoEndpoint, crossRepoOutput } from "./cross-repo-links";
 import { featureIdeaEpic } from "./feature-idea-epic";
 import { memoryRecall } from "./memory-recall";
 import { multiRepoContext } from "./multi-repo-context";
@@ -25,6 +26,8 @@ export const MEASUREMENT_SCENARIOS: Scenario[] = [
   multiRepoContextAsIs,
   multiStackRepo,
   securityFix,
+  crossRepoEndpoint,
+  crossRepoOutput,
 ];
 
 export function scenarioByName(name: string): Scenario | undefined {

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webshop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webshop
+  template:
+    metadata:
+      labels:
+        app: webshop
+    spec:
+      containers:
+        - name: webshop
+          image: webshop
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ORDERS_URL
+              value: http://orders.orders.svc.cluster.local:8080
+            - name: ASSETS_BUCKET
+              value: pm-example-webshop-assets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
