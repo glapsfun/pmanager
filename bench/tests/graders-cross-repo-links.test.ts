@@ -174,6 +174,48 @@ describe("cross-repo-endpoint", () => {
   });
 });
 
+describe("cross-repo-endpoint negation and keeps", () => {
+  const later = { ...E5, deps: ["T04"] };
+  test.each([
+    ["without removing", "In orders, add `total` without removing `total_cents`."],
+    ["do not drop", "In orders, add `total`. Do not drop total_cents yet."],
+  ])("%s in an add task is not a removal", async (_n, what) => {
+    const r = await endpoint([{ ...E1, what }, E2, E3, E4, later]);
+    expect(r.passed["client-safe-rollout"]).toBe(true);
+  });
+
+  test("replace but keep the old field is not a removal", async () => {
+    const r = await endpoint([
+      {
+        id: "T01",
+        what: "In orders, replace `total_cents` with `total`, keeping `total_cents` alongside.",
+      },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(true);
+  });
+
+  test("a task that removes the field with nothing kept is a removal", async () => {
+    const r = await endpoint([
+      E1,
+      E2,
+      { id: "T03", deps: ["T02"], what: "In orders, remove `total_cents`." },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+  });
+
+  test("removing the deprecated field is still a removal", async () => {
+    const r = await endpoint([
+      E1,
+      E2,
+      E3,
+      E4,
+      { id: "T05", deps: ["T02"], what: "In orders, remove the deprecated `total_cents` field." },
+    ]);
+    expect(r.passed["client-safe-rollout"]).toBe(false);
+    expect(r.evidence["client-safe-rollout"]).toContain("T05");
+  });
+});
+
 const O1: T = {
   id: "T01",
   what: "In infra, create `pm-example-webshop-media` with versioning and a 90-day noncurrent expiry in envs/prod/assets.tf.",
@@ -247,6 +289,16 @@ describe("cross-repo-output", () => {
     const r = await output([O1, O2, O3, { ...O4, deps: ["T01"] }]);
     expect(r.passed["switch-order"]).toBe(false);
     expect(r.evidence["switch-order"]).toContain("T04");
+  });
+
+  test("a deferred delete in the create task does not make it a delete task", async () => {
+    const r = await output([
+      { ...O1, what: `${O1.what} Do not delete the old bucket yet.` },
+      O2,
+      O3,
+      O4,
+    ]);
+    expect(r.passed["switch-order"]).toBe(true);
   });
 
   test("webshop config is not argocd", async () => {

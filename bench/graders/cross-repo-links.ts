@@ -47,8 +47,16 @@ const ids = (ts: TaskDoc[]) => ts.map((t) => t.id).join(", ");
 const inRepo = (t: TaskDoc, r: Repo) => reposOf(t).includes(r);
 
 const FIELD = /\btotal_cents\b|\bamount_cents\b|\bcurrency\b/;
+// "deprecat" is not here: "remove the deprecated total_cents" removes it.
 const KEEPS =
-  /\bkeep|\balongside\b|\bboth\b|\bdeprecat|\bin addition to\b|\bbackward compatible\b|\bstill returns\b/i;
+  /\bkeep|\balongside\b|\bboth\b|\bin addition to\b|\bbackward compatible\b|\bstill returns\b/i;
+const REMOVAL_VERB = "(?:remov|drop|delet|replac|renam|destroy|retir)";
+// "without removing X", "do not drop X yet", "not yet delete X": the verb is refused, to the end of the sentence.
+const NEGATED_ACTION = new RegExp(
+  `\\b(?:without|not|never|don't|doesn't)\\s+(?:\\w+\\s+){0,2}?${REMOVAL_VERB}\\w*\\b[^.\\n]*|\\bkeep\\w*\\s+the\\s+old\\s+bucket\\b[^.\\n]*`,
+  "gi",
+);
+const asserted = (text: string) => text.replace(NEGATED_ACTION, "");
 const REMOVES_FIELD =
   /\b(?:remov|drop|delet|replac|renam)\w*\b[^\n]{0,60}\btotal_cents\b|\btotal_cents\b[^\n]{0,40}\b(?:is|are|gets?)\s+(?:removed|dropped|deleted|replaced|renamed)\b/i;
 
@@ -75,7 +83,7 @@ function webshopRollouts(e: EpicRecord): TaskDoc[] {
 function removals(e: EpicRecord): TaskDoc[] {
   return live(e).filter((t) => {
     const text = work(t);
-    return inRepo(t, "orders") && REMOVES_FIELD.test(text) && !KEEPS.test(text);
+    return inRepo(t, "orders") && REMOVES_FIELD.test(asserted(text)) && !KEEPS.test(text);
   });
 }
 
@@ -133,7 +141,7 @@ function switches(e: EpicRecord): TaskDoc[] {
 }
 
 const infraTasks = (e: EpicRecord, re: RegExp) =>
-  live(e).filter((t) => inRepo(t, "infra") && re.test(work(t)));
+  live(e).filter((t) => inRepo(t, "infra") && re.test(asserted(work(t))));
 
 const consumerCovered = epicCheck(
   "consumer-covered",
