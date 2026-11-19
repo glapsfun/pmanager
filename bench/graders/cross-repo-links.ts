@@ -179,20 +179,35 @@ const DELETES = new RegExp(
 
 // Where the link is stated: the setting itself, or the file that holds it.
 const BUCKET_LINK = /\bASSETS_BUCKET\b|\bdeployment\.ya?ml\b/;
-// A task that names ASSETS_BUCKET changes it only if a change verb acts on it; a regression test
-// or an out-of-scope note names it too.
-const SETS_BUCKET =
-  /\b(?:set|point|change|update|switch|replace|repoint|cut\s*over|cutover)\b[^\n]{0,80}\bASSETS_BUCKET\b|\bASSETS_BUCKET\b[^\n]{0,60}\b(?:to|from)\s+[`"']?pm-example-webshop-/i;
+// A task not placed in argocd changes ASSETS_BUCKET only if a change verb acts on it; a regression
+// test or an out-of-scope note names it too. The gap may not hold "when" or "if", and a task id may not
+// be the verb's subject: "the output changes when ASSETS_BUCKET changes" and "before T03 flips
+// ASSETS_BUCKET" set nothing.
+const GAP = "(?:(?!\\b(?:when|whenever|if|whether|that|T\\d+)\\b)[^\\n]){0,80}";
+const BUCKET_VERB =
+  "(?:set|sets|setting|point\\w*|chang(?:e|es|ed|ing)|updat(?:e|es|ed|ing)|switch\\w*|replac(?:e|es|ed|ing)|repoint\\w*|flip\\w*|edit\\w*|migrat(?:e|es|ed|ing)|cut\\s*over|cutover)";
+const SETS_BUCKET = new RegExp(
+  `(?<!\\bT\\d+\\s)\\b${BUCKET_VERB}\\b${GAP}\\bASSETS_BUCKET\\b|\\bASSETS_BUCKET\\b[^\\n]{0,60}\\b(?:to|from)\\s+[\`"']?pm-example-webshop-|\\bASSETS_BUCKET\\b[^\\n]{0,40}\\b${BUCKET_VERB}\\b[^\\n]{0,20}${NEW_BUCKET}`,
+  "i",
+);
+const NEGATED_BUCKET_CHANGE = new RegExp(
+  `\\b(?:without|not|never|don't|doesn't)\\s+(?:\\w+\\s+){0,2}?${BUCKET_VERB}\\b[^.;\\n]*`,
+  "gi",
+);
+const inArgocdPart = (t: TaskDoc) =>
+  getList(t.frontmatter, "parts").some((p) => p === "argocd" || p.startsWith("argocd/"));
 
 /**
- * Whatever sets the bucket name webshop reads: a task that sets ASSETS_BUCKET, or an argocd task
- * naming the new bucket. An infra task creates or deletes buckets and is never the switch. A
- * bump-only argocd task names neither.
+ * Whatever sets the bucket name webshop reads: a task placed in argocd that names ASSETS_BUCKET
+ * (a negated mention aside), a task that sets it, or an argocd task naming the new bucket. An
+ * infra task creates or deletes buckets and is not the switch unless it is also placed in argocd.
+ * A bump-only argocd task names none of these.
  */
 function switches(e: EpicRecord): TaskDoc[] {
   return live(e).filter((t) => {
-    const text = work(t);
+    const text = work(t).replace(NEGATED_BUCKET_CHANGE, "");
     if (hedged(text, BUCKET_LINK)) return false;
+    if (inArgocdPart(t) && /\bASSETS_BUCKET\b/.test(text)) return true;
     if (inRepo(t, "infra")) return false;
     return SETS_BUCKET.test(text) || (inRepo(t, "argocd") && text.includes(NEW_BUCKET));
   });

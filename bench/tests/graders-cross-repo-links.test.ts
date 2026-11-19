@@ -669,6 +669,59 @@ describe("cross-repo-links-cold plans the v1 grader read wrongly", () => {
   });
 });
 
+describe("cross-repo-output switch task wordings", () => {
+  const sw = (task: Partial<T>): T[] => [O1, O2, { ...O3, ...task }, O4];
+
+  test.each([
+    [
+      "a combined infra and argocd task",
+      {
+        parts: ["infra/envs/prod", "argocd/workloads/webshop"],
+        what: "Change `ASSETS_BUCKET` in `deployment.yaml` to `pm-example-webshop-media`.",
+      },
+    ],
+    [
+      "an argocd task in the third person, no new bucket name",
+      { parts: ["argocd/workloads/webshop"], what: "Updates the `ASSETS_BUCKET` env var." },
+    ],
+    [
+      "an argocd task that says flip",
+      {
+        parts: ["argocd/workloads/webshop"],
+        what: "Flip `ASSETS_BUCKET` in webshop's `deployment.yaml` to the new value.",
+      },
+    ],
+  ] as [string, Partial<T>][])("%s is the switch", async (_n, task) => {
+    const r = await output(sw(task));
+    expect(r.passed["consumer-covered"]).toBe(true);
+    expect(r.passed["switch-order"]).toBe(true);
+  });
+
+  test("a copy task that says another task flips ASSETS_BUCKET is not the switch", async () => {
+    const r = await output([
+      O1,
+      {
+        ...O2,
+        what: "Copy the objects into the new bucket. Do this before T03 flips ASSETS_BUCKET.",
+      },
+      O3,
+      { ...O4, deps: ["T02"] },
+    ]);
+    expect(r.passed["consumer-covered"]).toBe(true);
+    expect(r.passed["switch-order"]).toBe(false);
+  });
+
+  test("an argocd task that says not to change ASSETS_BUCKET is not the switch", async () => {
+    const r = await output(
+      sw({
+        parts: ["argocd/workloads/webshop"],
+        what: "Do not change `ASSETS_BUCKET` in this task; only bump `newTag`.",
+      }),
+    );
+    expect(r.passed["consumer-covered"]).toBe(false);
+  });
+});
+
 describe("reposOf", () => {
   const doc = (what: string, parts: string[] = []) =>
     ({
