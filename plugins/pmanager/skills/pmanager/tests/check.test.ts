@@ -1267,6 +1267,49 @@ describe("breaking changes wait for the consumer's rollout (E-BRK)", () => {
     expect(await breakRules(root, {}, sf)).toEqual([]);
   });
 
+  test("several rollouts: the fix names the first by id, and every rollout folder's task", async () => {
+    const root = await breakFixture();
+    await addTask(
+      root,
+      "T05",
+      "[argocd/overlays/prod]",
+      "Set newTag to 2.3.1 in overlays/prod/kustomization.yaml.",
+      "[T02]",
+    );
+    const profiles = new Map([
+      ["storefront", sfProfile()],
+      ["argocd", argoProfile(["workloads/storefront", "overlays/prod"])],
+      ["orders", ORDERS_PROFILE],
+    ]);
+    const f = brk(await breakRules(root, { profiles }));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "does not wait for its rollout (T04 sets newTag in argocd/workloads/storefront), T05",
+    );
+    expect(f[0]?.fix).toBe("add T04, T05 to T03's depends-on");
+  });
+
+  test("several rollouts only after the break: the first by id is named", async () => {
+    const root = await breakFixture();
+    await addTask(root, "T06", "[orders]", "Ship the removal; `go test ./...` passes.", "[T03]");
+    await addTask(
+      root,
+      "T05",
+      "[argocd/overlays/prod]",
+      "Set newTag to 2.3.1 in overlays/prod/kustomization.yaml.",
+      "[T02, T06]",
+    );
+    await setLine(root, T04, "depends-on", "[T02, T06]");
+    const profiles = new Map([
+      ["storefront", sfProfile()],
+      ["argocd", argoProfile(["workloads/storefront", "overlays/prod"])],
+      ["orders", ORDERS_PROFILE],
+    ]);
+    const f = brk(await breakRules(root, { profiles }));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("storefront's rollout (T04) comes only after T03");
+  });
+
   test("a cycle through the break terminates", async () => {
     const root = await breakFixture();
     await setLine(root, T03, "depends-on", "[T04]");
