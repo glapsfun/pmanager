@@ -1213,6 +1213,60 @@ describe("breaking changes wait for the consumer's rollout (E-BRK)", () => {
     expect(f[0]?.message).toContain("no rollout task after its release");
   });
 
+  test("a release through a same-repo link: the break waits for the task that moves its key", async () => {
+    // Storefront releases with `make release`, and its chart's image.tag follows, in one repo.
+    const sf: Profile = {
+      ...empty,
+      revision: "r",
+      format: PROFILE_FORMAT,
+      parts: [
+        {
+          folder: "",
+          stacks: ["node"],
+          commands: [
+            { text: "npm test", role: "check", source: "README.md:9" },
+            { text: "make release", role: "release", source: "Makefile:3" },
+          ],
+        },
+        { folder: "deploy/chart", stacks: ["helm"], commands: [] },
+      ],
+      links: [
+        {
+          value: "2.3.0",
+          source: { folder: "", file: "Makefile", line: 1, key: "VERSION" },
+          consumer: {
+            folder: "deploy/chart",
+            file: "deploy/chart/values.yaml",
+            line: 4,
+            key: "image.tag",
+          },
+          release: true,
+        },
+      ],
+    };
+    const root = await breakFixture();
+    await edit(
+      root,
+      T02,
+      "Push a v2.3.1 tag; the release workflow pushes the image.",
+      "Run `make release`.",
+    );
+    await setLine(root, T04, "parts", "[storefront/deploy/chart]");
+    await edit(
+      root,
+      T04,
+      "Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml.",
+      "Set image.tag to 2.3.1 in deploy/chart/values.yaml.",
+    );
+    const f = await breakRules(root, {}, sf);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront and does not wait for its rollout (T04 sets image.tag in storefront/deploy/chart)",
+    );
+    await setLine(root, T03, "depends-on", "[T04]");
+    expect(await breakRules(root, {}, sf)).toEqual([]);
+  });
+
   test("a cycle through the break terminates", async () => {
     const root = await breakFixture();
     await setLine(root, T03, "depends-on", "[T04]");
