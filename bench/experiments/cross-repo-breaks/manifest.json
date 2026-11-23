@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "id": "cross-repo-breaks",
+  "createdAt": "2026-11-23T13:43:26.241Z",
+  "harness": "claude-code",
+  "harnessVersion": "2.1.330",
+  "modelRequested": "claude-sonnet-5",
+  "reasoning": null,
+  "conditions": [
+    "with-skill"
+  ],
+  "pairs": 10,
+  "timeoutS": 1500,
+  "repoSha": "a1353d9",
+  "repoDirty": false,
+  "skillVersion": "0.11.0",
+  "skillHash": "sha256:0e1628a12d4d6569c054b4ec7d6bfb02ccc62f4d57a25e722e74a0508fd33b46",
+  "contractHash": "sha256:7744d795e259f41a6339a29871d57d20c928d18d0470f814cbfac49907bdd078",
+  "isolation": "config-dir",
+  "scenarios": [
+    {
+      "name": "cross-repo-endpoint",
+      "version": 1,
+      "promptHash": "sha256:00a272aeea107ef621716d77731a7bbe1698ee4f0b2fdbe1db24cc73289beb2b",
+      "fixtureHash": "sha256:4586c28d5d2b443e769fba3b260fa153af12c2c9c70a31d01efc15b77fcf684b",
+      "graderVersion": 2
+    },
+    {
+      "name": "cross-repo-output",
+      "version": 1,
+      "promptHash": "sha256:e0cf953e672e3dd22bf46b9fd836b9bd16d71beb8dbad3bb5662813b00c9504e",
+      "fixtureHash": "sha256:4586c28d5d2b443e769fba3b260fa153af12c2c9c70a31d01efc15b77fcf684b",
+      "graderVersion": 2
+    }
+  ],
+  "planned": [
+    {
+      "attemptId": "cross-repo-breaks-p1-cross-repo-endpoint-with-skill",
+      "pair": 1,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p1-cross-repo-output-with-skill",
+      "pair": 1,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p2-cross-repo-endpoint-with-skill",
+      "pair": 2,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p2-cross-repo-output-with-skill",
+      "pair": 2,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p3-cross-repo-endpoint-with-skill",
+      "pair": 3,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p3-cross-repo-output-with-skill",
+      "pair": 3,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p4-cross-repo-endpoint-with-skill",
+      "pair": 4,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p4-cross-repo-output-with-skill",
+      "pair": 4,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p5-cross-repo-endpoint-with-skill",
+      "pair": 5,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p5-cross-repo-output-with-skill",
+      "pair": 5,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p6-cross-repo-endpoint-with-skill",
+      "pair": 6,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p6-cross-repo-output-with-skill",
+      "pair": 6,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p7-cross-repo-endpoint-with-skill",
+      "pair": 7,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p7-cross-repo-output-with-skill",
+      "pair": 7,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p8-cross-repo-endpoint-with-skill",
+      "pair": 8,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p8-cross-repo-output-with-skill",
+      "pair": 8,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p9-cross-repo-endpoint-with-skill",
+      "pair": 9,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p9-cross-repo-output-with-skill",
+      "pair": 9,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p10-cross-repo-endpoint-with-skill",
+      "pair": 10,
+      "scenario": "cross-repo-endpoint",
+      "condition": "with-skill",
+      "order": 1
+    },
+    {
+      "attemptId": "cross-repo-breaks-p10-cross-repo-output-with-skill",
+      "pair": 10,
+      "scenario": "cross-repo-output",
+      "condition": "with-skill",
+      "order": 1
+    }
+  ]
+}
