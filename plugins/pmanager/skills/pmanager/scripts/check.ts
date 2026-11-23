@@ -630,7 +630,13 @@ export const breakRules: Rule = (repo, opts) => {
         );
         continue;
       }
-      if (own.has(x)) {
+      // X's deploy config in the folders that roll out its image is X's too.
+      const rolloutParts = new Set(
+        cross
+          .filter((c) => c.project === x)
+          .flatMap((c) => c.rollouts.map((r) => partId(r.project, r.folder))),
+      );
+      if (own.has(x) || getList(b.frontmatter, "parts").some((id) => rolloutParts.has(id))) {
         out.push(
           err(
             b.path,
@@ -641,12 +647,6 @@ export const breakRules: Rule = (repo, opts) => {
         );
         continue;
       }
-      // X's deploy config in the folders that roll out its image is X's too.
-      const rolloutParts = new Set(
-        cross
-          .filter((c) => c.project === x)
-          .flatMap((c) => c.rollouts.map((r) => partId(r.project, r.folder))),
-      );
       const partsIn = (t: EpicRecord["tasks"][number]) =>
         getList(t.frontmatter, "parts").filter((id) => projectOf(id) === x || rolloutParts.has(id));
       // A task that depends on the break comes after it, such as a cleanup: never required.
@@ -666,6 +666,7 @@ export const breakRules: Rule = (repo, opts) => {
       }
       const owed = new Map<string, string>();
       let unrolled = false;
+      let late: Rollout | undefined;
       for (const part of [...new Set(before.flatMap(partsIn))]) {
         const naming = before.filter((t) => partsIn(t).includes(part));
         const releases = noRelease ? [] : breakReleases(e, live, x, part, naming, profiles, cross);
@@ -673,9 +674,13 @@ export const breakRules: Rule = (repo, opts) => {
           for (const t of naming) if (!reach(b.id, t.id) && !owed.has(t.id)) owed.set(t.id, t.id);
           continue;
         }
-        for (const rollouts of releases) {
-          if (rollouts.length === 0) unrolled = true;
-          else if (!rollouts.some((r) => reach(b.id, r.id))) {
+        for (const all of releases) {
+          // A rollout that depends on the break cannot also come before it.
+          const rollouts = all.filter((r) => !reachesAny(e, r.id, new Set([b.id])));
+          if (rollouts.length === 0) {
+            if (all.length === 0) unrolled = true;
+            else late ??= [...all].sort((p, q) => byId(p.id, q.id))[0];
+          } else if (!rollouts.some((r) => reach(b.id, r.id))) {
             const first = [...rollouts].sort((p, q) => byId(p.id, q.id))[0] as Rollout;
             owed.set(first.id, first.says);
           }
@@ -688,6 +693,15 @@ export const breakRules: Rule = (repo, opts) => {
             "E-BRK-001",
             `${b.id} breaks ${x}, and ${x}'s change has no rollout task after its release yet`,
             `add the release and rollout tasks E-REL-001 and E-REL-002 name, then add the rollout task to ${b.id}'s depends-on`,
+          ),
+        );
+      } else if (late) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-001",
+            `${b.id} breaks ${x}, and ${x}'s rollout (${late.id}) comes only after ${b.id}`,
+            `remove ${late.id}'s depends-on path to ${b.id}, then add ${late.id} to ${b.id}'s depends-on`,
           ),
         );
       } else if (owed.size > 0) {
@@ -708,8 +722,9 @@ export const breakRules: Rule = (repo, opts) => {
 
 /**
  * For each release of part `part` of project `x` that rolls out somewhere, the tasks that roll it
- * out after a release of the changes made before the break (`naming`). An empty list is a release
- * with no such rollout yet; no entries means the part ships through no release.
+ * out after a release of the changes made before the break (`naming`), wherever they sit relative
+ * to the break. An empty list is a release with no such rollout yet; no entries means the part
+ * ships through no release.
  */
 function breakReleases(
   e: EpicRecord,
@@ -723,29 +738,33 @@ function breakReleases(
   const reach = (from: string, to: string) => from === to || reachesAny(e, from, new Set([to]));
   const afterChanges = (t: EpicRecord["tasks"][number]) => naming.every((n) => reach(t.id, n.id));
   const partsOf = (t: EpicRecord["tasks"][number]) => getList(t.frontmatter, "parts");
+  const afterRelease = (releasers: EpicRecord["tasks"]) => (t: EpicRecord["tasks"][number]) =>
+    releasers.some((r) => reach(t.id, r.id));
   const rolledAfter = (
-    releasers: EpicRecord["tasks"],
+    follows: (t: EpicRecord["tasks"][number]) => boolean,
     places: { id: string; key: string }[],
   ): Rollout[] =>
     live.flatMap((t) => {
       const place = places.find((p) => partsOf(t).includes(p.id) && taskText(t).includes(p.key));
-      if (!place || !releasers.some((r) => reach(t.id, r.id))) return [];
+      if (!place || !follows(t)) return [];
       return [{ id: t.id, says: `its rollout (${t.id} sets ${place.key} in ${place.id})` }];
     });
   const out: Rollout[][] = [];
   for (const c of cross) {
     if (c.project !== x || c.rollouts.length === 0 || partId(x, c.release.folder) !== part)
       continue;
-    const releasers =
-      c.release.trigger.kind === "branch"
-        ? naming
-        : live.filter((t) => {
-            const ids = partsOf(t);
-            if (ids.length > 0 && !ids.includes(part)) return false;
-            return afterChanges(t) && pushesMatchingTag(c.release, taskText(t));
-          });
     const places = c.rollouts.map((r) => ({ id: partId(r.project, r.folder), key: r.key }));
-    out.push(rolledAfter(releasers, places));
+    // A branch push is the release: the rollout follows every change, as a tag push would.
+    if (c.release.trigger.kind === "branch") {
+      out.push(rolledAfter(afterChanges, places));
+      continue;
+    }
+    const releasers = live.filter((t) => {
+      const ids = partsOf(t);
+      if (ids.length > 0 && !ids.includes(part)) return false;
+      return afterChanges(t) && pushesMatchingTag(c.release, taskText(t));
+    });
+    out.push(rolledAfter(afterRelease(releasers), places));
   }
   const p = profiles.get(x);
   for (const link of p?.links.filter((l) => l.release) ?? []) {
@@ -759,7 +778,7 @@ function breakReleases(
       (t) => afterChanges(t) && commands.some((c) => namesCommand(taskText(t), c)),
     );
     const places = [{ id: partId(x, link.consumer.folder), key: link.consumer.key }];
-    out.push(rolledAfter(releasers, places));
+    out.push(rolledAfter(afterRelease(releasers), places));
   }
   return out;
 }

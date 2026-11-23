@@ -1075,12 +1075,44 @@ describe("breaking changes wait for the consumer's rollout (E-BRK)", () => {
 
   test("a branch-triggered release: the rollout after the change counts", async () => {
     const root = await breakFixture();
-    await setLine(root, T04, "depends-on", "[T01]");
     await setLine(root, T03, "depends-on", "[T04]");
     expect(brk(await breakRules(root, {}, sfProfile("branch")))).toEqual([]);
     await setLine(root, T03, "depends-on", "[T01]");
     const f = brk(await breakRules(root, {}, sfProfile("branch")));
     expect(ids(f)).toEqual([T03_FILE]);
+  });
+
+  test("a branch-triggered rollout that follows only one change before the break does not count", async () => {
+    const root = await breakFixture();
+    await setLine(root, T04, "depends-on", "[T01]");
+    await setLine(root, T03, "depends-on", "[T04]");
+    const f = brk(await breakRules(root, {}, sfProfile("branch")));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("no rollout task after its release");
+  });
+
+  test("a rollout that comes only after the break is named, not required", async () => {
+    const root = await breakFixture();
+    await addTask(root, "T05", "[orders]", "Ship the removal; `go test ./...` passes.", "[T03]");
+    await setLine(root, T04, "depends-on", "[T02, T05]");
+    const f = brk(await breakRules(root));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront, and storefront's rollout (T04) comes only after T03",
+    );
+    expect(f[0]?.fix).toBe("remove T04's depends-on path to T03, then add T04 to T03's depends-on");
+  });
+
+  test("a breaking task in the consumer's rollout folder is the consumer's own", async () => {
+    const root = await breakFixture();
+    for (const t of [T01, T02]) await setLine(root, t, "parts", "[]");
+    await setLine(root, T03, "depends-on", "[T04]");
+    await edit(root, T04, "\nparts:", "\nbreaks: [storefront]\nparts:");
+    const f = brk(await breakRules(root)).filter((x) =>
+      x.file.endsWith("T04-restore-pagination.md"),
+    );
+    expect(f.map((x) => x.rule)).toEqual(["E-BRK-002"]);
+    expect(f[0]?.message).toContain("T04 breaks storefront, its own repo");
   });
 
   test("no-release on the epic: waiting on the change tasks is enough", async () => {
