@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { gitTimed } from "../scripts/git";
 import { runTimed } from "../scripts/proc";
 import { initGitRepo, makeTempDir } from "./helpers";
@@ -15,6 +17,18 @@ describe("runTimed", () => {
     const r = await runTimed(["sleep", "10"], await makeTempDir("proc"), 100);
     expect(r.timedOut).toBe(true);
     expect(performance.now() - started).toBeLessThan(5_000);
+  });
+  test("a budget of zero runs nothing and is timed out", async () => {
+    const dir = await makeTempDir("proc");
+    const pending = runTimed(["sh", "-c", "echo ran > ran.txt"], dir, 0);
+    // Hold the event loop so a spawned child would finish before any timer could fire, as on a
+    // loaded CI runner: the zero budget must not depend on that race.
+    const t = performance.now();
+    while (performance.now() - t < 300) {}
+    const r = await pending;
+    expect(r.timedOut).toBe(true);
+    expect(r.code).toBe(137);
+    expect(existsSync(join(dir, "ran.txt"))).toBe(false);
   });
   test("missing binary is a failure result, not a throw", async () => {
     const r = await runTimed(["/nonexistent/binary"], await makeTempDir("proc"), 1_000);
