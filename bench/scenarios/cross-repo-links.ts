@@ -62,7 +62,7 @@ const common = [
 export const crossRepoEndpoint: Scenario = {
   name: "cross-repo-endpoint",
   task: CROSS_REPO_ENDPOINT_REQUEST,
-  graderVersion: 2,
+  graderVersion: 3,
   offline: true,
   buildFixture: buildCrossRepoLinksFixture,
   prepareCondition: prepareSecurityFixCondition,
@@ -72,7 +72,7 @@ export const crossRepoEndpoint: Scenario = {
 export const crossRepoOutput: Scenario = {
   name: "cross-repo-output",
   task: CROSS_REPO_OUTPUT_REQUEST,
-  graderVersion: 2,
+  graderVersion: 3,
   offline: true,
   buildFixture: buildCrossRepoLinksFixture,
   prepareCondition: prepareSecurityFixCondition,
