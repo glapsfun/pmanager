@@ -669,6 +669,34 @@ describe("cross-repo-links-cold plans the v1 grader read wrongly", () => {
   });
 });
 
+describe("cross-repo-breaks plans the v2 grader read wrongly", () => {
+  // cross-repo-output p10: T01 creates the bucket, and a hard-wrapped bullet says another task
+  // removes the old one. The plan has a dash where this test has " - ".
+  const wrapped = [
+    "- Add an output for the new bucket name alongside the existing",
+    "  `webshop_assets_bucket` output (do not remove the old output yet - T05",
+    "  removes it once the old bucket is gone).",
+  ].join("\n");
+
+  test("a wrapped line naming another task's removal is not a delete", async () => {
+    const r = await output([{ ...O1, what: `${O1.what}\n${wrapped}` }, O2, O3, O4]);
+    expect(r.passed["switch-order"]).toBe(true);
+  });
+
+  test("a delete on the line after a task id is still a delete", async () => {
+    const r = await output([
+      {
+        ...O1,
+        what: `${O1.what}\nCoordinate with T03\nDelete \`pm-example-webshop-assets\` once copied.`,
+      },
+      O2,
+      O3,
+      O4,
+    ]);
+    expect(r.passed["switch-order"]).toBe(false);
+  });
+});
+
 describe("cross-repo-output switch task wordings", () => {
   const sw = (task: Partial<T>): T[] => [O1, O2, { ...O3, ...task }, O4];
 

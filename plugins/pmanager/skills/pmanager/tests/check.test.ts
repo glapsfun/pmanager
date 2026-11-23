@@ -914,6 +914,430 @@ describe("releases that ship through another repo (E-REL across repos)", () => {
   });
 });
 
+const ORDERS_PROFILE: Profile = {
+  ...empty,
+  revision: "r",
+  format: PROFILE_FORMAT,
+  parts: [
+    {
+      folder: "",
+      stacks: ["go"],
+      commands: [{ text: "go test ./...", role: "check", source: "Makefile:3" }],
+    },
+  ],
+};
+const PAY_URL = "https://github.com/pm-example/payments.git";
+const BREAK_CATALOG: Catalog = {
+  ...CROSS_CATALOG,
+  projects: [
+    ...CROSS_CATALOG.projects,
+    { id: "orders", name: "orders", url: ORDERS_URL, added: "2026-11-16", file: "" },
+    { id: "payments", name: "payments", url: PAY_URL, added: "2026-11-16", file: "" },
+  ],
+};
+const TASKS_DIR = "docs/pm/app-performance/tasks";
+
+async function setLine(root: string, rel: string, key: string, value: string) {
+  const p = join(root, rel);
+  const raw = await readFile(p, "utf8");
+  const re = new RegExp(`^${key}: .*$`, "m");
+  if (!re.test(raw)) throw new Error(`setLine: no ${key} in ${rel}`);
+  await Bun.write(p, raw.replace(re, `${key}: ${value}`));
+}
+
+/**
+ * Orders (T03) removes what storefront reads. Storefront changes (T01), releases on a v* tag
+ * (T02, after T01) and rolls out through argocd's newTag (T04, after T02); T03 waits on the
+ * release only, which E-BRK-001 must catch.
+ */
+async function breakFixture(): Promise<string> {
+  const root = await crossFixture();
+  await edit(root, EPIC, `  - ${ARGO_URL}`, `  - ${ARGO_URL}\n  - ${ORDERS_URL}`);
+  await setTask(root, T01, "[storefront]", "`npm test` passes");
+  await setTask(
+    root,
+    T02,
+    "[storefront]",
+    "Push a v2.3.1 tag; the release workflow pushes the image.",
+  );
+  await setTask(root, T03, "[orders]", "Remove `total_cents`; `go test ./...` passes.");
+  await edit(root, T03, "\nparts:", "\nbreaks: [storefront]\nparts:");
+  await setTask(
+    root,
+    T04,
+    "[argocd/workloads/storefront]",
+    "Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml.",
+  );
+  await setLine(root, T04, "depends-on", "[T02]");
+  return root;
+}
+
+async function breakRules(root: string, opts: Partial<CheckOptions> = {}, sf = sfProfile()) {
+  return check(await loadPmRepo(root), {
+    ...OPTS,
+    epic: "app-performance",
+    catalog: BREAK_CATALOG,
+    profiles: new Map([
+      ["storefront", sf],
+      ["argocd", argoProfile()],
+      ["orders", ORDERS_PROFILE],
+      ["payments", ORDERS_PROFILE],
+    ]),
+    ...opts,
+  }).filter((f) => /^E-(PRT|REL|BRK)-/.test(f.rule));
+}
+
+const brk = <T extends { rule: string }>(fs: T[]) => fs.filter((f) => f.rule.startsWith("E-BRK-"));
+
+/** A task copied from T04's skeleton, with its own id, parts, depends-on and notes. */
+async function addTask(root: string, id: string, parts: string, notes: string, deps: string) {
+  const raw = await readFile(join(root, T04), "utf8");
+  const skeleton = raw.slice(0, raw.indexOf("## Notes") + "## Notes".length);
+  const text = skeleton
+    .replace(/^id: T04$/m, `id: ${id}`)
+    .replace(/^title: .*$/m, `title: Extra ${id}`)
+    .replace(/^# T04\b.*$/m, `# ${id} Extra`)
+    .replace(/^parts: .*$/m, `parts: ${parts}`)
+    .replace(/^depends-on: .*$/m, `depends-on: ${deps}`);
+  await Bun.write(join(root, TASKS_DIR, `${id}-extra.md`), `${text}\n\n${notes}\n`);
+}
+
+const T03_FILE = "E-BRK-001 T03-batch-item-queries.md";
+
+describe("breaking changes wait for the consumer's rollout (E-BRK)", () => {
+  test("the base plan's only finding: T03 waits on the release, not the rollout", async () => {
+    const f = await breakRules(await breakFixture());
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront and does not wait for its rollout (T04 sets newTag in argocd/workloads/storefront)",
+    );
+    expect(f[0]?.fix).toBe("add T04 to T03's depends-on");
+  });
+
+  test("waiting on the rollout passes", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "depends-on", "[T04]");
+    expect(await breakRules(root)).toEqual([]);
+  });
+
+  test("a plan with no breaks: gets no E-BRK finding", async () => {
+    const root = await breakFixture();
+    await edit(root, T03, "breaks: [storefront]\n", "");
+    expect(await breakRules(root)).toEqual([]);
+  });
+
+  test("no task changes the consumer before the break", async () => {
+    const root = await breakFixture();
+    for (const t of [T01, T02, T04]) await setLine(root, t, "parts", "[]");
+    const f = await breakRules(root);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront, and no task changes storefront before it",
+    );
+  });
+
+  test("a storefront task after the break is a follow-up, not required", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "depends-on", "[T04]");
+    await addTask(root, "T05", "[storefront]", "Drop the fallback; `npm test` passes.", "[T03]");
+    await addTask(root, "T06", "[storefront]", "Push a v2.3.2 tag.", "[T05]");
+    await addTask(
+      root,
+      "T07",
+      "[argocd/workloads/storefront]",
+      "Set newTag to 2.3.2 in workloads/storefront/kustomization.yaml.",
+      "[T06]",
+    );
+    expect(await breakRules(root)).toEqual([]);
+  });
+
+  test("a newTag bump before the consumer's change is not its rollout", async () => {
+    const root = await breakFixture();
+    await setLine(root, T04, "depends-on", "[]");
+    await setLine(root, T03, "depends-on", "[T04]");
+    const f = brk(await breakRules(root));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("no rollout task after its release");
+  });
+
+  test("no rollout task yet points at E-REL", async () => {
+    const root = await breakFixture();
+    await setLine(root, T04, "parts", "[]");
+    const all = await breakRules(root);
+    expect(ids(all)).toContain("E-REL-002 epic.md");
+    expect(ids(all)).toContain(T03_FILE);
+    const f = all.find((x) => x.rule === "E-BRK-001");
+    expect(f?.message).toContain(
+      "T03 breaks storefront, and storefront's change has no rollout task after its release yet",
+    );
+    expect(f?.fix).toContain("E-REL-001 and E-REL-002");
+  });
+
+  test("a branch-triggered release: the rollout after the change counts", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "depends-on", "[T04]");
+    expect(brk(await breakRules(root, {}, sfProfile("branch")))).toEqual([]);
+    await setLine(root, T03, "depends-on", "[T01]");
+    const f = brk(await breakRules(root, {}, sfProfile("branch")));
+    expect(ids(f)).toEqual([T03_FILE]);
+  });
+
+  test("a branch-triggered rollout that follows only one change before the break does not count", async () => {
+    const root = await breakFixture();
+    await setLine(root, T04, "depends-on", "[T01]");
+    await setLine(root, T03, "depends-on", "[T04]");
+    const f = brk(await breakRules(root, {}, sfProfile("branch")));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("no rollout task after its release");
+  });
+
+  test("a rollout that comes only after the break is named, not required", async () => {
+    const root = await breakFixture();
+    await addTask(root, "T05", "[orders]", "Ship the removal; `go test ./...` passes.", "[T03]");
+    await setLine(root, T04, "depends-on", "[T02, T05]");
+    const f = brk(await breakRules(root));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront, and storefront's rollout (T04) comes only after T03",
+    );
+    expect(f[0]?.fix).toBe("remove T04's depends-on path to T03, then add T04 to T03's depends-on");
+  });
+
+  test("a breaking task in the consumer's rollout folder is the consumer's own", async () => {
+    const root = await breakFixture();
+    for (const t of [T01, T02]) await setLine(root, t, "parts", "[]");
+    await setLine(root, T03, "depends-on", "[T04]");
+    await edit(root, T04, "\nparts:", "\nbreaks: [storefront]\nparts:");
+    const f = brk(await breakRules(root)).filter((x) =>
+      x.file.endsWith("T04-restore-pagination.md"),
+    );
+    expect(f.map((x) => x.rule)).toEqual(["E-BRK-002"]);
+    expect(f[0]?.message).toContain("T04 breaks storefront, its own repo");
+  });
+
+  test("no-release on the epic: waiting on the change tasks is enough", async () => {
+    const root = await breakFixture();
+    await edit(root, EPIC, "\nrepos:", "\nno-release: a docs-only change\nrepos:");
+    await setLine(root, T04, "parts", "[]");
+    expect(await breakRules(root)).toEqual([]);
+    await setLine(root, T03, "depends-on", "[]");
+    const f = await breakRules(root);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("T03 breaks storefront and does not wait for T01, T02");
+    expect(f[0]?.fix).toBe("add T01, T02 to T03's depends-on");
+  });
+
+  test("config in the repo that rolls the consumer out counts as the consumer's", async () => {
+    const root = await breakFixture();
+    for (const t of [T01, T02]) await setLine(root, t, "parts", "[]");
+    await edit(
+      root,
+      T04,
+      "Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml.",
+      "Set ASSETS_BUCKET in workloads/storefront/deployment.yaml.",
+    );
+    await setLine(root, T04, "depends-on", "[]");
+    await setLine(root, T03, "depends-on", "[]");
+    const f = await breakRules(root);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("T03 breaks storefront and does not wait for T04");
+    await setLine(root, T03, "depends-on", "[T04]");
+    expect(await breakRules(root)).toEqual([]);
+  });
+
+  test("breaks: [argocd] waits on argocd's tasks", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "[argocd]");
+    await setLine(root, T03, "depends-on", "[]");
+    const f = await breakRules(root);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.fix).toBe("add T04 to T03's depends-on");
+  });
+
+  test("E-BRK-002: unknown id, a repo the epic does not list, the task's own repo", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "[nosuch]");
+    const [unknown] = await breakRules(root);
+    expect(unknown?.rule).toBe("E-BRK-002");
+    expect(unknown?.message).toContain("nosuch");
+    for (const id of ["storefront", "argocd", "orders"]) expect(unknown?.fix).toContain(id);
+    await setLine(root, T03, "breaks", "[payments]");
+    const [unlisted] = await breakRules(root);
+    expect(unlisted?.rule).toBe("E-BRK-002");
+    expect(unlisted?.fix).toBe(`add ${PAY_URL} to repos: in epic.md`);
+    await setLine(root, T03, "breaks", "[orders]");
+    const [own] = await breakRules(root);
+    expect(own?.rule).toBe("E-BRK-002");
+    expect(own?.message).toContain("its own repo");
+  });
+
+  test("a part id in breaks: gets the project ids", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "[argocd/workloads/storefront]");
+    const f = await breakRules(root);
+    expect(f.map((x) => x.rule)).toEqual(["E-BRK-002"]);
+    expect(f[0]?.fix).toContain("argocd");
+  });
+
+  test("a repeated id reports once", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "[storefront, storefront]");
+    expect(ids(await breakRules(root))).toEqual([T03_FILE]);
+  });
+
+  test("one finding per broken repo", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "[storefront, argocd]");
+    await setLine(root, T03, "depends-on", "[]");
+    expect(ids(await breakRules(root))).toEqual([T03_FILE, T03_FILE]);
+  });
+
+  test("a scalar breaks: reads as one id", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "breaks", "storefront");
+    expect(ids(await breakRules(root))).toEqual([T03_FILE]);
+  });
+
+  test("a descoped breaking task is not checked", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "status", "descoped");
+    expect(brk(await breakRules(root))).toEqual([]);
+  });
+
+  test("a descoped rollout does not count", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "depends-on", "[T04]");
+    await setLine(root, T04, "status", "descoped");
+    const f = brk(await breakRules(root));
+    expect(f).toHaveLength(1);
+    expect(f[0]?.message).toContain("no rollout task after its release");
+  });
+
+  test("a release through a same-repo link: the break waits for the task that moves its key", async () => {
+    // Storefront releases with `make release`, and its chart's image.tag follows, in one repo.
+    const sf: Profile = {
+      ...empty,
+      revision: "r",
+      format: PROFILE_FORMAT,
+      parts: [
+        {
+          folder: "",
+          stacks: ["node"],
+          commands: [
+            { text: "npm test", role: "check", source: "README.md:9" },
+            { text: "make release", role: "release", source: "Makefile:3" },
+          ],
+        },
+        { folder: "deploy/chart", stacks: ["helm"], commands: [] },
+      ],
+      links: [
+        {
+          value: "2.3.0",
+          source: { folder: "", file: "Makefile", line: 1, key: "VERSION" },
+          consumer: {
+            folder: "deploy/chart",
+            file: "deploy/chart/values.yaml",
+            line: 4,
+            key: "image.tag",
+          },
+          release: true,
+        },
+      ],
+    };
+    const root = await breakFixture();
+    await edit(
+      root,
+      T02,
+      "Push a v2.3.1 tag; the release workflow pushes the image.",
+      "Run `make release`.",
+    );
+    await setLine(root, T04, "parts", "[storefront/deploy/chart]");
+    await edit(
+      root,
+      T04,
+      "Set newTag to 2.3.1 in workloads/storefront/kustomization.yaml.",
+      "Set image.tag to 2.3.1 in deploy/chart/values.yaml.",
+    );
+    const f = await breakRules(root, {}, sf);
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "T03 breaks storefront and does not wait for its rollout (T04 sets image.tag in storefront/deploy/chart)",
+    );
+    await setLine(root, T03, "depends-on", "[T04]");
+    expect(await breakRules(root, {}, sf)).toEqual([]);
+  });
+
+  test("several rollouts: the fix names the first by id, and every rollout folder's task", async () => {
+    const root = await breakFixture();
+    await addTask(
+      root,
+      "T05",
+      "[argocd/overlays/prod]",
+      "Set newTag to 2.3.1 in overlays/prod/kustomization.yaml.",
+      "[T02]",
+    );
+    const profiles = new Map([
+      ["storefront", sfProfile()],
+      ["argocd", argoProfile(["workloads/storefront", "overlays/prod"])],
+      ["orders", ORDERS_PROFILE],
+    ]);
+    const f = brk(await breakRules(root, { profiles }));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain(
+      "does not wait for its rollout (T04 sets newTag in argocd/workloads/storefront), T05",
+    );
+    expect(f[0]?.fix).toBe("add T04, T05 to T03's depends-on");
+  });
+
+  test("several rollouts only after the break: the first by id is named", async () => {
+    const root = await breakFixture();
+    await addTask(root, "T06", "[orders]", "Ship the removal; `go test ./...` passes.", "[T03]");
+    await addTask(
+      root,
+      "T05",
+      "[argocd/overlays/prod]",
+      "Set newTag to 2.3.1 in overlays/prod/kustomization.yaml.",
+      "[T02, T06]",
+    );
+    await setLine(root, T04, "depends-on", "[T02, T06]");
+    const profiles = new Map([
+      ["storefront", sfProfile()],
+      ["argocd", argoProfile(["workloads/storefront", "overlays/prod"])],
+      ["orders", ORDERS_PROFILE],
+    ]);
+    const f = brk(await breakRules(root, { profiles }));
+    expect(ids(f)).toEqual([T03_FILE]);
+    expect(f[0]?.message).toContain("storefront's rollout (T04) comes only after T03");
+  });
+
+  test("a cycle through the break terminates", async () => {
+    const root = await breakFixture();
+    await setLine(root, T03, "depends-on", "[T04]");
+    await setLine(root, T01, "depends-on", "[T03]");
+    expect(ids(brk(await breakRules(root)))).toEqual([T03_FILE]);
+    const all = check(await loadPmRepo(root), {
+      ...OPTS,
+      epic: "app-performance",
+      catalog: BREAK_CATALOG,
+      profiles: new Map([
+        ["storefront", sfProfile()],
+        ["argocd", argoProfile()],
+        ["orders", ORDERS_PROFILE],
+      ]),
+    });
+    expect(all.map((x) => x.rule)).toContain("E-REF-004");
+  });
+
+  test("silent for a started epic, plain check, another epic, and no profiles", async () => {
+    const root = await breakFixture();
+    expect(brk(await breakRules(root, { epic: undefined }))).toEqual([]);
+    expect(brk(await breakRules(root, { epic: "other" }))).toEqual([]);
+    expect(brk(await breakRules(root, { profiles: new Map() }))).toEqual([]);
+    await setLine(root, T04, "status", "in-progress");
+    expect(brk(await breakRules(root))).toEqual([]);
+  });
+});
+
 const XNET = (project: string, version: string, line = 7) => ({
   project,
   name: "golang.org/x/net",

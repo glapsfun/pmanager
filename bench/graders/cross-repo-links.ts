@@ -80,11 +80,16 @@ const TASK_REMOVES = new RegExp(
   `\\bT\\d+\\b\\s+(?:\\w+\\s+)?${REMOVAL_VERB}\\w*\\b[^.;\\n]*`,
   "gi",
 );
+// "T05\n  removes it": a hard-wrapped line that goes on in lower case is the same sentence.
+const TASK_REMOVES_WRAPPED = new RegExp(
+  `\\bT\\d+\\b[ \\t]*\\n[ \\t]*(?=[a-z])(?:\\w+[ \\t]+)?${REMOVAL_VERB}\\w*\\b[^.;\\n]*`,
+  "g",
+);
 const SENTENCE_END = /(?<=[.;!?])\s+|\n/;
 
 /** The removals a task asks for itself: negated, forward-referenced and "task X does it" ones dropped. */
 function actions(text: string): string {
-  return asserted(text)
+  return asserted(text.replace(TASK_REMOVES_WRAPPED, ""))
     .split(SENTENCE_END)
     .filter((s) => !(PASSIVE_REMOVAL.test(s) && MARKER.test(s)))
     .map((s) => s.replace(BEFORE_GERUND, "").replace(TASK_REMOVES, ""))

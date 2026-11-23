@@ -203,3 +203,11 @@ test("commands.md documents the project commands and their rules", () => {
   expect(commands).toMatch(/^\| `project discover/m);
   expect(flat(commands)).toContain("catalog E-PRJ-001 / W-PRJ-001…002");
 });
+
+test("the docs teach breaks: and its rules", () => {
+  const template = read("references/task.template.md");
+  expect(template).toContain("breaks: []");
+  expect(flat(template)).toContain("list that repo's id in `breaks:`");
+  expect(flat(read("references/research.md"))).toContain("give that task `breaks: [<repo id>]`");
+  expect(flat(read("references/commands.md"))).toContain("breaking changes E-BRK-001…002");
+});

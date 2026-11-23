@@ -28,6 +28,7 @@ import type { Finding } from "./findings";
 import type { ImageRelease } from "./images";
 import {
   type Command,
+  type CrossLink,
   crossLinks,
   namesCommand,
   namesVerbatim,
@@ -307,14 +308,19 @@ function reachesAny(e: EpicRecord, from: string, targets: Set<string>): boolean 
   return false;
 }
 
+interface EpicProfiles {
+  profiles: Map<string, Profile>;
+  /** The epic's own repos; a rollout repo in profiles must still be listed in repos:. */
+  listed: Set<string>;
+  cross: CrossLink[];
+}
+
 /**
- * E-PRT-001..003 and E-REL-001..002: for the epic under work, while unstarted, and only when its
- * repos have stored profiles. In #16's multi-stack run planners never named the chart's CI checks
- * and 9 of 10 never moved the chart's image tag after the release.
+ * What the part, release and break rules read for the epic under work: null while they are off
+ * (another epic, a started one, or no stored profile for its repos).
  */
-export const partRules: Rule = (repo, opts) => {
-  const e = repo.epics.find((x) => x.slug === opts.epic);
-  if (!e?.epic || !opts.profiles || !opts.catalog || e.tasks.some(started)) return [];
+function epicProfiles(e: EpicRecord | undefined, opts: CheckOptions): EpicProfiles | null {
+  if (!e?.epic || !opts.profiles || !opts.catalog || e.tasks.some(started)) return null;
   const repos = getList(e.epic.frontmatter, "repos");
   const profiles = new Map<string, Profile>();
   for (const project of opts.catalog.projects) {
@@ -323,10 +329,9 @@ export const partRules: Rule = (repo, opts) => {
     const empty = !p || (p.parts.length === 0 && p.shared.length === 0);
     if (p && !empty && repos.some((u) => sameRepo(u, project.url))) profiles.set(project.id, p);
   }
-  if (profiles.size === 0) return [];
+  if (profiles.size === 0) return null;
   // A release of the epic's repos that ships through another repo makes that repo's parts usable,
   // whether or not repos: names it: the rollout task lives there.
-  // The epic's own repos; a rollout repo loaded below must still be listed in repos:.
   const listed = new Set(profiles.keys());
   const cross = crossLinks(opts.profiles).filter((c) => profiles.has(c.project));
   for (const c of cross) {
@@ -335,6 +340,19 @@ export const partRules: Rule = (repo, opts) => {
       if (q) profiles.set(r.project, q);
     }
   }
+  return { profiles, listed, cross };
+}
+
+/**
+ * E-PRT-001..003 and E-REL-001..002: for the epic under work, while unstarted, and only when its
+ * repos have stored profiles. In #16's multi-stack run planners never named the chart's CI checks
+ * and 9 of 10 never moved the chart's image tag after the release.
+ */
+export const partRules: Rule = (repo, opts) => {
+  const e = repo.epics.find((x) => x.slug === opts.epic);
+  const ctx = epicProfiles(e, opts);
+  if (!e?.epic || !opts.catalog || !ctx) return [];
+  const { profiles, listed, cross } = ctx;
   // The parts a tag-triggered release covers: a task that only pushes the tag is that release.
   const tagReleased = new Set(
     cross
@@ -558,6 +576,209 @@ function crossReleaseFindings(
         ),
       );
     }
+  }
+  return out;
+}
+
+/** A task that can stand in for a consumer's rollout, and how a finding names it. */
+interface Rollout {
+  id: string;
+  says: string;
+}
+
+/**
+ * E-BRK-001..002: a task whose breaks: names another registered repo waits, through depends-on,
+ * for that repo's change to roll out. In cross-repo-links-cold 3 of 10 plans removed a field
+ * webshop still read before webshop's rollout, and pm check passed all three.
+ */
+export const breakRules: Rule = (repo, opts) => {
+  const e = repo.epics.find((x) => x.slug === opts.epic);
+  const ctx = epicProfiles(e, opts);
+  if (!e?.epic || !opts.catalog || !opts.profiles || !ctx) return [];
+  const { profiles, listed, cross } = ctx;
+  const noRelease = Boolean(getString(e.epic.frontmatter, "no-release")?.trim());
+  const live = e.tasks.filter((t) => getString(t.frontmatter, "status") !== "descoped");
+  const known = [...listed].sort().join(", ");
+  const projectOf = (id: string) => resolvePart(id, profiles)?.project;
+  const reach = (from: string, to: string) => from === to || reachesAny(e, from, new Set([to]));
+  const byId = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  const out: Finding[] = [];
+  for (const b of live) {
+    const own = new Set(getList(b.frontmatter, "parts").flatMap((id) => projectOf(id) ?? []));
+    for (const x of new Set(getList(b.frontmatter, "breaks"))) {
+      const project = opts.catalog.projects.find((p) => p.id === x);
+      const stored = opts.profiles.get(x);
+      if (!project || !stored || (stored.parts.length === 0 && stored.shared.length === 0)) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-002",
+            `${b.id} breaks ${x}, which is not a registered project with a stored profile`,
+            `use one of ${known}`,
+          ),
+        );
+        continue;
+      }
+      if (!listed.has(x)) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-002",
+            `${b.id} breaks ${x}, which the epic's repos: does not list`,
+            `add ${project.url} to repos: in epic.md`,
+          ),
+        );
+        continue;
+      }
+      // X's deploy config in the folders that roll out its image is X's too.
+      const rolloutParts = new Set(
+        cross
+          .filter((c) => c.project === x)
+          .flatMap((c) => c.rollouts.map((r) => partId(r.project, r.folder))),
+      );
+      if (own.has(x) || getList(b.frontmatter, "parts").some((id) => rolloutParts.has(id))) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-002",
+            `${b.id} breaks ${x}, its own repo`,
+            `order work inside ${x} with depends-on; breaks: names other repos`,
+          ),
+        );
+        continue;
+      }
+      const partsIn = (t: EpicRecord["tasks"][number]) =>
+        getList(t.frontmatter, "parts").filter((id) => projectOf(id) === x || rolloutParts.has(id));
+      // A task that depends on the break comes after it, such as a cleanup: never required.
+      const before = live.filter(
+        (t) => t.id !== b.id && partsIn(t).length > 0 && !reachesAny(e, t.id, new Set([b.id])),
+      );
+      if (before.length === 0) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-001",
+            `${b.id} breaks ${x}, and no task changes ${x} before it`,
+            `add a task with parts: in ${x} that moves it off what ${b.id} changes, and add it to ${b.id}'s depends-on; if ${x} reads it through config another repo holds, name that repo in breaks: instead`,
+          ),
+        );
+        continue;
+      }
+      const owed = new Map<string, string>();
+      let unrolled = false;
+      let late: Rollout | undefined;
+      for (const part of [...new Set(before.flatMap(partsIn))]) {
+        const naming = before.filter((t) => partsIn(t).includes(part));
+        const releases = noRelease ? [] : breakReleases(e, live, x, part, naming, profiles, cross);
+        if (releases.length === 0) {
+          for (const t of naming) if (!reach(b.id, t.id) && !owed.has(t.id)) owed.set(t.id, t.id);
+          continue;
+        }
+        for (const all of releases) {
+          // A rollout that depends on the break cannot also come before it.
+          const rollouts = all.filter((r) => !reachesAny(e, r.id, new Set([b.id])));
+          if (rollouts.length === 0) {
+            if (all.length === 0) unrolled = true;
+            else late ??= [...all].sort((p, q) => byId(p.id, q.id))[0];
+          } else if (!rollouts.some((r) => reach(b.id, r.id))) {
+            const first = [...rollouts].sort((p, q) => byId(p.id, q.id))[0] as Rollout;
+            owed.set(first.id, first.says);
+          }
+        }
+      }
+      if (unrolled) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-001",
+            `${b.id} breaks ${x}, and ${x}'s change has no rollout task after its release yet`,
+            `add the release and rollout tasks E-REL-001 and E-REL-002 name, then add the rollout task to ${b.id}'s depends-on`,
+          ),
+        );
+      } else if (late) {
+        out.push(
+          err(
+            b.path,
+            "E-BRK-001",
+            `${b.id} breaks ${x}, and ${x}'s rollout (${late.id}) comes only after ${b.id}`,
+            `remove ${late.id}'s depends-on path to ${b.id}, then add ${late.id} to ${b.id}'s depends-on`,
+          ),
+        );
+      } else if (owed.size > 0) {
+        const owedIds = [...owed.keys()].sort(byId);
+        out.push(
+          err(
+            b.path,
+            "E-BRK-001",
+            `${b.id} breaks ${x} and does not wait for ${owedIds.map((id) => owed.get(id)).join(", ")}`,
+            `add ${owedIds.join(", ")} to ${b.id}'s depends-on`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+};
+
+/**
+ * For each release of part `part` of project `x` that rolls out somewhere, the tasks that roll it
+ * out after a release of the changes made before the break (`naming`), wherever they sit relative
+ * to the break. An empty list is a release with no such rollout yet; no entries means the part
+ * ships through no release.
+ */
+function breakReleases(
+  e: EpicRecord,
+  live: EpicRecord["tasks"],
+  x: string,
+  part: string,
+  naming: EpicRecord["tasks"],
+  profiles: Map<string, Profile>,
+  cross: CrossLink[],
+): Rollout[][] {
+  const reach = (from: string, to: string) => from === to || reachesAny(e, from, new Set([to]));
+  const afterChanges = (t: EpicRecord["tasks"][number]) => naming.every((n) => reach(t.id, n.id));
+  const partsOf = (t: EpicRecord["tasks"][number]) => getList(t.frontmatter, "parts");
+  const afterRelease = (releasers: EpicRecord["tasks"]) => (t: EpicRecord["tasks"][number]) =>
+    releasers.some((r) => reach(t.id, r.id));
+  const rolledAfter = (
+    follows: (t: EpicRecord["tasks"][number]) => boolean,
+    places: { id: string; key: string }[],
+  ): Rollout[] =>
+    live.flatMap((t) => {
+      const place = places.find((p) => partsOf(t).includes(p.id) && taskText(t).includes(p.key));
+      if (!place || !follows(t)) return [];
+      return [{ id: t.id, says: `its rollout (${t.id} sets ${place.key} in ${place.id})` }];
+    });
+  const out: Rollout[][] = [];
+  for (const c of cross) {
+    if (c.project !== x || c.rollouts.length === 0 || partId(x, c.release.folder) !== part)
+      continue;
+    const places = c.rollouts.map((r) => ({ id: partId(r.project, r.folder), key: r.key }));
+    // A branch push is the release: the rollout follows every change, as a tag push would.
+    if (c.release.trigger.kind === "branch") {
+      out.push(rolledAfter(afterChanges, places));
+      continue;
+    }
+    const releasers = live.filter((t) => {
+      const ids = partsOf(t);
+      if (ids.length > 0 && !ids.includes(part)) return false;
+      return afterChanges(t) && pushesMatchingTag(c.release, taskText(t));
+    });
+    out.push(rolledAfter(afterRelease(releasers), places));
+  }
+  const p = profiles.get(x);
+  for (const link of p?.links.filter((l) => l.release) ?? []) {
+    if (partId(x, link.source.folder) !== part) continue;
+    const commands =
+      p?.parts
+        .find((q) => q.folder === link.source.folder)
+        ?.commands.filter((c) => c.role === "release") ?? [];
+    if (commands.length === 0) continue;
+    const releasers = live.filter(
+      (t) => afterChanges(t) && commands.some((c) => namesCommand(taskText(t), c)),
+    );
+    const places = [{ id: partId(x, link.consumer.folder), key: link.consumer.key }];
+    out.push(rolledAfter(afterRelease(releasers), places));
   }
   return out;
 }
@@ -1060,6 +1281,8 @@ export const RULES = [
   "E-PRT-003",
   "E-REL-001",
   "E-REL-002",
+  "E-BRK-001",
+  "E-BRK-002",
   "E-DEP-001",
   "E-RND-001",
   "E-RND-002",
@@ -1087,6 +1310,7 @@ const rules: Rule[] = [
   referenceRules,
   planGraphRules,
   partRules,
+  breakRules,
   depRules,
   derivedViewRules,
   stateRules,

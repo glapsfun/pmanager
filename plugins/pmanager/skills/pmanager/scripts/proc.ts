@@ -12,6 +12,8 @@ export async function runTimed(
   timeoutMs: number,
   env: Record<string, string | undefined> = {},
 ): Promise<RunResult> {
+  // No budget leaves no time to run, and a zero-delay timer can lose the race to a fast child.
+  if (timeoutMs <= 0) return { code: 137, stdout: "", stderr: "", timedOut: true };
   try {
     const proc = Bun.spawn(cmd, {
       cwd,
