@@ -29,6 +29,7 @@ status: todo | in-progress | blocked | done | descoped
 priority: must | should | could
 depends-on: []          # task ids, e.g. [T01, T02]
 parts: []               # part ids from pm research, e.g. [orders/deploy/chart]
+breaks: []              # other repos whose running code reads what this task removes or reshapes, e.g. [webshop]
 estimate: S | M | L     # S ≤ half day, M ≤ 2 days, L ≤ 3 days (larger: split)
 owner: unassigned
 updated: YYYY-MM-DD
@@ -96,3 +97,12 @@ the task changes, by the ids `pm research` prints (`orders` for a repo's root,
 `orders/deploy/chart` for a folder), or `[]` when it changes none. Name each
 part's checks in its criteria: `pm handoff` gives the executor those parts'
 commands, and `pm record` checks them (rules E-PRT-001…003, E-REL-001…002).
+
+When a task removes, renames or reshapes something another registered repo
+reads (a response field, an endpoint, an env var, a bucket or output name),
+list that repo's id in `breaks:`. When that repo reads the value through
+config another repo holds, such as an env var set in a GitOps repo, either
+repo works. `pm record` then requires the task to wait, through `depends-on`,
+for that repo's change to roll out (rule E-BRK-001): the task that moves its
+image tag after the release, or its own change tasks when it ships no
+release. A task that only adds something leaves `breaks:` out.

@@ -97,7 +97,12 @@ repo, such as a GitOps repo's `newTag`: a task that pushes the release tag
 (none is needed when a branch push releases it, the merge being the release),
 then a task in that repo's part moving the key after it, in at least one of
 the places that set it; `no-release: <why>` on the epic turns the release rules
-off), packages E-DEP-001 (for the epic under work, while unstarted: a task
+off), breaking changes E-BRK-001…002 (same gate as the part rules: a task
+whose `breaks:` lists another registered repo must reach, through
+`depends-on`, that repo's rollout after its release, or its change tasks
+when it ships no release; tasks already after the break are never required;
+an unknown id, a repo the epic's `repos:` does not list, or the task's own
+repo is E-BRK-002), packages E-DEP-001 (for the epic under work, while unstarted: a task
 moves a package to a version, and another registered repo checked out here
 carries it below that version with no task of the epic in that repo;
 a `dep-skip:` list item `"<repo>: <why>"` on the epic skips a repo, unless the

@@ -38,7 +38,9 @@ never as regular expressions. Run once:
   same holds for a release whose rollout is in another registered repo (a
   GitOps repo's `newTag` or `image.tag`): its `plan:` line names the tag push,
   or says the merge is the release, and the task in that repo; list that repo
-  in the epic's `repos:` too.
+  in the epic's `repos:` too. When a `files` hit in another registered repo
+  reads what a task will remove or reshape (a field it decodes, an env var it
+  reads), give that task `breaks: [<repo id>]` (task.template.md).
 - When a keyword names a package or base image (`golang.org/x/net`, `x/net`,
   `path-to-regexp`, `node`), a `deps:` block comes first. It has one line per
   registered repo checked out here that carries it, whatever `--repo` names:
