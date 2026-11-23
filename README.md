@@ -297,6 +297,8 @@ and [bench/BENCH.md](bench/BENCH.md).
 | codex-2 (preliminary) | codex 0.154.0 | gpt-6-astra (high) | perf-bug-new-epic | with-skill / without-skill | 1 (1) | 0% / 0% | +0.29 | 44875 / 33725 | — / — | — / — | 541s / 327s | — |
 | component-profiles-cuts | claude-code 2.1.322 | claude-sonnet-5 | multi-stack-repo | with-skill | 10 | 80% | — | 92412 | 40789 | $1.18 | 504s | $11.84 |
 | component-profiles-paired | claude-code 2.1.321 | claude-sonnet-5 | multi-stack-repo | with-skill / baseline-skill | 10 (0) | 40% / 0% | +0.14 | 87482 / 83648 | 38848 / 40792 | $1.19 / $1.01 | 494s / 440s | $23.33 |
+| cross-repo-breaks | claude-code 2.1.330 | claude-sonnet-5 | cross-repo-endpoint | with-skill | 10 | 90% | — | 89388 | 43982 | $1.15 | 438s | $27.94 |
+| cross-repo-breaks | claude-code 2.1.330 | claude-sonnet-5 | cross-repo-output | with-skill | 10 | 90% | — | 88575 | 37978 | $1.01 | 412s | $27.94 |
 | cross-repo-links-cold | claude-code 2.1.327 | claude-sonnet-5 | cross-repo-endpoint | with-skill | 10 | 70% | — | 87187 | 44411 | $1.13 | 452s | $24.09 |
 | cross-repo-links-cold | claude-code 2.1.327 | claude-sonnet-5 | cross-repo-output | with-skill | 10 | 80% | — | 86597 | 40642 | $1.04 | 393s | $24.09 |
 | dangling-task-paired-v4 | claude-code 2.1.318 | claude-sonnet-5 | multi-repo-context | with-skill / baseline-skill | 10 (0) | 40% / 60% | +0.00 | 83921 / 81979 | 51002 / 45879 | $1.05 / $1.00 | 419s / 419s | $21.06 |
